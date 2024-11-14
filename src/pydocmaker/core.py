@@ -812,7 +812,7 @@ class DocBuilder(UserList):
         requests_kwargs = {} if not requests_kwargs else None
         r = requests.post(url, json=upload, **requests_kwargs)
         if warn_on_fail and not 200 <= r.status_code < 300:
-            warnings.warn(f'upload failed with status_code: {r.status_code}. Body\n {r.body()}')
+            warnings.warn(f'upload failed with status_code: {r.status_code}. Body\n {r.text}')
         if raise_on_fail:
             r.raise_for_status()
         return r.json()
