@@ -6,6 +6,7 @@ import re
 import tempfile
 import time
 from typing import List, BinaryIO, TextIO
+import warnings
 import zipfile
 import requests
 import base64
@@ -774,7 +775,7 @@ class DocBuilder(UserList):
         else:
             raise KeyError(f'engine must be in: {DocBuilder.export_engines=}, but was {engine=}')
         
-    def upload(self, url, doc_name='', force_overwrite=False, page_title='', requests_kwargs=None):
+    def upload(self, url, doc_name='', force_overwrite=False, page_title='', requests_kwargs=None, raise_on_fail=True, warn_on_fail=True):
         """Uploads the document data to a specified URL.
             The json body is constructed as:
             
@@ -791,6 +792,8 @@ class DocBuilder(UserList):
             force_overwrite (bool, optional): Whether to overwrite an existing document. Defaults to False.
             page_title (str, optional): The title of the uploaded document (if applicable). Defaults to ''.
             requests_kwargs: (dict, optional) with kwargs for requests.post(). Defaults to None.
+            raise_on_fail: (bool, optional): set True to raise an exception on failed upload. Defaults to True.
+            warn_on_fail: (bool, optional): set True to prompt some warning text with the feedback from server on a fail. Defaults to True.
 
         Returns:
             dict: The JSON response from the server after uploading the document.
@@ -808,7 +811,10 @@ class DocBuilder(UserList):
 
         requests_kwargs = {} if not requests_kwargs else None
         r = requests.post(url, json=upload, **requests_kwargs)
-        r.raise_for_status()
+        if warn_on_fail and not 200 <= r.status_code < 300:
+            warnings.warn(f'upload failed with status_code: {r.status_code}. Body\n {r.body()}')
+        if raise_on_fail:
+            r.raise_for_status()
         return r.json()
     
 
