@@ -307,13 +307,13 @@ class DocBuilder(UserList):
             if i_chap_name and i == 0 and i_low == 0:
                 last_chap_name = i_chap_name
 
-            if i_chap_name and i >= i_low:
+            if i_chap_name and i_chap_name != last_chap_name and i >= i_low:
                 chapters[last_chap_name] = slice(i_low, i)
                 i_low = i
                 last_chap_name = i_chap_name
 
         if last_chap_name and i >= i_low and not last_chap_name in chapters:
-            chapters[last_chap_name] = slice(i_low, i)
+            chapters[last_chap_name] = slice(i_low, i+1)
             
         if not as_ranges:
             return {k:self.data[rng] for k, rng in chapters.items()}
@@ -350,7 +350,7 @@ class DocBuilder(UserList):
                 self.add_chapter(chapter)
                 chapter = None # just append to end!
             else:
-                index = chapters[chapter].stop + 1 # set to after the last element of this chapter
+                index = chapters[chapter].stop # set to after the last element of this chapter (stop index is excluded so no need to increment here)
 
         if index is None:
             index = len(self) # append to end
@@ -540,12 +540,15 @@ class DocBuilder(UserList):
         """
         return self._ret(_to_html(self.dump()), path_or_stream)
     
-    def to_tex(self, path_or_stream=None):
+    def to_tex(self, path_or_stream=None, pre_tex='', post_tex='', additional_files=None):
         """
         Converts the current object to a TEX file (and attachments).
 
         Args:
             path_or_stream (str or io.IOBase, optional): The path to save the file to, or a file-like object to write the data to. If not provided, the data will be returned as string.
+            pre_tex (str, optional): Any string you want to add to the tex document before the actual content (such as Formatting, Table of contents etc.).
+            post_tex (str, optional): Any string you want to add to the tex document after the actual content (such as e.G an Appendix).
+            additional_files (dict[str:bytes], optional): Any additional filey you want to upload to the tex document, such as e.G. a image as logo in the header.
 
         Returns:
             case saving to file or stream:
@@ -556,6 +559,16 @@ class DocBuilder(UserList):
         """
         
         tex, files = _to_tex(self.dump(), with_attachments=True)
+        if pre_tex:
+            tex = pre_tex + tex
+        if post_tex:
+            tex = tex + post_tex
+            
+        if additional_files:
+            duplicate_files = [k for k in additional_files if k in files]
+            assert not duplicate_files, f'found duplicate file names from "additional_files" to upload: {duplicate_files=} please rename!'
+            files = {**files, **additional_files}
+
         with io.BytesIO() as in_memory_zip:
             with zipfile.ZipFile(in_memory_zip, 'w') as zipf:
                 zipf.writestr('doc.json', self.to_json())
