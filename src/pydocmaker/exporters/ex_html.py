@@ -47,21 +47,27 @@ class html_renderer:
     def vm_Text(**kwargs):
         label = kwargs.get('label', '')
         content = kwargs.get('content', kwargs.get('children'))
-    
+        color = kwargs.get('color', '')
+        if color:
+            color = f'color:{color};'
+
         if label:
-            return f'<div style="min-width:100">{label}</div><div>{content}</div>'
+            return f'<div style="min-width:100;{color}">{label}</div><div style="{color}">{content}</div>'
         else:
-            return f'<div>{content}</div>'
+            return f'<div style="{color}">{content}</div>'
             
     @staticmethod
     def vm_Markdown(**kwargs):
         label = kwargs.get('label', '')
         content = kwargs.get('content', kwargs.get('children'))
+        color = kwargs.get('color', '')
+        if color:
+            color = f'color:{color};'
 
         parts = []
         if label:
             parts += [
-                f'<div style="min-width:100;">{label}</div>',
+                f'<div style="min-width:100;{color}">{label}</div>',
                 '<hr/>'
             ]
         
@@ -69,7 +75,7 @@ class html_renderer:
         
         # s = f'<pre disabled=true style="width:90%; min-height:200px; overflow-x: scroll; overflow-y: none; margin:5px;display:block;font-family: Lucida Console, Courier New, monospace;font-size: 0.8em;">\n\n{content}\n\n</pre>'
         #s = f'<span style="display:block;" class="note">\n\n{content}\n\n</span>'
-        parts += [s]
+        parts += [f'<div style="{color}">{s}</div>']
 
         return '\n\n'.join(parts)
     
@@ -78,13 +84,16 @@ class html_renderer:
     def vm_Verbatim(**kwargs):
         label = kwargs.get('caption', kwargs.get('label', ''))
         content = kwargs.get('content', kwargs.get('children'))
+        color = kwargs.get('color', '')
+        if color:
+            color = f'color:{color};'
 
         j = content
         # nn = [len(s) for s in j.split('\n')]
         # n = len(nn)
         # w = max(nn)
         children = [
-            f'<div style="min-width:100;">{label}</div>',
+            f'<div style="min-width:100;{color}">{label}</div>',
             # f'<textarea cols="{w}" rows="{n}" disabled=True>\n\n{j}\n\n</textarea>'
             f'<pre style="margin: 15px; margin-left: 25px; padding: 10px; border: 1px solid gray; border-radius: 3px;">{j}</pre>'
         ]
