@@ -55,39 +55,49 @@ def _is_chapter(dc, pre='##'):
 
     
 
+def make_png_imageblob(im_bytes:str):
+    imageblob = 'data:image/png;base64,' + im_bytes
+    return imageblob
+    
+
+
 class constr():
     """This is the basic schema for the main building blocks for a document"""
 
     @staticmethod
-    def markdown(children=''):
+    def markdown(children='', color=''):
         return {
             'typ': 'markdown',
-            'children': children
+            'children': children,
+            'color': color
         }
     
     @staticmethod
-    def text(children=''):
+    def text(children='', color=''):
         return {
             'typ': 'text',
-            'children': children
+            'children': children,
+            'color': color
         }
     
     @staticmethod
-    def verbatim(children=''):
+    def verbatim(children='', color=''):
         return {
             'typ': 'verbatim',
-            'children': children
+            'children': children,
+            'color': color
         }
     
     @staticmethod
-    def iter(children:list=None):
+    def iter(children:list=None, color=''):
         return {
             'typ': 'iter',
             'children': [] if children is None else children,
+            'color': color
         }
     
     @staticmethod
-    def image(imageblob='', caption='', children='', width=0.8):
+    def image(imageblob='', caption='', children='', width=0.8, color=''):
 
         if not children:
             # HACK: need to get format somehow
@@ -99,11 +109,12 @@ class constr():
             'imageblob': imageblob.decode("utf-8") if isinstance(imageblob, bytes) else imageblob,
             'caption': caption,
             'width': width,
+            'color': color
         }
     
 
     @staticmethod
-    def image_from_link(url, caption='', children='', width=0.8):
+    def image_from_link(url, caption='', children='', width=0.8, color=''):
 
         assert url, 'need to give an URL!'
 
@@ -130,12 +141,12 @@ class constr():
             children += '.' + mime_type.split('/')[-1]
 
         imageblob = base64.b64encode(response.content).decode('utf-8')
-        return constr.image(imageblob=imageblob, children=children, caption=caption, width=width)
+        return constr.image(imageblob=imageblob, children=children, caption=caption, width=width, color=color)
     
 
 
     @staticmethod
-    def image_from_file(path, children='', caption='', width=0.8):
+    def image_from_file(path, children='', caption='', width=0.8, color=''):
 
         assert path, 'need to give a path!'
 
@@ -154,10 +165,10 @@ class constr():
             caption = children
 
         imageblob = base64.b64encode(bts).decode('utf-8')
-        return constr.image(imageblob=imageblob, children=children, caption=caption, width=width)
+        return constr.image(imageblob=imageblob, children=children, caption=caption, width=width, color=color)
         
 
-    def image_from_fig(caption='', width=0.8, children=None, fig=None, **kwargs):
+    def image_from_fig(caption='', width=0.8, children=None, fig=None, color='', **kwargs):
         """convert a matplotlib figure (or the current figure) to a document image dict to later add to a document
 
         Args:
@@ -172,11 +183,11 @@ class constr():
         if not 'plt' in locals():
             import matplotlib.pyplot as plt
 
-        if fig:
-            plt.figure(fig)
-
         with io.BytesIO() as buf:
-            plt.savefig(buf, format='png', **kwargs)
+            if fig:
+                fig.savefig(buf, format='png', **kwargs)
+            else:
+                plt.savefig(buf, format='png', **kwargs)
             buf.seek(0)   
 
             img = base64.b64encode(buf.read()).decode('utf-8')
@@ -185,11 +196,11 @@ class constr():
             id_ = str(id(img))[-2:]
             children = f'figure_{int(time.time())}_{id_}.png'
 
-        return constr.image(imageblob = 'data:image/png;base64,' + img, children=children, caption=caption, width=width)
+        return constr.image(imageblob = make_png_imageblob(img), children=children, caption=caption, width=width, color=color)
 
 
     @staticmethod
-    def image_from_obj(im, caption = '', width=0.8, children=None):
+    def image_from_obj(img, caption = '', width=0.8, children=None):
         """make a image type dict from given image of type matrix, filelike or PIL image
 
         Args:
@@ -207,40 +218,40 @@ class constr():
             from PIL import Image
 
         # 2D matrix as lists --> make nummpy array
-        if isinstance(im, list) and im and im[0] and isinstance(im[0], list):
-            im = np.array(im)
+        if isinstance(img, list) and img and img[0] and isinstance(img[0], list):
+            img = np.array(img)
 
         # numpy array --> make PIL image
-        if hasattr(im, 'shape') and len(im.shape) == 2:
-            im = Image.fromarray(im)
+        if hasattr(img, 'shape') and len(img.shape) == 2:
+            img = Image.fromarray(img)
         
         # PIL image --> make filelike
-        if hasattr(im, 'save'):
+        if hasattr(img, 'save'):
             buf = io.BytesIO()
-            im.save(buf, format="PNG")
+            img.save(buf, format="PNG")
             buf.seek(0)   
-            im = buf
+            img = buf
 
         # filepath --> make filelike
-        if isinstance(im, str) and os.path.exists(im):
+        if isinstance(img, str) and os.path.exists(img):
             if not children:
-                children = os.path.basename(im)            
-            im = open(im, 'rb')
+                children = os.path.basename(img)            
+            img = open(img, 'rb')
 
         # file like --> make bytes
-        if hasattr(im, 'read'):
-            im.seek(0)   
-            im = im.read()
+        if hasattr(img, 'read'):
+            img.seek(0)   
+            img = img.read()
         
         # bytes --> make b64 string
-        if isinstance(im, bytes):
-            im = base64.b64encode(im).decode('utf-8')
+        if isinstance(img, bytes):
+            img = base64.b64encode(img).decode('utf-8')
 
         if children is None:
-            id_ = str(id(im))[-2:]
+            id_ = str(id(img))[-2:]
             children = f'image_{int(time.time())}_{id_}.png'
 
-        return constr.image(imageblob = 'data:image/png;base64,' + im, children=children, caption=caption, width=width)
+        return constr.image(imageblob = make_png_imageblob(img), children=children, caption=caption, width=width, color=color)
 
 buildingblocks = 'text markdown image verbatim iter'.split()
 
@@ -258,7 +269,7 @@ class DocBuilder(UserList):
         'tex': '.tex.zip'
     }
 
-    def add_chapter(self, chapter_name:str, chapter_index=None):
+    def add_chapter(self, chapter_name:str, chapter_index=None, color=''):
         """Adds a new chapter to the document.
 
         Args:
@@ -272,7 +283,7 @@ class DocBuilder(UserList):
         assert chapter_name, 'chapter_name can not be empty'
         chapters = list(self.get_chapters().keys())
         assert chapter_name not in chapters, f'chapter with {chapter_name=} already exists in document {chapters=}!'
-        self.add_kw('markdown', '## ' + chapter_name, chapter=chapter_index)
+        self.add_kw('markdown', '## ' + chapter_name, chapter=chapter_index, color=color)
 
     def get_chapter(self, chapter) -> List[dict]:
         """Retrieves a specific chapter from the document.
@@ -321,13 +332,14 @@ class DocBuilder(UserList):
             return chapters
         
 
-    def add(self, part:dict=None, index=None, chapter=None):
+    def add(self, part:dict=None, index=None, chapter=None, color=''):
         """Appends a new document part to the given location or end of this document.
 
         Args:
             part (dict): The part to add. See the `constr` class for all possible parts.
             index (int, optional): The index where to insert the part. If None, appends to the end.
             chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
+            color (str, optional): any color which can be rendered by html or latex (ONLY VALID FOR string INPUTS!). Empty string for default.
 
         Raises:
             ValueError: If the `part` is invalid, or if both `index` and `chapter` are specified.
@@ -336,8 +348,11 @@ class DocBuilder(UserList):
         assert part, 'need to give an element_to_add!'
         
         if isinstance(part, str):
-            part = constr.text(part)
-
+            part = constr.text(part, color=color)
+            color = ''
+        
+        
+        assert not color, 'giving a color is only allowed for string inputs!'
         assert hasattr(constr, part.get('typ', None)), 'the part to add is of unknown type!'
         assert index is None or chapter is None, f'can either give index OR chapter!'
 
@@ -361,7 +376,7 @@ class DocBuilder(UserList):
 
 
 
-    def add_kw(self, typ, children=None, index=None, chapter=None, **kwargs):
+    def add_kw(self, typ, children=None, index=None, chapter=None, color='', **kwargs):
         """add a document part to this document with a given typ
 
         Args:
@@ -369,40 +384,43 @@ class DocBuilder(UserList):
             children (str or list): the "children" for this element. Either text directly (as string) or a list of other parts
             index (int, optional): The index where to insert the part. If None, appends to the end.
             chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
+            color (str, optional): any color which can be rendered by html or latex. Empty string for default.
 
             kwargs: the kwargs for such a document part
         """
         assert typ, 'need to give a content type!'
-        self.add(construct(typ, children=children, **kwargs), index=index, chapter=chapter)
+        self.add(construct(typ, children=children, color=color, **kwargs), index=index, chapter=chapter)
     
     
-    def add_md(self, children=None, index=None, chapter=None, **kwargs):
+    def add_md(self, children=None, index=None, chapter=None, color='', **kwargs):
         """add a markdown document part to this document
 
         Args:
             children (str or list): the "children" for this element. Either text directly (as string) or a list of other parts
             index (int, optional): The index where to insert the part. If None, appends to the end.
             chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
+            color (str, optional): any color which can be rendered by html or latex. Empty string for default.
 
             kwargs: the kwargs for such a document part
         """
-        self.add(construct('markdown', children=children, **kwargs), index=index, chapter=chapter)
+        self.add(construct('markdown', children=children, color=color, **kwargs), index=index, chapter=chapter)
     
 
-    def add_pre(self, children=None, index=None, chapter=None, **kwargs):
+    def add_pre(self, children=None, index=None, chapter=None, color='', **kwargs):
         """add a verbaim (pre formatted) document part to this document
 
         Args:
             children (str or list): the "children" for this element. Either text directly (as string) or a list of other parts
             index (int, optional): The index where to insert the part. If None, appends to the end.
             chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
+            color (str, optional): any color which can be rendered by html or latex. Empty string for default.
 
             kwargs: the kwargs for such a document part
         """
-        self.add(construct('verbatim', children=children, **kwargs), index=index, chapter=chapter)
+        self.add(construct('verbatim', children=children, color=color, **kwargs), index=index, chapter=chapter)
 
 
-    def add_fig(self, fig=None, caption = '', width=0.8, children=None, index=None, chapter=None, **kwargs):
+    def add_fig(self, fig=None, caption = '', width=0.8, children=None, index=None, chapter=None, color='', **kwargs):
         """add a pyplot figure type dict from given image input.
         
         Args:
@@ -412,12 +430,14 @@ class DocBuilder(UserList):
             children (str, optional): A specific name/id to give to the image (will be auto generated if None). Defaults to None.
             index (int, optional): The index where to insert the part. If None, appends to the end.
             chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
+            color (str, optional): any color which can be rendered by html or latex. Empty string for default.
+
 
         """
-        self.add(constr.image_from_fig(caption=caption, width=width, children=children, fig=fig, **kwargs), index=index, chapter=chapter)
+        self.add(constr.image_from_fig(caption=caption, width=width, children=children, fig=fig, color=color **kwargs), index=index, chapter=chapter)
                  
 
-    def add_image(self, image, caption = '', width=0.8, children=None, index=None, chapter=None, **kwargs):
+    def add_image(self, image, caption = '', width=0.8, children=None, index=None, chapter=None, color='', **kwargs):
         """add a image type dict from given image input.
         image can be of type:
             - pyplot figure
@@ -433,19 +453,20 @@ class DocBuilder(UserList):
             children (str, optional): A specific name/id to give to the image (will be auto generated if None). Defaults to None.
             index (int, optional): The index where to insert the part. If None, appends to the end.
             chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
-
+            color (str, optional): any color which can be rendered by html or latex. Empty string for default.
+            
         """
 
         if isinstance(image, str) and image.startswith('http'):
-            docpart = constr.image_from_link(url=image, caption=caption, children=children, width=width)
+            docpart = constr.image_from_link(url=image, caption=caption, children=children, width=width, color=color)
         elif isinstance(image, str) and len(image) < 5_000 and os.path.exists(image):
-            docpart = constr.image_from_file(path=image, caption=caption, children=children, width=width)
+            docpart = constr.image_from_file(path=image, caption=caption, children=children, width=width, color=color)
         elif isinstance(image, str):
-            docpart = constr.image(imageblob=image, caption=caption, children=children, width=width)
+            docpart = constr.image(imageblob=image, caption=caption, children=children, width=width, color=color)
         elif 'Figure' in str(type(image)):
-            docpart = constr.image_from_fig(fig=image, caption=caption, children=children, width=width)
+            docpart = constr.image_from_fig(fig=image, caption=caption, children=children, width=width, color=color)
         else:
-            docpart = constr.image_from_obj(image, caption=caption, children=children, width=width)
+            docpart = constr.image_from_obj(image, caption=caption, children=children, width=width, color=color)
 
         self.add(docpart, index=index, chapter=chapter)
 
