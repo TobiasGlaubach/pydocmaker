@@ -93,8 +93,10 @@ class docx_renderer():
 
         assert image_blob, 'no image data given!'
 
+        btsb64 = image_blob.split(',')[-1]
+
         # Decode the base64 image
-        img_bytes = base64.b64decode(image_blob)
+        img_bytes = base64.b64decode(btsb64)
 
         # Create an image stream from the bytes
         image_stream = io.BytesIO(img_bytes)
