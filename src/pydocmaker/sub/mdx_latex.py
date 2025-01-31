@@ -16,6 +16,12 @@ import urllib.request, urllib.parse, urllib.error
 start_single_quote_re = re.compile("(^|\s|\")'")
 start_double_quote_re = re.compile("(^|\s|'|`)\"")
 end_double_quote_re = re.compile("\"(,|\.|\s|$)")
+import re
+
+def replace_underscores(s):
+    # Replace all underscores that don't have a backslash before them
+    s = re.sub(r'(?<!\\)_', r'\\_', s)
+    return s
 
 def inline_html_latex(text):
     out = text
@@ -134,18 +140,18 @@ class LaTeXTreeProcessor(markdown.treeprocessors.Treeprocessor):
                 subcontent += self.tolatex(child)
 
         if ournode.tag == 'h1':
-            buffer += '\n\\title{%s}\n' % subcontent
+            buffer += '\n\\title{%s}\n' % replace_underscores(subcontent)
             buffer += """
 % ----------------------------------------------------------------
 \maketitle
 % ----------------------------------------------------------------
 """
         elif ournode.tag == 'h2':
-            buffer += '\n\n\\section{%s}\n' % subcontent
+            buffer += '\n\n\\section{%s}\n' % replace_underscores(subcontent)
         elif ournode.tag == 'h3':
-            buffer += '\n\n\\subsection{%s}\n' % subcontent
+            buffer += '\n\n\\subsection{%s}\n' % replace_underscores(subcontent)
         elif ournode.tag == 'h4':
-            buffer += '\n\\subsubsection{%s}\n' % subcontent
+            buffer += '\n\\subsubsection{%s}\n' % replace_underscores(subcontent)
         elif ournode.tag == 'hr':
             buffer += '\\noindent\makebox[\linewidth]{\\rule{\linewidth}{0.4pt}}'
         elif ournode.tag == 'ul':
@@ -176,6 +182,8 @@ class LaTeXTreeProcessor(markdown.treeprocessors.Treeprocessor):
 %s
 \\end{quotation}
 """ % subcontent.strip()
+        elif (ournode.tag == 'code'):
+            buffer += '\\texttt{%s}' % replace_underscores(subcontent)
         # ignore 'code' when inside pre tags
         # (mkdn produces <pre><code></code></pre>)
         elif (ournode.tag == 'pre' or
