@@ -121,7 +121,7 @@ class ElementFormatter:
 
     def digest_verbatim(self, children='', **kwargs) -> str:
         txt = self.digest(children)
-        template = r"""\begin{tabular}{|p{16cm}|}
+        template = r"""\begin{tabular}{|p{.95\textwidth}|}
 \hline
 \begin{tiny}\begin{verbatim}
 <REPLACEME:VERBTEXT>
@@ -159,28 +159,36 @@ class ElementFormatter:
     
     def digest(self, el, make_blue=False):
         blue = lambda s: f'{{\\color{{blue}}{s}}}'
+        
+        if isinstance(el, dict) and isinstance(el.get('color'), str):
+            color = el.get('color')
+        else:
+            color = None
+
+        set_color = lambda s: f'{{\\color{color}{s}}}'
+
         try:
             
             if not el:
                 return ''
             elif isinstance(el, str):
                 ret = self.digest_str(el)
-            elif isinstance(el, dict) and 'typ' in el and el['typ'] == 'iter':
+            elif isinstance(el, dict) and el.get('typ') == 'iter':
                 ret = self.digest_iterator(el)
             elif isinstance(el, list) and el:
                 ret = self.digest_iterator(el)
-            elif isinstance(el, dict) and 'typ' in el and el['typ'] == 'image':
+            elif isinstance(el, dict) and el.get('typ', None) == 'image':
                 ret = self.digest_image(**el)
-            elif isinstance(el, dict) and 'typ' in el and el['typ'] == 'text':
+            elif isinstance(el, dict) and el.get('typ', None) == 'text':
                 ret = self.digest_text(**el)
-            elif isinstance(el, dict) and 'typ' in el and el['typ'] == 'verbatim':
+            elif isinstance(el, dict) and el.get('typ', None) == 'verbatim':
                 ret = self.digest_verbatim(**el)
-            elif isinstance(el, dict) and 'typ' in el and el['typ'] == 'markdown':
+            elif isinstance(el, dict) and el.get('typ', None) == 'markdown':
                 ret = self.digest_markdown(**el)
             else:
                 return self.handle_error(f'the element of typ {type(el)}, could not be parsed.', el)
             
-            return blue(ret) if make_blue else ret
+            return blue(ret) if make_blue else (set_color(ret) if color else ret)
         
         except Exception as err:
             return self.handle_error(err, el)
