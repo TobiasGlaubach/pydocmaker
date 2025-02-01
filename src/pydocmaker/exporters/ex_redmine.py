@@ -76,8 +76,9 @@ class DocumentRedmineFormatter:
     def digest_markdown(self, children='', **kwargs) -> list:
         color = kwargs.get('color', '')
         if color:
-            color = f'color:{color};'
-        return [f'<span style="{color}">{children}</span>']
+            children = '%{color:' +  str(color) + '}' + str(children) + '%'
+
+        return [children]
 
     
     def digest_image(self, **kwargs) -> list:
@@ -97,8 +98,9 @@ class DocumentRedmineFormatter:
     def digest_text(self, children='', **kwargs) -> list:
         color = kwargs.get('color', '')
         if color:
-            color = f'color:{color};'
-        return [f'<span style="{color}">{children}</span>']
+            children = '%{color:' +  str(color) + '}' + str(children) + '%'
+        
+        return [children]
 
 
     def digest_verbatim(self, children='', **kwargs) -> list:

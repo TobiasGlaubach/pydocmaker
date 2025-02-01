@@ -434,7 +434,7 @@ class DocBuilder(UserList):
 
 
         """
-        self.add(constr.image_from_fig(caption=caption, width=width, children=children, fig=fig, color=color **kwargs), index=index, chapter=chapter)
+        self.add(constr.image_from_fig(caption=caption, width=width, children=children, fig=fig, color=color, **kwargs), index=index, chapter=chapter)
                  
 
     def add_image(self, image, caption = '', width=0.8, children=None, index=None, chapter=None, color='', **kwargs):
