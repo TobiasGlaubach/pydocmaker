@@ -284,7 +284,8 @@ class DocBuilder(UserList):
         chapters = list(self.get_chapters().keys())
         assert chapter_name not in chapters, f'chapter with {chapter_name=} already exists in document {chapters=}!'
         self.add_kw('markdown', '## ' + chapter_name, chapter=chapter_index, color=color)
-
+        return self
+    
     def get_chapter(self, chapter) -> List[dict]:
         """Retrieves a specific chapter from the document.
 
@@ -373,7 +374,7 @@ class DocBuilder(UserList):
         assert isinstance(index, int), f'index must be None or int but was {type(index)=} {index=}'
         assert 0 <= index <= len(self), f'index must be 0 <= index <= len(self) but was {index=}, {len(self)=}'    
         self.insert(index, part)
-
+        return self
 
 
     def add_kw(self, typ, children=None, index=None, chapter=None, color='', **kwargs):
@@ -390,8 +391,24 @@ class DocBuilder(UserList):
         """
         assert typ, 'need to give a content type!'
         self.add(construct(typ, children=children, color=color, **kwargs), index=index, chapter=chapter)
+        return self
     
-    
+
+    def add_text(self, children=None, index=None, chapter=None, color='', **kwargs):
+        """add a raw text part to this document
+
+        Args:
+            children (str or list): the "children" for this element. Either text directly (as string) or a list of other parts
+            index (int, optional): The index where to insert the part. If None, appends to the end.
+            chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
+            color (str, optional): any color which can be rendered by html or latex. Empty string for default.
+
+            kwargs: the kwargs for such a document part
+        """
+        self.add(construct('text', children=children, color=color, **kwargs), index=index, chapter=chapter)
+        return self
+
+
     def add_md(self, children=None, index=None, chapter=None, color='', **kwargs):
         """add a markdown document part to this document
 
@@ -404,6 +421,7 @@ class DocBuilder(UserList):
             kwargs: the kwargs for such a document part
         """
         self.add(construct('markdown', children=children, color=color, **kwargs), index=index, chapter=chapter)
+        return self
     
 
     def add_pre(self, children=None, index=None, chapter=None, color='', **kwargs):
@@ -418,7 +436,8 @@ class DocBuilder(UserList):
             kwargs: the kwargs for such a document part
         """
         self.add(construct('verbatim', children=children, color=color, **kwargs), index=index, chapter=chapter)
-
+        return self
+    
 
     def add_fig(self, fig=None, caption = '', width=0.8, children=None, index=None, chapter=None, color='', **kwargs):
         """add a pyplot figure type dict from given image input.
@@ -435,7 +454,8 @@ class DocBuilder(UserList):
 
         """
         self.add(constr.image_from_fig(caption=caption, width=width, children=children, fig=fig, color=color, **kwargs), index=index, chapter=chapter)
-                 
+        return self
+    
 
     def add_image(self, image, caption = '', width=0.8, children=None, index=None, chapter=None, color='', **kwargs):
         """add a image type dict from given image input.
@@ -469,6 +489,8 @@ class DocBuilder(UserList):
             docpart = constr.image_from_obj(image, caption=caption, children=children, width=width, color=color)
 
         self.add(docpart, index=index, chapter=chapter)
+        return self
+    
 
     def dump(self):
         """dump this document to a basic list of dicts for document parts
