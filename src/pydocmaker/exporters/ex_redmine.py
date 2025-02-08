@@ -40,8 +40,9 @@ def im2file(dc_img):
 
         #filename = f'img_{time.time_ns()}_{str(id(dc))[-4:]}.{ext}'
         filename = f"img_{hashlib.md5(imageblob.encode('utf-8')).hexdigest()}.{ext}"
-
-    content = io.BytesIO(base64.b64decode(imageblob))
+        
+    data = imageblob.split('base64,')[-1]
+    content = io.BytesIO(base64.b64decode(data))
     return filename, content
 
 def im2attachment(dc_img, filename, content):
