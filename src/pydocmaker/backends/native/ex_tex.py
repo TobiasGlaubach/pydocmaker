@@ -19,9 +19,9 @@ import zipfile
 from typing import List
 import markdown
 try:
-    import pydocmaker.sub.mdx_latex as mdx_latex
+    import pydocmaker.backends.native.mdx_latex as mdx_latex
 except Exception as err:
-    from ..sub import mdx_latex
+    import mdx_latex
 
 md = markdown.Markdown()
 latex_mdx = mdx_latex.LaTeXExtension()
