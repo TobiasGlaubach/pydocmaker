@@ -1,6 +1,10 @@
 import base64, time, io, copy, json, traceback, hashlib, markdown, re
 from typing import List
 
+try:
+    from pydocmaker.backend.baseformatter import BaseFormatter
+except Exception as err:
+    from .baseformatter import BaseFormatter
 
 
 def convert(doc:List[dict], with_attachments=True, aformat_redmine=False):
@@ -56,7 +60,7 @@ def im2attachment(dc_img, filename, content):
     return {"path" : content, "filename" : filename, "content_type" : "application/octet-stream", "description": description}
 
 
-class DocumentRedmineFormatter:
+class DocumentRedmineFormatter(BaseFormatter):
 
     def __init__(self, aformat_redmine=True, out_format='textile') -> None:
         self.attachments = []
@@ -66,7 +70,8 @@ class DocumentRedmineFormatter:
     def handle_error(self, err, el) -> list:
         txt = 'ERROR WHILE HANDLING ELEMENT:\n{}\n\n'.format(el)
         if not isinstance(err, str):
-            txt += '\n'.join(traceback.format_exception(err, limit=5)) + '\n'
+            tb_str = '\n'.join(traceback.format_exception(type(err), value=err, tb=err.__traceback__, limit=5))
+            txt += tb_str + '\n'
         else:
             txt += err + '\n'
         txt = f"""<pre style="margin: 15px; margin-left: 25px; padding: 10px; border: 1px solid gray; border-radius: 3px; color: red;">\n{txt}\n</pre>"""
@@ -102,8 +107,13 @@ class DocumentRedmineFormatter:
             children = '%{color:' +  str(color) + '}' + str(children) + '%'
         
         return [children]
+    
+    def digest_latex(self, children='', **kwargs) -> list:
+        return self.digest_verbatim(children=children, **kwargs)
 
-
+    def digest_line(self, **kwargs):
+        return self.digest_text(**kwargs)
+    
     def digest_verbatim(self, children='', **kwargs) -> list:
         if isinstance(children, str):
             txt = children.strip('\n')
@@ -117,7 +127,7 @@ class DocumentRedmineFormatter:
         return [s]
 
 
-    def digest_iter(self, el) -> list:
+    def digest_iterator(self, el) -> list:
         parts = []
         if isinstance(el, dict) and el.get('typ', '') == 'iter' and isinstance(el.get('children', None), list):
             el = el['children']
@@ -162,35 +172,3 @@ class DocumentRedmineFormatter:
     def digest_str(self, el) -> list:
         return [el]
         
-    def digest(self, el) -> list:
-        try:
-            
-            if not el:
-                return ''
-            elif isinstance(el, str):
-                ret = self.digest_str(el)
-            elif isinstance(el, dict) and 'typ' in el and el['typ'] == 'iter':
-                ret = self.digest_iter(el)
-            elif isinstance(el, list) and el:
-                ret = self.digest_iter(el)
-            elif isinstance(el, dict) and 'typ' in el and el['typ'] == 'image':
-                ret = self.digest_image(**el)
-            elif isinstance(el, dict) and 'typ' in el and el['typ'] == 'text':
-                ret = self.digest_text(**el)
-            elif isinstance(el, dict) and 'typ' in el and el['typ'] == 'verbatim':
-                ret = self.digest_verbatim(**el)
-            elif isinstance(el, dict) and 'typ' in el and el['typ'] == 'markdown':
-                ret = self.digest_markdown(**el)
-            else:
-                return self.handle_error(f'the element of type {type(el)} {el=}, could not be parsed.')
-            
-            if self.out_format == 'html':
-                ret = [self.parse_md2html(s) for s in ret]
-            elif self.out_format == 'textile':
-                ret = [self.parse_md2textile(s) for s in ret]
-
-            return ret
-        
-        except Exception as err:
-            return self.handle_error(err, el)
-

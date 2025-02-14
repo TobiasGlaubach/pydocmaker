@@ -10,7 +10,12 @@ from docx.shared import Inches, Pt
 
 import markdown
 
-        
+try:
+    from pydocmaker.backend.baseformatter import BaseFormatter
+except Exception as err:
+    from .baseformatter import BaseFormatter
+    
+
 def blue(run):
     run.font.color.rgb = docx.shared.RGBColor(0, 0, 255)
 
@@ -22,7 +27,7 @@ def convert(doc:List[dict]) -> bytes:
     renderer.digest(doc)
     return renderer.doc_to_bytes()
 
-class docx_renderer():
+class docx_renderer(BaseFormatter):
     def __init__(self, template_path:str=None, make_blue=False) -> None:
         self.d = docx.Document(template_path)
         self.make_blue = make_blue
@@ -57,6 +62,9 @@ class docx_renderer():
     def digest_str(self, children, *args, **kwargs):
         return self.add_run(children)
 
+    def digest_line(self, children, *args, **kwargs):
+        return self.add_run(children + '\n')
+    
     def digest_markdown(self, children, *args, **kwargs):
         return self.add_paragraph(children, style='Normal')
         
@@ -66,11 +74,18 @@ class docx_renderer():
         new_run.font.size = docx.shared.Pt(8)  # Adjust font size as needed
         return new_run
 
+    def digest_latex(self, children, *args, **kwargs):
+        new_run = self.add_run(children)
+        new_run.font.name = 'Courier New'  # Or any other monospace font
+        new_run.font.size = docx.shared.Pt(8)  # Adjust font size as needed
+        return new_run
 
-    def digest_error(self, children, *args, **kwargs):
+
+
+    def handle_error(self, children, *args, **kwargs):
         if isinstance(children, BaseException):
             traceback.print_exc(limit=5)
-            children = traceback.format_exc(limit=5)
+            children = '\n'.join(traceback.format_exception(type(err), value=err, tb=err.__traceback__, limit=5))
 
         new_run = self.add_run(children)
         new_run.font.name = 'Courier New'  # Or any other monospace font
@@ -111,32 +126,9 @@ class docx_renderer():
 
         return run
 
-    def digest(self, children, *args, **kwargs):
-        try:
-            # print(f'{type(children)=}, {args=} {kwargs=}')
-            if not children:
-                return ''
-            elif isinstance(children, str):
-                ret = self.digest_str(children, *args, **kwargs)
-            elif isinstance(children, dict) and 'typ' in children and children['typ'] == 'iter':
-                ret = self.digest_iterator(children, *args, **kwargs)
-            elif isinstance(children, list) and children:
-                ret = self.digest_iterator(children, *args, **kwargs)
-            elif isinstance(children, dict) and 'typ' in children and children['typ'] == 'image':
-                ret = self.digest_image(*args, **kwargs, **children)
-            elif isinstance(children, dict) and 'typ' in children and children['typ'] == 'text':
-                ret = self.digest_text(*args, **kwargs, **children)
-            elif isinstance(children, dict) and 'typ' in children and children['typ'] == 'verbatim':
-                ret = self.digest_verbatim(*args, **kwargs, **children)
-            elif isinstance(children, dict) and 'typ' in children and children['typ'] == 'markdown':
-                ret = self.digest_markdown(*args, **kwargs, **children)
-            else:
-                val = f'the element of type {type(children)}, could not be parsed.'
-                ret = self.digest_error(val, *args, **kwargs)
-        except Exception as err:
-            ret = self.digest_error(err, *args, **kwargs)
-
-        return ret
+    def format(self, *args, **kwargs):
+        raise NotImplementedError('Can not format a docx document directly')
+    
 
     def doc_to_bytes(self):
         with io.BytesIO() as fp:

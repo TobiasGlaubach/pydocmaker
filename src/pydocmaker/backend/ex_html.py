@@ -4,13 +4,27 @@ import json
 import random
 import textwrap
 import time
+import traceback
 import urllib
 import re
 import uuid
 import os
 import base64
+import warnings
 import markdown
 from typing import List
+
+try:
+    from pydocmaker.backend.baseformatter import BaseFormatter
+except Exception as err:
+    from .baseformatter import BaseFormatter
+    
+try:
+    from pydocmaker.backend.pandoc_api import can_run_pandoc, pandoc_convert
+except Exception as err:
+    from .pandoc_api import can_run_pandoc, pandoc_convert
+    
+
 
 
 """
@@ -36,15 +50,15 @@ def mk_tpl(id_, label=None, pth='show', p0='uib', v='v1', **kwargs):
     return f"/{p0}/{v}/{pth}/{urllib.parse.quote_plus(id_)}", label if label else id_
 
 
-def convert(doc:List[dict]):
+def convert(doc:List[dict], **kwargs):
     tmp = doc.values() if isinstance(doc, dict) else doc
-    return '\n\n'.join([html_docdc2html(dc) for dc in tmp])
+    return html_renderer().format(tmp)
 
 
-class html_renderer:
+class html_renderer(BaseFormatter):
 
-    @staticmethod
-    def vm_Text(**kwargs):
+
+    def digest_text(self, **kwargs):
         label = kwargs.get('label', '')
         content = kwargs.get('content', kwargs.get('children'))
         color = kwargs.get('color', '')
@@ -54,10 +68,25 @@ class html_renderer:
         if label:
             return f'<div style="min-width:100;{color}">{label}</div><div style="{color}">{content}</div>'
         else:
-            return f'<div style="{color}">{content}</div>'
-            
-    @staticmethod
-    def vm_Markdown(**kwargs):
+            if color:
+                return f'<div style="{color}">{content}</div>'
+            else:
+                return f'<div>{content}</div>'
+
+    def digest_line(self, **kwargs):
+        return self.digest_text(**kwargs)
+    
+    
+    def digest_latex(self, **kwargs):
+        if can_run_pandoc():
+            return pandoc_convert(kwargs.get('children', ''), 'latex', 'html')
+        else:
+            s = 'native backend can not convert latex to html and no pandoc is available. Falling back to show as verbatim'
+            warnings.warn(s)
+            return '<br>' + self.digest_text(children='Warning! ' + s, color='purple') + html_renderer.digest_verbatim(**kwargs)    
+
+    
+    def digest_markdown(self, **kwargs):
         label = kwargs.get('label', '')
         content = kwargs.get('content', kwargs.get('children'))
         color = kwargs.get('color', '')
@@ -72,16 +101,16 @@ class html_renderer:
             ]
         
         s = markdown.markdown(content)
-        
+        fun = lambda x:  f'<div style="{color}">{x}</div>' if color else f'<div>{x}</div>'
+            
         # s = f'<pre disabled=true style="width:90%; min-height:200px; overflow-x: scroll; overflow-y: none; margin:5px;display:block;font-family: Lucida Console, Courier New, monospace;font-size: 0.8em;">\n\n{content}\n\n</pre>'
         #s = f'<span style="display:block;" class="note">\n\n{content}\n\n</span>'
-        parts += [f'<div style="{color}">{s}</div>']
+        parts += [fun(s)]
 
         return '\n\n'.join(parts)
     
 
-    @staticmethod
-    def vm_Verbatim(**kwargs):
+    def digest_verbatim(self, **kwargs):
         label = kwargs.get('caption', kwargs.get('label', ''))
         content = kwargs.get('content', kwargs.get('children'))
         color = kwargs.get('color', '')
@@ -89,68 +118,60 @@ class html_renderer:
             color = f'color:{color};'
 
         j = content
-        # nn = [len(s) for s in j.split('\n')]
-        # n = len(nn)
-        # w = max(nn)
         children = [
             f'<div style="min-width:100;{color}">{label}</div>',
-            # f'<textarea cols="{w}" rows="{n}" disabled=True>\n\n{j}\n\n</textarea>'
-            f'<pre style="margin: 15px; margin-left: 25px; padding: 10px; border: 1px solid gray; border-radius: 3px;">{j}</pre>'
+            f'<pre style="white-space: pre-wrap; margin: 15px; margin-left: 25px; padding: 10px; border: 1px solid gray; border-radius: 3px;">{j}</pre>'
         ]
         return '\n\n'.join(children)
 
-    @staticmethod
-    def vm_Image(imageblob=None, children='', width=0.8, caption="", **kwargs):       
+    
+    def digest_image(self, imageblob=None, children='', width=0.8, caption="", **kwargs):       
         
         if imageblob is None:
             imageblob = ''
 
-        uid = (id(imageblob) + int(time.time()) + random.randint(1, 100))
-
 
         if not children:
+            uid = (id(imageblob) + int(time.time()) + random.randint(1, 100))
             children = f'image_{uid}.png'
 
         s = imageblob.decode("utf-8") if isinstance(imageblob, bytes) else imageblob
         if not s.startswith('data:image'):
             s = 'data:image/png;base64,' + s
         
-
-        children = [
-            f'<div style="margin-top: 1.5em; width: 100%; text-align: center;"><span style="min-width:100;display: inline-block;"><b>image-name: </b>{children}</span></div>',
-            f"<div style=\"width: 100%; text-align: center;\"><image src=\"{s}\", style=\"max-width:{int(width*100)}%;display: inline-block;\"></image></div>",
-            f'<div style="width: 100%; text-align: center;"><span style="min-width:100;display: inline-block;"><b>caption: </b>{caption}</span></div>',
+        if children:
+            children = [
+                # f'<div style="margin-top: 1.5em; width: 100%; text-align: center;"><span style="min-width:100;display: inline-block;"><b>image-name: </b>{children}</span></div>',
+            ]
+        else:
+            children = []
+        
+        children += [    
+            f"<div style=\"width: 100%; text-align: center;\"><img src=\"{s}\" style=\"max-width:{int(width*100)}%;display: inline-block;\"></img></div>",
         ]
+
+        if caption:
+            children.append(f'<div style="width: 100%; text-align: center;"><span style="min-width:100;display: inline-block;"><b>caption: </b>{caption}</span></div>')
         
         # children = dcc.Upload(id=self.mkid('helper_uploadfile'), children=children, multiple=False, disable_click=True)
 
         return '\n\n'.join(children)
 
-    @staticmethod
-    def vm_Iterator( **kwargs):
+    def digest_iterator(self, **kwargs):
         content = kwargs.get('content', kwargs.get('children'))
         return f'\n\n'.join([f'<div>{c}</div>' for c in content])
 
-
-def html_docdc2html(content):
-
-    if isinstance(content, str):
-        return html_renderer.vm_Text(content=content)
-    elif isinstance(content, dict) and content.get('typ', None) == 'iter' and isinstance(content.get('children', None), list):
-        return html_renderer.vm_Iterator(content=[html_docdc2html(c) for c in content.get('children')])
-    elif isinstance(content, list):
-        return html_renderer.vm_Iterator(content=[html_docdc2html(c) for c in content])
-    elif isinstance(content, dict) and content.get('typ', None) == 'image':
-        return html_renderer.vm_Image(**content)
-    elif isinstance(content, dict) and content.get('typ', None) == 'text':
-        return html_renderer.vm_Text(**content) 
-    elif isinstance(content, dict) and content.get('typ', None) == 'verbatim':
-        return html_renderer.vm_Verbatim(**content) 
-    elif isinstance(content, dict) and content.get('typ', None) == 'markdown':
-        return html_renderer.vm_Markdown(**content) 
-    else:
-        raise TypeError(f'the element of type {type(content)}, could not be parsed.', content)
     
+    def format(self, doc:list):
+        return '\n\n'.join([self.digest(dc) for dc in doc])
+    
+    def handle_error(self, err, el) -> list:
+        txt = 'ERROR WHILE HANDLING ELEMENT:\n{}\n\n'.format(el)
+        if not isinstance(err, str):
+            tb_str = '\n'.join(traceback.format_exception(type(err), value=err, tb=err.__traceback__, limit=5))
+            txt += tb_str + '\n'
+        else:
+            txt += err + '\n'
+        txt = f'\n<pre style="margin: 15px; margin-left: 25px; padding: 10px; border: 1px solid gray; border-radius: 3px; color: red;">\n{txt}\n</pre>\n'
 
-
-
+        return txt

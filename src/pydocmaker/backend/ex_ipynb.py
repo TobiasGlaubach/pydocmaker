@@ -15,6 +15,17 @@ import markdown
 from typing import List
 
 
+try:
+    from pydocmaker.backend.baseformatter import BaseFormatter
+except Exception as err:
+    from .baseformatter import BaseFormatter
+    
+try:
+    from pydocmaker.backend.pandoc_api import can_run_pandoc, pandoc_convert
+except Exception as err:
+    from .pandoc_api import can_run_pandoc, pandoc_convert
+    
+
 def txt2lines(txt):
     if isinstance(txt, str):
         txt = txt.split('\n')
@@ -36,20 +47,30 @@ def make_markdown(text):
 }
 
 def squash_md(cells):
-    return cells
-
-    lines = []
+    cin = [c for c in cells]
     new_cells = []
-    for cell in cells:
-        if cell['cell_type'] == 'markdown':
-            lines += ['\n', '\n'] + cell['source']
-        elif lines: # case end of consecutive markdown
-            new_cells.append(make_markdown(lines))
-            new_cells.append(cell)
-        else: # case no markdown
+
+    while cin:
+        cell = cin.pop(0)
+        if cell['cell_type'] == 'markdown' and new_cells and new_cells[-1]['cell_type'] == 'markdown':
+            new_cells[-1]['source'] += cell['source']
+        else:
             new_cells.append(cell)
 
     return new_cells
+
+    # lines = []
+    # new_cells = []
+    # for cell in cells:
+    #     if cell['cell_type'] == 'markdown':
+    #         lines += ['\n', '\n'] + cell['source']
+    #     elif lines: # case end of consecutive markdown
+    #         new_cells.append(make_markdown(lines))
+    #         new_cells.append(cell)
+    #     else: # case no markdown
+    #         new_cells.append(cell)
+
+    # return new_cells
 
 def make_html(html_text):
     return {
@@ -128,26 +149,49 @@ def convert(doc:List[dict], as_dict=False):
     return ipynb_renderer().render(tmp, as_dict)
     
 
+    
 
-class ipynb_renderer:
+class ipynb_renderer(BaseFormatter):
 
     def __init__(self) -> None:
         self.cells = []
 
-    def digest_Text(self,**kwargs):
-        content = kwargs.get('content', kwargs.get('children'))
-        self.cells += [make_raw(content)]
-    
-    def digest_Markdown(self,**kwargs):
+    def digest_text(self,**kwargs):
         content = kwargs.get('content', kwargs.get('children'))
         self.cells += [make_markdown(content)]
-        
-
-    def digest_Verbatim(self,**kwargs):
+        return ''
+    
+    def digest_str(self,**kwargs):
         content = kwargs.get('content', kwargs.get('children'))
-        self.cells += [make_raw(content)]
+        self.cells += [make_markdown(content)]
+        return ''
+    
+    def digest_line(self,**kwargs):
+        content = kwargs.get('content', kwargs.get('children'))
+        self.cells += [make_markdown(content)]
+        return ''
 
-    def digest_Image(self,imageblob=None, children='', width=0.8, caption="", **kwargs):       
+    def digest_latex(self, children: str, **kwargs):
+        if can_run_pandoc():
+            content = pandoc_convert(children, 'latex', 'markdown')
+            self.cells += [make_markdown(content)]
+        else:
+            content = f'```\n{children}\n```'
+            self.cells += [make_markdown(content)]
+        return ''
+    
+    def digest_markdown(self,**kwargs):
+        content = kwargs.get('content', kwargs.get('children'))
+        self.cells += [make_markdown(content)]
+        return ''
+    
+    def digest_verbatim(self,**kwargs):
+        content = kwargs.get('content', kwargs.get('children'))
+        content = f'```\n{content}\n```'
+        self.cells += [make_markdown(content)]
+        return ''
+    
+    def digest_image(self,imageblob=None, children='', width=0.8, caption="", **kwargs):       
         
         if imageblob is None:
             imageblob = ''
@@ -162,56 +206,35 @@ class ipynb_renderer:
 
         children = [
             f'<div style="margin-top: 1.5em; width: 100%; text-align: center;"><span style="min-width:100;display: inline-block;"><b>image-name: </b>{children}</span></div>',
-            f"<div style=\"width: 100%; text-align: center;\"><image src=\"{s}\", style=\"max-width:{int(width*100)}%;display: inline-block;\"></image></div>",
+            f"<div style=\"width: 100%; text-align: center;\"><image src=\"{s}\" style=\"max-width:{int(width*100)}%;display: inline-block;\"></image></div>",
             f'<div style="width: 100%; text-align: center;"><span style="min-width:100;display: inline-block;"><b>caption: </b>{caption}</span></div>',
         ]
         
         html_text = '\n\n'.join(children)
         self.cells += [make_html(html_text)]
-
+        return ''
     
-    def digest_Iterator(self, **kwargs):
+    def digest_iterator(self, **kwargs):
         content = kwargs.get('content', kwargs.get('children'))
         for el in content:
             if el:
                 self.digest(el)
-        
+        return ''
     
     def handle_error(self, err, el) -> list:
         txt = 'ERROR WHILE HANDLING ELEMENT:\n{}\n\n'.format(el)
         if not isinstance(err, str):
-            txt += '\n'.join(traceback.format_exception(err, limit=5)) + '\n'
+            tb_str = '\n'.join(traceback.format_exception(type(err), value=err, tb=err.__traceback__, limit=5))
+            txt += tb_str + '\n'
         else:
             txt += err + '\n'
         txt = f'''<pre style="color:red;">\n{txt}\n</pre>'''
 
         self.cells += [make_html(txt)]
-
-    def digest(self, content):
-        try:
-            if isinstance(content, str):
-                self.digest_Text(content=content)
-            elif isinstance(content, dict) and content.get('typ', None) == 'iter' and isinstance(content.get('children', None), list):
-                self.digest_Iterator(content=[self.digest(c) for c in content.get('children')])
-            elif isinstance(content, list):
-                self.digest_Iterator(content=[self.digest(c) for c in content])
-            elif isinstance(content, dict) and content.get('typ', None) == 'image':
-                self.digest_Image(**content)
-            elif isinstance(content, dict) and content.get('typ', None) == 'text':
-                self.digest_Text(**content) 
-            elif isinstance(content, dict) and content.get('typ', None) == 'verbatim':
-                self.digest_Verbatim(**content) 
-            elif isinstance(content, dict) and content.get('typ', None) == 'markdown':
-                self.digest_Markdown(**content) 
-            else:
-                raise TypeError(f'the element of type {type(content)}, could not be parsed.', content)
-
-        except Exception as err:
-            return self.handle_error(err, content)
+        return ''
         
     def render(self, obj, as_dict=False):
         self.cells.clear()
         self.digest(obj)
         dc = make_doc(squash_md(self.cells))
         return dc if as_dict else json.dumps(dc, indent=2)
-    

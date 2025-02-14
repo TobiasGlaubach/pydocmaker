@@ -1,6 +1,10 @@
 import base64, time, io, copy, json, traceback, hashlib, markdown, re
 from typing import List
 
+try:
+    from pydocmaker.backend.baseformatter import BaseFormatter
+except Exception as err:
+    from .baseformatter import BaseFormatter
 
 def convert(doc:List[dict], embed_images=True):
 
@@ -8,7 +12,7 @@ def convert(doc:List[dict], embed_images=True):
     s = formatter.digest(doc)
     return '\n'.join(s)
 
-class DocumentMarkdownFormatter:
+class DocumentMarkdownFormatter(BaseFormatter):
 
     def __init__(self, embed_images=True) -> None:
         self.embed_images = embed_images
@@ -29,6 +33,12 @@ class DocumentMarkdownFormatter:
     def digest_text(self, children='', **kwargs) -> list:
         return [children]
 
+    def digest_latex(self, children='', **kwargs) -> list:
+        return [children]
+    
+    def digest_line(self, children='', **kwargs) -> list:
+        return [children]
+    
     def digest_markdown(self, children='', **kwargs) -> list:
         return [children]
     
@@ -85,7 +95,7 @@ class DocumentMarkdownFormatter:
         return [s]
 
 
-    def digest_iter(self, el) -> list:
+    def digest_iterator(self, el) -> list:
         parts = []
         if isinstance(el, dict) and el.get('typ', '') == 'iter' and isinstance(el.get('children', None), list):
             el = el['children']
@@ -101,30 +111,3 @@ class DocumentMarkdownFormatter:
     def digest_str(self, el) -> list:
         return [el]
         
-    def digest(self, el) -> list:
-        try:
-            
-            if not el:
-                return ''
-            elif isinstance(el, str):
-                ret = self.digest_str(el)
-            elif isinstance(el, dict) and 'typ' in el and el['typ'] == 'iter':
-                ret = self.digest_iter(el)
-            elif isinstance(el, list) and el:
-                ret = self.digest_iter(el)
-            elif isinstance(el, dict) and 'typ' in el and el['typ'] == 'image':
-                ret = self.digest_image(**el)
-            elif isinstance(el, dict) and 'typ' in el and el['typ'] == 'text':
-                ret = self.digest_text(**el)
-            elif isinstance(el, dict) and 'typ' in el and el['typ'] == 'verbatim':
-                ret = self.digest_verbatim(**el)
-            elif isinstance(el, dict) and 'typ' in el and el['typ'] == 'markdown':
-                ret = self.digest_markdown(**el)
-            else:
-                return self.handle_error(f'the element of type {type(el)} {el=}, could not be parsed.')
-            
-            return ret
-        
-        except Exception as err:
-            return self.handle_error(err, el)
-
