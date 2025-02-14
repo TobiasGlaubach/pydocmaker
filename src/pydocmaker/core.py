@@ -622,7 +622,7 @@ class DocBuilder(UserList):
 
         
 
-    def to_pdf(self, path_or_stream=None, docname='', base_dir=None, latex_compiler=None, n_times_make=None, verb=0, ignore_error=False):
+    def to_pdf(self, path_or_stream=None, docname='', files_to_upload=None, template_header=None, template_footer=None, base_dir=None, latex_compiler=None, n_times_make=None, verb=0, ignore_error=False):
         """
         Converts the current object to a PDF file or zipped latex project folder using any installed latex engine.
 
@@ -635,10 +635,15 @@ class DocBuilder(UserList):
                 A string with either 'zip' or 'pdf' which will result in bytes being returned in the given format.
                 If None, the PDF data will be returned as a bytes object.
             docname (str, optional): The name of the output document. Defaults to a unix timestamp followed by _mydocument.
+            files_to_upload (optional): A list of files to be uploaded with the document.
+            template_header (str, optional): A string containing the LaTeX code for the document header.
+                If not provided, a default header will be used.
+            template_footer (str, optional): A string containing the LaTeX code for the document footer.
+                If not provided, a default footer will be used.
             base_dir (str, optional): The directory to use as the base directory for the temporary directory.
                 Defaults to the system's default temporary directory.
             latex_compiler (str, optional): The LaTeX compiler to use. Either 'pdflatex', 'lualatex', 'xelatex', or 'pandoc'.
-                If not specified, the function will try to use 'pdflatex', 'lualatex', 'xelatex', or 'pandoc' in that order.
+                If not specified, the function will try to use 'pandoc', 'pdflatex', 'lualatex', or 'xelatex' in that order.
             n_times_make (int, optional): The number of times to run the LaTeX compiler. Defaults to 1 for pandoc and 3 for al others.
             verb (int, optional): The verbosity level (0, 1, 2). If greater than 0, the function will print more and more debug information. Defaults to 0.
             ignore_error (bool, optional): Whether to ignore errors during the LaTeX compilation. Defaults to False.
@@ -650,6 +655,9 @@ class DocBuilder(UserList):
         """
         
         kwargs = {
+            "files_to_upload": files_to_upload,
+            "template_header": template_header,
+            "template_footer": template_footer,
             "docname": docname,
             "base_dir": base_dir,
             "latex_compiler": latex_compiler,

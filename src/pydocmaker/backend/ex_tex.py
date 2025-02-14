@@ -128,7 +128,22 @@ def convert(doc:List[dict], with_attachments=True, files_to_upload=None, templat
     
 
 def make_pdf(doc:List[dict], files_to_upload=None, template_header=None, template_footer=None, docname=None, **kwargs):
-    
+    """
+    Generate a PDF document from a list of dictionaries.
+
+    Args:
+        doc (List[dict]): A list of dictionaries containing the data for the document.
+        files_to_upload (optional): A list of files to be uploaded with the document.
+        template_header (str, optional): A string containing the LaTeX code for the document header.
+            If not provided, a default header will be used.
+        template_footer (str, optional): A string containing the LaTeX code for the document footer.
+            If not provided, a default footer will be used.
+        docname (str, optional): The name of the document.
+        **kwargs: Additional keyword arguments to be passed to the PDF maker.
+
+    Returns:
+        bytes: A bytes object containing the PDF data.
+    """
     if template_header is None:
         template_header = __template_header_default
     if template_footer is None:
@@ -141,6 +156,20 @@ def make_pdf(doc:List[dict], files_to_upload=None, template_header=None, templat
 
     
 def make_pdf_zip(doc:List[dict], files_to_upload=None, template_header=None, template_footer=None, docname=None, **kwargs):
+    """
+    Generates a PDF zip file from a list of dictionaries.
+
+    Args:
+        doc (List[dict]): A list of dictionaries containing the data to be converted into a PDF.
+        files_to_upload (dict, optional): A dictionary of files to be uploaded. Defaults to None.
+        template_header (str, optional): The header template for the LaTeX document. Defaults to a default header.
+        template_footer (str, optional): The footer template for the LaTeX document. Defaults to a default footer.
+        docname (str, optional): The name of the document. Defaults to None.
+        **kwargs: Additional keyword arguments to be passed to the PDF maker.
+
+    Returns:
+        bytes: A zip file containing the generated PDF and any attachments.
+    """
     if hasattr(doc, 'dump'):
         doc = doc.dump()
 

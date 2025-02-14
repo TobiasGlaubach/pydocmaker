@@ -2,6 +2,7 @@
 
 a minimal python document maker to create reports in the following formats:
 
+- `pdf`: PDF
 - `md`: Markdown
 - `html`: HTML
 - `json`: JSON
@@ -12,7 +13,9 @@ a minimal python document maker to create reports in the following formats:
 - `redmine`: Textile Markup language ready for uplaod to Redmine 
 
 
-Written in pure python. 
+Written in pure python 
+**NOTE:** some functions will try to call pandoc and fall back if not found.
+**NOTE:** exporting PDFs need a latex compiler such as pdflatex, lualatex, xelatex
 
 
 ## Installation
@@ -26,6 +29,16 @@ pip install pydocmaker
 
 ## TL;DR;
 
+Minimal Mini Example:
+
+```python
+
+import pydocmaker as pyd
+
+doc = pyd.Doc.get_example()
+doc.show()
+
+```
 
 Minimal Usage Example:
 
@@ -33,7 +46,7 @@ Minimal Usage Example:
 
 import pydocmaker as pyd
 
-doc = pyd.DocBuilder() # basic doc where we always append to the end
+doc = pyd.Doc() # basic doc where we always append to the end
 doc.add('dummy text') # adds raw text
 
 # this is how to add parts to the document
@@ -72,6 +85,8 @@ export via:
 
 ```python
 doc.to_html('path/to/my_file.html') # will write a HTML file
+doc.to_pdf('path/to/my_file.pdf') # will write a PDF file
+doc.to_pdf('path/to/my_file.zip') # will write the whole latex project dir as a pdf file
 doc.to_markdown('path/to/my_file.md') # will write a Markdown file
 doc.to_docx('path/to/my_file.docx') # will write a docx file
 doc.to_textile('path/to/my_file.textile.zip') # will pack all textile files and write them to a zip archive
@@ -89,7 +104,7 @@ redmine = redminelib.Redmine('https://your-redmine-instance.com', key='your_redm
 page = doc.to_redmine_upload(redmine, 'your-test-project')
 ```
 
-
+___
 
 ## Detailed Usage Instructions
 

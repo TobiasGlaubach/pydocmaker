@@ -29,7 +29,9 @@ _latex_compiler = None
 # Define a function to test which latex compiler is installed
 def test_latex_compilers():
     global _latex_compiler
-    if test_latex_compiler('pdflatex'):
+    if test_latex_compiler('pandoc'):
+        _latex_compiler = 'pandoc'
+    elif test_latex_compiler('pdflatex'):
         _latex_compiler = 'pdflatex'
     elif test_latex_compiler('lualatex'):
         _latex_compiler = 'lualatex'
@@ -113,7 +115,7 @@ def make_pdf_from_tex(input_latex_text, attachments_dc=None, docname='', out_for
         base_dir (str, optional): The directory to use as the base directory for the temporary directory.
             Defaults to the system's default temporary directory.
         latex_compiler (str, optional): The LaTeX compiler to use. Either 'pdflatex', 'lualatex', 'xelatex', or 'pandoc'.
-            If not specified, the function will try to use 'pdflatex', 'lualatex', 'xelatex', or 'pandoc' in that order.
+            If not specified, the function will try to use 'pandoc', 'pdflatex', 'lualatex', or 'xelatex' in that order.
         n_times_make (int, optional): The number of times to run the LaTeX compiler. Defaults to 1 for pandoc and 3 for al others.
         verb (int, optional): The verbosity level. If greater than 0, the function will print debug information. Defaults to 0.
         ignore_error (bool, optional): Whether to ignore errors during the LaTeX compilation. Defaults to False.
