@@ -19,13 +19,17 @@ import os
 
 from .util import upload_report_to_redmine
 
-from .exporters.ex_docx import convert as _to_docx
-from .exporters.ex_html import convert as _to_html
-from .exporters.ex_ipynb import convert as _to_ipynb
-from .exporters.ex_redmine import convert as _to_textile
-from .exporters.ex_markdown import convert as _to_markdown
-from .exporters.ex_tex import convert as _to_tex
 
+from .backend.ex_html import convert as to_html
+from .backend.ex_docx import convert as to_docx
+from .backend.ex_ipynb import convert as to_ipynb
+from .backend.ex_tex import convert as to_tex
+from .backend.ex_markdown import convert as to_markdown
+from .backend.ex_redmine import convert as to_textile
+from .backend.ex_tex import make_pdf as to_pdf
+from .backend.ex_tex import make_pdf_zip as to_pdf_zip
+
+from .backend.pdf_maker import make_pdf_from_tex, get_latex_compiler, set_latex_compiler
 
 def is_notebook() -> bool:
     try:
@@ -80,6 +84,15 @@ class constr():
             'color': color
         }
     
+    @staticmethod
+    def latex(children='', color=''):
+        return {
+            'typ': 'latex',
+            'children': children,
+            'color': color
+        }
+    
+
     @staticmethod
     def verbatim(children='', color=''):
         return {
@@ -200,7 +213,7 @@ class constr():
 
 
     @staticmethod
-    def image_from_obj(img, caption = '', width=0.8, children=None):
+    def image_from_obj(img, caption = '', width=0.8, children=None, color=''):
         """make a image type dict from given image of type matrix, filelike or PIL image
 
         Args:
@@ -255,7 +268,10 @@ class constr():
 
 buildingblocks = 'text markdown image verbatim iter'.split()
 
+
+
 class DocBuilder(UserList):
+            
     """a collection of document parts to make a document (can be used like a list)"""
 
     export_engines = ['md', 'html', 'json', 'docx', 'textile', 'ipynb', 'tex', 'redmine']
@@ -269,6 +285,13 @@ class DocBuilder(UserList):
         'tex': '.tex.zip'
     }
 
+    def __init__(self, initial_data=None, backend=None):
+        if initial_data is None:
+            initial_data = []
+
+        super().__init__(initial_data)
+
+    
     def add_chapter(self, chapter_name:str, chapter_index=None, color=''):
         """Adds a new chapter to the document.
 
@@ -409,6 +432,20 @@ class DocBuilder(UserList):
         return self
 
 
+    def add_tex(self, children=None, index=None, chapter=None, color='', **kwargs):
+        """add a latex part to this document
+
+        Args:
+            children (str or list): the "children" for this element. Either text directly (as string) or a list of other parts
+            index (int, optional): The index where to insert the part. If None, appends to the end.
+            chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
+            color (str, optional): any color which can be rendered by html or latex. Empty string for default.
+
+            kwargs: the kwargs for such a document part
+        """
+        self.add(construct('latex', children=children, color=color, **kwargs), index=index, chapter=chapter)
+        return self
+
     def add_md(self, children=None, index=None, chapter=None, color='', **kwargs):
         """add a markdown document part to this document
 
@@ -532,7 +569,7 @@ class DocBuilder(UserList):
         Returns:
             str: The JSON data as string, or True if the data was saved successfully to a file or stream.
         """
-        return self._ret(json.dumps(self.dump(), indent=4), path_or_stream)
+        return self._ret(json.dumps(self.dump(), indent=2), path_or_stream)
 
     def to_markdown(self, path_or_stream=None, embed_images=True) -> str:
         """
@@ -545,7 +582,7 @@ class DocBuilder(UserList):
         Returns:
             str or bool: The Markdown string if `path_or_stream` is not provided, or True if the Markdown was successfully written to the file or stream.
         """
-        return self._ret(_to_markdown(self.dump(), embed_images=embed_images), path_or_stream)
+        return self._ret(to_markdown(self.dump(), embed_images=embed_images), path_or_stream)
 
     def to_docx(self, path_or_stream=None) -> bytes:
         """
@@ -555,9 +592,9 @@ class DocBuilder(UserList):
             path_or_stream (str or io.IOBase, optional): The path to save the file to, or a file-like object to write the data to. If not provided, the data will be returned as string.
 
         Returns:
-            str: The data as bytes, or True if the data was saved successfully to a file or stream.
+            bytes: The data as bytes, or True if the data was saved successfully to a file or stream.
         """
-        return self._ret(_to_docx(self.dump()), path_or_stream)        
+        return self._ret(to_docx(self.dump()), path_or_stream)        
     
     def to_ipynb(self, path_or_stream=None) -> str:
         """
@@ -569,7 +606,7 @@ class DocBuilder(UserList):
         Returns:
             str: The data as string, or True if the data was saved successfully to a file or stream.
         """
-        return self._ret(_to_ipynb(self.dump()), path_or_stream)
+        return self._ret(to_ipynb(self.dump()), path_or_stream)
     
     def to_html(self, path_or_stream=None) -> str:
         """
@@ -581,7 +618,65 @@ class DocBuilder(UserList):
         Returns:
             str: The data as string, or True if the data was saved successfully to a file or stream.
         """
-        return self._ret(_to_html(self.dump()), path_or_stream)
+        return self._ret(to_html(self.dump()), path_or_stream)
+
+        
+
+    def to_pdf(self, path_or_stream=None, docname='', base_dir=None, latex_compiler=None, n_times_make=None, verb=0, ignore_error=False):
+        """
+        Converts the current object to a PDF file or zipped latex project folder using any installed latex engine.
+
+        Args:
+            path_or_stream (str or file-like object, optional): Either: 
+                A file-like object to write the PDF file data to.
+                The path as string to the output file or a file-like object to write the PDF data to.
+                    If it ends with '.pdf' it will be written in pdf format to the given path
+                    If it ends with '.zip' the whole project folder used for making the pdf file will be zipped and saved under the given path
+                A string with either 'zip' or 'pdf' which will result in bytes being returned in the given format.
+                If None, the PDF data will be returned as a bytes object.
+            docname (str, optional): The name of the output document. Defaults to a unix timestamp followed by _mydocument.
+            base_dir (str, optional): The directory to use as the base directory for the temporary directory.
+                Defaults to the system's default temporary directory.
+            latex_compiler (str, optional): The LaTeX compiler to use. Either 'pdflatex', 'lualatex', 'xelatex', or 'pandoc'.
+                If not specified, the function will try to use 'pdflatex', 'lualatex', 'xelatex', or 'pandoc' in that order.
+            n_times_make (int, optional): The number of times to run the LaTeX compiler. Defaults to 1 for pandoc and 3 for al others.
+            verb (int, optional): The verbosity level (0, 1, 2). If greater than 0, the function will print more and more debug information. Defaults to 0.
+            ignore_error (bool, optional): Whether to ignore errors during the LaTeX compilation. Defaults to False.
+        Returns:
+            bytes or None: If path_or_stream is None, returns the PDF data as a bytes object. Otherwise, returns None.
+
+        Raises:
+            Warning: If the provided file path does not end with '.zip' or '.pdf', a warning is issued and the file is assumed to be in PDF format.
+        """
+        
+        kwargs = {
+            "docname": docname,
+            "base_dir": base_dir,
+            "latex_compiler": latex_compiler,
+            "n_times_make": n_times_make,
+            "verb": verb,
+            "ignore_error": ignore_error
+        }
+
+        fun = to_pdf
+
+        if isinstance(path_or_stream, str) and path_or_stream:
+            if path_or_stream == 'zip':
+                fun = to_pdf_zip
+                path_or_stream = None
+            elif path_or_stream.endswith('.zip'):
+                fun = to_pdf_zip
+            elif path_or_stream == 'pdf':
+                fun = to_pdf
+                path_or_stream = None
+            elif path_or_stream.endswith('.pdf'):
+                fun = to_pdf
+            else:
+                warnings.warn(f'the given filename is neither "zip" nor "pdf" this is unusual. I will assume it`s "pdf" format and write to the given path: "{path_or_stream}"')
+            
+        return self._ret(fun(self.dump(), **kwargs), path_or_stream)
+    
+
     
     def to_tex(self, path_or_stream=None, pre_tex='', post_tex='', additional_files=None):
         """
@@ -601,7 +696,7 @@ class DocBuilder(UserList):
                 dict: The additional input files needed for LateX (bytes) as values and their relative pathes (str) as keys
         """
         
-        tex, files = _to_tex(self.dump(), with_attachments=True)
+        tex, files = to_tex(self.dump(), with_attachments=True)
         if pre_tex:
             tex = pre_tex + tex
         if post_tex:
@@ -641,7 +736,7 @@ class DocBuilder(UserList):
             path_or_stream (str or io.IOBase, optional): The path to save the file to, or a file-like object to write the data to. If not provided, the data will be returned as string.
         """
         
-        textile, files = _to_textile(self.dump(), with_attachments=True, aformat_redmine=False)
+        textile, files = to_textile(self.dump(), with_attachments=True, aformat_redmine=False)
         with io.BytesIO() as in_memory_zip:
             with zipfile.ZipFile(in_memory_zip, 'w') as zipf:
                 # zipf.writestr('doc.json', self.to_json())
@@ -666,7 +761,7 @@ class DocBuilder(UserList):
         Converts the current object to a Redmine Textile like text (and attachments) and returns them as tuple
         """
 
-        return _to_textile(self.dump(), with_attachments=True, aformat_redmine=True)
+        return to_textile(self.dump(), with_attachments=True, aformat_redmine=True)
     
     def to_redmine_upload(self, redmine, project_id:str, report_name=None, page_title=None, force_overwrite=False, verb=True):
         """Converts the current object to a Redmine Textile like text (and attachments) and Uploads it to a Redmine wiki page.
@@ -689,8 +784,8 @@ class DocBuilder(UserList):
             
         return upload_report_to_redmine(self, redmine=redmine, project_id=project_id, report_name=report_name, page_title=page_title, force_overwrite=force_overwrite, verb=verb)
     
-    def to_pdf(self, path_or_stream=None):
-        """Exports the document to a PDF file.
+    def to_pdf_print(self, path_or_stream=None):
+        """Exports the document to a PDF file by printing the html export to a pdf.
 
         Args:
             output_pdf_path (str, optional): The path to save the PDF file to. If not provided, a temporary file will be used.
@@ -900,6 +995,55 @@ class DocBuilder(UserList):
         else:
             print(self.to_markdown(embed_images=False))
 
+    def __repr__(self, *args, **kwargs):
+        chaps = self.get_chapters()
+        return f'pydocmaker.Doc with N={len(chaps)} chapters, K={len(self)} elements.'
+
+    def __str__(self, *args, **kwargs): 
+        return self.__repr__()
+    
+
+    @classmethod
+    def get_example(cls):
+                
+        doc = cls()
+
+        content = """## Some Example Text
+
+One morning, when Gregor Samsa woke from troubled dreams, he found himself *transformed* in his bed into a horrible  [vermin](http://en.wikipedia.org/wiki/Vermin "Wikipedia Vermin"). He lay on his armour-like back, and if he lifted his head a little he could see his brown belly, slightly domed and divided by arches into stiff sections. The bedding was hardly able to cover **strong** it and seemed ready to slide off any moment. His many legs, pitifully thin compared with the size of the rest of him, link waved abouthelplessly as he looked. <cite>“What's happened to me?”</cite> he thought. It wasn't a dream. His room, a proper human room although a little too small, lay peacefully between its four familiar walls.</p>
+
+### The bedding was hardly able to cover it.
+
+It showed a lady fitted out with a fur hat and fur boa who sat upright, raising a heavy fur muff that covered the whole of her lower arm towards the viewer a solid fur muff into which her entire forearm disappeared..
+
+#### Things we know about Gregor's sleeping habits.
+
+- He always slept on his right side.
+- He has to get up early (to start another dreadful day).
+- He has a drawer and a alarm clock next to his bed.
+- His mother calls him when he gets up to late.
+
+        """
+
+        doc.add_md(content)
+        doc.add_md("First he wanted to stand up quietly and undisturbed, get dressed, above all have breakfast, and only then consider further action, for (he noticed this clearly) by thinking things over in bed he would not reach a reasonable conclusion. He remembered that he had already often felt a light pain or other in bed, perhaps the result of an awkward lying position, which later turned out to be purely imaginary when he stood up, and he was eager to see how his present fantasies would gradually dissipate. That the change in his voice was nothing other than the onset of a real chill, an occupational illness of commercial travelers, of that he had not the slightest doubt.")
+        doc.add_md("## Formatting and Images")
+        doc.add("this is how to embed preformatted text via a verbatim part")
+        doc.add_pre("""
+function metamorphose(protagonist,author){
+    if( protagonist.name.first === 'Gregor' && author.name.last === 'Kafka' ){
+        protagonist.species = 'insect';
+    }
+}
+        """)
+        doc.add_tex("\\textit{This is some dummy LaTeX text.}")
+        doc.add('And this is how to embed an Image:')
+        doc.add_image(image="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEYAAAAUCAAAAAAVAxSkAAABrUlEQVQ4y+3TPUvDQBgH8OdDOGa+oUMgk2MpdHIIgpSUiqC0OKirgxYX8QVFRQRpBRF8KShqLbgIYkUEteCgFVuqUEVxEIkvJFhae3m8S2KbSkcFBw9yHP88+eXucgH8kQZ/jSm4VDaIy9RKCpKac9NKgU4uEJNwhHhK3qvPBVO8rxRWmFXPF+NSM1KVMbwriAMwhDgVcrxeMZm85GR0PhvGJAAmyozJsbsxgNEir4iEjIK0SYqGd8sOR3rJAGN2BCEkOxhxMhpd8Mk0CXtZacxi1hr20mI/rzgnxayoidevcGuHXTC/q6QuYSMt1jC+gBIiMg12v2vb5NlklChiWnhmFZpwvxDGzuUzV8kOg+N8UUvNBp64vy9q3UN7gDXhwWLY2nMC3zRDibfsY7wjEkY79CdMZhrxSqqzxf4ZRPXwzWJirMicDa5KwiPeARygHXKNMQHEy3rMopDR20XNZGbJzUtrwDC/KshlLDWyqdmhxZzCsdYmf2fWZPoxCEDyfIvdtNQH0PRkH6Q51g8rFO3Qzxh2LbItcDCOpmuOsV7ntNaERe3v/lP/zO8yn4N+yNPrekmPAAAAAElFTkSuQmCC")
+        
+        return doc
+    
+
+    
 def _construct(v):
 
     if isinstance(v, str):
