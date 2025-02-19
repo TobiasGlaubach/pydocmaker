@@ -26,19 +26,16 @@ def test_latex_compiler(compiler):
 # Define a global variable to store the latex compiler
 _latex_compiler = None
 
+_allowed_compilers = 'pdflatex pandoc lualatex xelatex'.split()
+
+def get_all_installed_latex_compilers():
+    return [c for c in _allowed_compilers if test_latex_compiler(c)]
+
 # Define a function to test which latex compiler is installed
 def test_latex_compilers():
     global _latex_compiler
-    if test_latex_compiler('pandoc'):
-        _latex_compiler = 'pandoc'
-    elif test_latex_compiler('pdflatex'):
-        _latex_compiler = 'pdflatex'
-    elif test_latex_compiler('lualatex'):
-        _latex_compiler = 'lualatex'
-    elif test_latex_compiler('xelatex'):
-        _latex_compiler = 'xelatex'
-    else:
-        _latex_compiler = ''
+    _latex_compiler = next((c for c in _allowed_compilers if test_latex_compiler(c)), '')
+
 
 def set_latex_compiler(new_latex_compiler_str):
     assert test_latex_compiler(new_latex_compiler_str), f'The given Latex Compiler "{new_latex_compiler_str}" was not found in PATH'

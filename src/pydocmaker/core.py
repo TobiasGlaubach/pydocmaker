@@ -274,7 +274,7 @@ class DocBuilder(UserList):
             
     """a collection of document parts to make a document (can be used like a list)"""
 
-    export_engines = ['md', 'html', 'json', 'docx', 'textile', 'ipynb', 'tex', 'redmine']
+    export_engines = ['md', 'html', 'json', 'docx', 'textile', 'ipynb', 'tex', 'redmine', 'pdf']
     export_engine_extensions = {
         'md': '.md', 
         'html':'.html', 
@@ -282,7 +282,8 @@ class DocBuilder(UserList):
         'docx': '.docx',
         'textile': '.textile.zip',
         'ipynb': '.ipynb', 
-        'tex': '.tex.zip'
+        'tex': '.tex.zip',
+        'pdf': '.pdf'
     }
 
     def __init__(self, initial_data=None, backend=None):
@@ -306,7 +307,7 @@ class DocBuilder(UserList):
         assert chapter_name, 'chapter_name can not be empty'
         chapters = list(self.get_chapters().keys())
         assert chapter_name not in chapters, f'chapter with {chapter_name=} already exists in document {chapters=}!'
-        self.add_kw('markdown', '## ' + chapter_name, chapter=chapter_index, color=color)
+        self.add_kw('markdown', '# ' + chapter_name, chapter=chapter_index, color=color)
         return self
     
     def get_chapter(self, chapter) -> List[dict]:
@@ -622,31 +623,29 @@ class DocBuilder(UserList):
 
         
 
-    def to_pdf(self, path_or_stream=None, docname='', files_to_upload=None, template_header=None, template_footer=None, base_dir=None, latex_compiler=None, n_times_make=None, verb=0, ignore_error=False):
-        """
-        Converts the current object to a PDF file or zipped latex project folder using any installed latex engine.
+    def to_pdf(self, path_or_stream=None, docname='', files_to_upload=None, base_dir=None, latex_compiler=None, n_times_make=None, verb=0, ignore_error=False, template=None, template_params=None, do_escape_template_params=False):
+        """Converts the current object to a PDF file or zipped latex project folder.
 
         Args:
-            path_or_stream (str or file-like object, optional): Either: 
-                A file-like object to write the PDF file data to.
-                The path as string to the output file or a file-like object to write the PDF data to.
-                    If it ends with '.pdf' it will be written in pdf format to the given path
-                    If it ends with '.zip' the whole project folder used for making the pdf file will be zipped and saved under the given path
-                A string with either 'zip' or 'pdf' which will result in bytes being returned in the given format.
-                If None, the PDF data will be returned as a bytes object.
-            docname (str, optional): The name of the output document. Defaults to a unix timestamp followed by _mydocument.
+            path_or_stream (str or file-like object, optional): The output destination.
+                If it's a string ending with '.pdf', it will be written in pdf format to the given path.
+                If it's a string ending with '.zip', the whole project folder used for making the pdf file will be zipped and saved under the given path.
+                If it's 'zip' or 'pdf', the data will be returned in the given format.
+                If it's None, the PDF data will be returned as a bytes object.
+            docname (str, optional): The name of the output document. Defaults to a unix timestamp followed by '_mydocument'.
             files_to_upload (optional): A list of files to be uploaded with the document.
-            template_header (str, optional): A string containing the LaTeX code for the document header.
-                If not provided, a default header will be used.
-            template_footer (str, optional): A string containing the LaTeX code for the document footer.
-                If not provided, a default footer will be used.
             base_dir (str, optional): The directory to use as the base directory for the temporary directory.
                 Defaults to the system's default temporary directory.
             latex_compiler (str, optional): The LaTeX compiler to use. Either 'pdflatex', 'lualatex', 'xelatex', or 'pandoc'.
                 If not specified, the function will try to use 'pandoc', 'pdflatex', 'lualatex', or 'xelatex' in that order.
-            n_times_make (int, optional): The number of times to run the LaTeX compiler. Defaults to 1 for pandoc and 3 for al others.
+            n_times_make (int, optional): The number of times to run the LaTeX compiler. Defaults to 1 for pandoc and 3 for all others.
             verb (int, optional): The verbosity level (0, 1, 2). If greater than 0, the function will print more and more debug information. Defaults to 0.
             ignore_error (bool, optional): Whether to ignore errors during the LaTeX compilation. Defaults to False.
+            template (str, optional): A string containing the LaTeX code for the document template.
+                If not provided, a default template will be used.
+            template_params (dict, optional): A dictionary containing the parameters for the document template.
+            do_escape_template_params (bool, optional): Whether to escape the template parameters. Defaults to False.
+
         Returns:
             bytes or None: If path_or_stream is None, returns the PDF data as a bytes object. Otherwise, returns None.
 
@@ -656,8 +655,9 @@ class DocBuilder(UserList):
         
         kwargs = {
             "files_to_upload": files_to_upload,
-            "template_header": template_header,
-            "template_footer": template_footer,
+            "template": template,
+            "template_params": template_params,
+            'do_escape_template_params': do_escape_template_params,
             "docname": docname,
             "base_dir": base_dir,
             "latex_compiler": latex_compiler,
@@ -681,39 +681,30 @@ class DocBuilder(UserList):
                 fun = to_pdf
             else:
                 warnings.warn(f'the given filename is neither "zip" nor "pdf" this is unusual. I will assume it`s "pdf" format and write to the given path: "{path_or_stream}"')
-            
+
         return self._ret(fun(self.dump(), **kwargs), path_or_stream)
     
 
     
-    def to_tex(self, path_or_stream=None, pre_tex='', post_tex='', additional_files=None):
-        """
-        Converts the current object to a TEX file (and attachments).
+    def to_tex(self, path_or_stream=None, additional_files=None, template = None, do_escape_template_params=False, template_params=None):
+        """Converts the current object to a TEX file (and attachments).
 
         Args:
-            path_or_stream (str or io.IOBase, optional): The path to save the file to, or a file-like object to write the data to. If not provided, the data will be returned as string.
-            pre_tex (str, optional): Any string you want to add to the tex document before the actual content (such as Formatting, Table of contents etc.).
-            post_tex (str, optional): Any string you want to add to the tex document after the actual content (such as e.G an Appendix).
-            additional_files (dict[str:bytes], optional): Any additional filey you want to upload to the tex document, such as e.G. a image as logo in the header.
+            path_or_stream (str or io.IOBase, optional): The path to save the file to, or a file-like object to write the data to. If not provided, the data will be returned as a string.
+            additional_files (dict[str:bytes], optional): Any additional files you want to upload to the tex document, such as an image as a logo in the header.
+            template (str, optional): The LaTeX template to use.
+            do_escape_template_params (bool, optional): Whether to escape the template parameters. Defaults to False.
+            template_params (dict, optional): Additional parameters to pass to the LaTeX template.
 
         Returns:
-            case saving to file or stream:
+            If saving to a file or stream:
                 True if the data was saved successfully to a file or stream.
-            case returning:
-                str: The tex file as string
-                dict: The additional input files needed for LateX (bytes) as values and their relative pathes (str) as keys
+            If returning:
+                str: The tex file as a string.
+                dict: The additional input files needed for LaTeX (bytes) as values and their relative paths (str) as keys.
         """
         
-        tex, files = to_tex(self.dump(), with_attachments=True)
-        if pre_tex:
-            tex = pre_tex + tex
-        if post_tex:
-            tex = tex + post_tex
-            
-        if additional_files:
-            duplicate_files = [k for k in additional_files if k in files]
-            assert not duplicate_files, f'found duplicate file names from "additional_files" to upload: {duplicate_files=} please rename!'
-            files = {**files, **additional_files}
+        tex, files = to_tex(self.dump(), with_attachments=True, template=template, files_to_upload=additional_files, do_escape_template_params=do_escape_template_params, template_params=template_params)
 
         with io.BytesIO() as in_memory_zip:
             with zipfile.ZipFile(in_memory_zip, 'w') as zipf:
@@ -931,6 +922,9 @@ class DocBuilder(UserList):
         elif engine in ['redmine']:
             assert not path_or_stream, 'redmine engine can not handle writing to path_or_stream!'
             return self.to_redmine(**kwargs)
+        elif engine in ['pdf']:
+            assert get_latex_compiler(), 'Can not make a PDF file without a latex compiler on the system!'
+            return self.to_pdf(path_or_stream=path_or_stream, **kwargs)
         else:
             raise KeyError(f'engine must be in: {DocBuilder.export_engines=}, but was {engine=}')
         
@@ -978,7 +972,7 @@ class DocBuilder(UserList):
     
 
 
-    def show(self, index=None, chapter=None, engine='markdown'):
+    def show(self, index=None, chapter=None):
         """Displays the document or a specific part of it in ipython display or via print
 
         Args:
