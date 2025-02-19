@@ -31,6 +31,9 @@ from .backend.ex_tex import make_pdf_zip as to_pdf_zip
 
 from .backend.pdf_maker import make_pdf_from_tex, get_latex_compiler, set_latex_compiler
 
+
+chapter_level = 1 # this is the level of heading to use for chapters which is equivalent to html <h1> to <h5> or whatever
+
 def is_notebook() -> bool:
     try:
         shell = get_ipython().__class__.__name__
@@ -45,7 +48,9 @@ def is_notebook() -> bool:
 
 
 
-def _is_chapter(dc, pre='##'):
+def _is_chapter(dc):
+    global chapter_level
+    pre='#' * chapter_level
     if not isinstance(dc, dict):
         return ''
     if not dc.get('typ') == 'markdown':
@@ -303,11 +308,12 @@ class DocBuilder(UserList):
         Raises:
             AssertionError: If `chapter_name` is not a string or is empty.
         """
+        global chapter_level
         assert isinstance(chapter_name, str), f'chapter name must be type string but was {type(chapter_name)=} {chapter_name=}'
         assert chapter_name, 'chapter_name can not be empty'
         chapters = list(self.get_chapters().keys())
         assert chapter_name not in chapters, f'chapter with {chapter_name=} already exists in document {chapters=}!'
-        self.add_kw('markdown', '# ' + chapter_name, chapter=chapter_index, color=color)
+        self.add_kw('markdown', '#' * chapter_level + ' ' + chapter_name, chapter=chapter_index, color=color)
         return self
     
     def get_chapter(self, chapter) -> List[dict]:
@@ -609,21 +615,24 @@ class DocBuilder(UserList):
         """
         return self._ret(to_ipynb(self.dump()), path_or_stream)
     
-    def to_html(self, path_or_stream=None) -> str:
+    def to_html(self, path_or_stream=None, template=None, template_params=None) -> str:
         """
         Converts the current object to a HTML file.
 
         Args:
             path_or_stream (str or io.IOBase, optional): The path to save the file to, or a file-like object to write the data to. If not provided, the data will be returned as string.
+            template (str, optional): A string containing the LaTeX code for the document template. Either a Jinja2 Latex template, or a string
+                If not provided, a default template will be used.
+            template_params (dict, optional): A dictionary containing the parameters for the document template which will be parsed to the "render" method of Jinja2
 
         Returns:
             str: The data as string, or True if the data was saved successfully to a file or stream.
         """
-        return self._ret(to_html(self.dump()), path_or_stream)
+        return self._ret(to_html(self.dump(), template=template, template_params=template_params), path_or_stream)
 
         
 
-    def to_pdf(self, path_or_stream=None, docname='', files_to_upload=None, base_dir=None, latex_compiler=None, n_times_make=None, verb=0, ignore_error=False, template=None, template_params=None, do_escape_template_params=False):
+    def to_pdf(self, path_or_stream=None, docname='', files_to_upload=None, base_dir=None, latex_compiler=None, n_times_make=None, verb=1, ignore_error=True, template=None, template_params=None, do_escape_template_params=False):
         """Converts the current object to a PDF file or zipped latex project folder.
 
         Args:
@@ -639,15 +648,15 @@ class DocBuilder(UserList):
             latex_compiler (str, optional): The LaTeX compiler to use. Either 'pdflatex', 'lualatex', 'xelatex', or 'pandoc'.
                 If not specified, the function will try to use 'pandoc', 'pdflatex', 'lualatex', or 'xelatex' in that order.
             n_times_make (int, optional): The number of times to run the LaTeX compiler. Defaults to 1 for pandoc and 3 for all others.
-            verb (int, optional): The verbosity level (0, 1, 2). If greater than 0, the function will print more and more debug information. Defaults to 0.
-            ignore_error (bool, optional): Whether to ignore errors during the LaTeX compilation. Defaults to False.
-            template (str, optional): A string containing the LaTeX code for the document template.
+            verb (int, optional): The verbosity level (0, 1, 2). If greater than 0, the function will print more and more debug information. Defaults to 1.
+            ignore_error (bool, optional): Whether to ignore errors during the LaTeX compilation. Defaults to True.
+            template (str, optional): A string containing the LaTeX code for the document template. Either a Jinja2 Latex template, or a string
                 If not provided, a default template will be used.
-            template_params (dict, optional): A dictionary containing the parameters for the document template.
+            template_params (dict, optional): A dictionary containing the parameters for the document template which will be parsed to the "render" method of Jinja2
             do_escape_template_params (bool, optional): Whether to escape the template parameters. Defaults to False.
 
         Returns:
-            bytes or None: If path_or_stream is None, returns the PDF data as a bytes object. Otherwise, returns None.
+            str: The data as bytes, or True if the data was saved successfully to a file or stream.
 
         Raises:
             Warning: If the provided file path does not end with '.zip' or '.pdf', a warning is issued and the file is assumed to be in PDF format.
@@ -972,10 +981,11 @@ class DocBuilder(UserList):
     
 
 
-    def show(self, index=None, chapter=None):
+    def show(self, engine = 'markdown', index=None, chapter=None, **kwargs):
         """Displays the document or a specific part of it in ipython display or via print
 
         Args:
+            engine (str, optional): The engine to use for displaying. Either "html", "markdown", "md", "tex", "latex", or "pdf"
             index (int, optional): The index of the part to display.
             chapter (str, optional): The name of the chapter to display.
 
@@ -991,12 +1001,29 @@ class DocBuilder(UserList):
             DocBuilder(self.get_chapter(chapter)).show()
         
         if is_notebook():
-            from IPython.display import display, HTML, Markdown
-            display(HTML(self.to_html()))
-            # display(Markdown(self.to_markdown()))
-        else:
-            print(self.to_markdown(embed_images=False))
+            from IPython.display import display, HTML, Markdown, IFrame, Code
+            if engine in 'html'.split():
+                display(HTML(self.to_html()))
+            elif engine in 'markdown md'.split():
+                display(Markdown(self.to_markdown()))
+            elif engine in 'tex latex'.split():
+                display(Code(self.to_tex()[0], language='tex'))
+            elif engine == 'pdf':
+                pdf_bytes = self.to_pdf()
+                display(IFrame(f'data:application/pdf;base64,{base64.b64encode(pdf_bytes).decode()}', width=1000, height=1200))
+            else:
+                raise KeyError(f'engine must be in: "html", "markdown", "md", "tex", "latex", or "pdf", but was {engine=}')
 
+        else:
+            if engine in 'html'.split():
+                print(self.to_html())
+            elif engine in 'markdown md'.split():
+                print(self.to_markdown(embed_images=False))
+            elif engine in 'tex latex'.split():
+                print(self.to_tex()[0])
+            else:
+                raise KeyError(f'engine must be in: "html", "markdown", "md", "tex", or "latex", but was {engine=}')
+            
     def __repr__(self, *args, **kwargs):
         chaps = self.get_chapters()
         return f'pydocmaker.Doc with N={len(chaps)} chapters, K={len(self)} elements.'

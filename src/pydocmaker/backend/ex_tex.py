@@ -54,9 +54,10 @@ latex_mdx.extendMarkdown(md)
 
 __default_template = r"""
 \documentclass[a4paper]{article}
-\usepackage{xcolor}
 \usepackage{hyperref}
 \usepackage{graphicx}
+\usepackage[dvipsnames]{xcolor}
+
 
 {% if title %}\title{{ title }}{% endif %}
 {% if author %}\author{{ author }}{% endif %}

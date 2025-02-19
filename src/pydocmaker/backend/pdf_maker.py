@@ -174,11 +174,13 @@ def make_pdf_from_tex(input_latex_text, attachments_dc=None, docname='', out_for
 
         # Convert the TeX document to a PDF using the selected latex compiler
         for i in range(n_times_make):
-            if verb: print(f'Compilation run {i+1}')
+            i1 = i+1
+            ir = True if (i1 < n_times_make) or ignore_error else False # only assure the last run did not fail if requested
+            if verb: print(f'Compilation run {i1}')
             if latex_compiler == 'pandoc':
-                _procrun(['pandoc', '-o', out_path_pdf, out_path_tex], verb=verb, ignore_error=ignore_error,  cwd=output_dir)
+                _procrun(['pandoc', '-o', out_path_pdf, out_path_tex], verb=verb, ignore_error=ir,  cwd=output_dir)
             elif latex_compiler in ['pdflatex', 'lualatex', 'xelatex']:
-                _procrun([latex_compiler, "-interaction", "nonstopmode", out_file_tex], verb=verb, ignore_error=ignore_error, cwd=output_dir)
+                _procrun([latex_compiler, "-interaction", "nonstopmode", out_file_tex], verb=verb, ignore_error=ir, cwd=output_dir)
             else:
                 raise ValueError(f'Need to specify a valid latex compiler! Either "pdflatex", "lualatex", "xelatex", or "pandoc". Given was {latex_compiler=}')
         
@@ -187,6 +189,23 @@ def make_pdf_from_tex(input_latex_text, attachments_dc=None, docname='', out_for
             return zip_folder(output_dir)
         elif out_format.lower() == 'pdf':
             if verb: print(f'Reading PDF to bytes: {output_dir}')
+            logfile = os.path.join(output_dir, f'{docname}.log')
+
+            showlog = False
+            if not os.path.exists(out_path_pdf) and verb > 2:
+                showlog = True
+            if verb > 3:
+                showlog = True
+            if not os.path.exists(logfile):
+                showlog = False
+            if showlog:
+                with open(logfile, 'r') as fp:
+                    print('='*100)
+                    print('PDF FILE NOT FOUND! HERE IS THE LOG')
+                    print('_'*20)
+                    print(fp.read())
+                    print('='*100)
+                    
             with open(out_path_pdf, 'rb') as fp:
                 bts = fp.read()
             return bts
