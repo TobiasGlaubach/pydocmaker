@@ -32,9 +32,13 @@ def get_all_installed_latex_compilers():
     return [c for c in _allowed_compilers if test_latex_compiler(c)]
 
 # Define a function to test which latex compiler is installed
-def test_latex_compilers():
+def test_latex_compilers(verb=1):
     global _latex_compiler
+    if verb:
+        print('testing available latex compilers')
     _latex_compiler = next((c for c in _allowed_compilers if test_latex_compiler(c)), '')
+    if verb:
+        print(f'DONE testing latex compilers: found compiler="{_latex_compiler}"')
 
 
 def set_latex_compiler(new_latex_compiler_str):

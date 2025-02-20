@@ -29,7 +29,7 @@ pip install pydocmaker
 
 ## TL;DR;
 
-Minimal Mini Example:
+### Minimal Mini Example:
 
 ```python
 
@@ -40,7 +40,7 @@ doc.show()
 
 ```
 
-Minimal Usage Example:
+### Minimal Usage Example:
 
 ```python
 
@@ -50,23 +50,10 @@ doc = pyd.Doc() # basic doc where we always append to the end
 doc.add('dummy text') # adds raw text
 
 # this is how to add parts to the document
-doc.add_pre('this will be shown as preformatted')
-doc.add_md('This is some *fancy* `markdown` **text**')
+doc.add_pre('this will be shown as preformatted') # preformatted
+doc.add_md('This is some *fancy* `markdown` **text**') # markdown
+doc.add_tex(r'\textbf{Hello, LaTeX!}') # latex
 
-
-# this is a different style of adding elements
-
-# this is how to add preformatted
-doc.add_kw('verbatim', """def hello_world():
-    print('hello world!')
-""")
-
-# this is how to add markdown
-doc.add_kw('markdown', """This is some *fancy* `markdown` **text**: 
-- first
-    - some [link]("https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png")
-- second
-""")
 
 # this is how to add an image from link
 doc.add_image("https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png", caption='', children='', width=0.8)
@@ -74,14 +61,38 @@ doc.add_image("https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.p
 doc.show()
 ```
 
+### Showing Documents in iPython
+
+the Doc class has a method called show which will detect if it is running in Ipython. If it does it will render the document and show it. 
+The desired rendering format can be set with the `engine` argument. Markdown, HTML, or PDF is possible. 
+
+In Ipython:
+
+```python
+doc.show('md')
+```
+Or: 
+```python
+doc.show('html')
+```
+Or (**NOTE**: some IDEs do not support this and instead open a "save" dialog, but in a browser with jupyter this works): 
+```python
+doc.show('pdf')
+```
+
+
+### Exporting:
+
 export via:
 
 ```python
-    # returns string
-    text_html = doc.export('html')
-    # or write a file
-    doc.export('path/to/my_file.html')
+# returns string
+text_html = doc.export('html')
+# or write a file
+doc.export('path/to/my_file.html')
 ```
+
+Or alternatively:
 
 ```python
 doc.to_html('path/to/my_file.html') # will write a HTML file
@@ -96,6 +107,8 @@ doc.to_ipynb('path/to/my_file.ipynb') # will write a ipynb file
 doc.to_json('path/to/doc.json') # saves the document
 ```
 
+### Uploading to Redmine
+
 upload to redmine via:
 
 ```python
@@ -104,6 +117,48 @@ redmine = redminelib.Redmine('https://your-redmine-instance.com', key='your_redm
 page = doc.to_redmine_upload(redmine, 'your-test-project')
 ```
 
+### Using Jinja2 Templates for Exporting to HTML or PDF
+
+you can use Jinja2 Templates to make HTML or PDF (latex) documents. An example is given below:
+
+```python
+
+# This is a minimal template, the document will be written to the "body" part.
+template_string = r'''
+\documentclass[a4paper]{article}
+
+{% if title %}\title{{ title }}{% endif %}
+{% if author %}\author{{ author }}{% endif %}
+
+\begin{document}
+
+{{ body }}
+
+\end{document}
+'''
+
+from jinja2 import Environment, FileSystemLoader
+import pydocmaker as pyd
+
+# Create a Template object
+template = Template(template_string)
+
+doc = pyd.get_example()
+pdf_bytes = doc.to_pdf(template=template, template_params=dict(title='My Title', author='Me'))
+
+```
+
+**NOTE**: If your document template has external references such as logos, you need to load them to a bytes array and pass them as a filename, content dictionary into the to_pdf(...) methods using the `files_to_upload` argument.
+
+
+```python
+assets = {}
+with open('my_logo.png', 'rb') as fp:
+    assets = {'my_logo.png': fp.read()} 
+
+pdf_bytes = doc.to_pdf(template=template, template_params=dict(title='My Title', author='Me'), files_to_upload=assets)
+
+```
 ___
 
 ## Detailed Usage Instructions

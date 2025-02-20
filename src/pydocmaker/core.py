@@ -980,21 +980,29 @@ class DocBuilder(UserList):
         return r.json()
     
 
+    
 
-    def show(self, engine = 'markdown', index=None, chapter=None, **kwargs):
+
+    def show(self, engine = 'markdown', index=None, chapter=None, files_to_upload=None, template=None, template_params=None, do_escape_template_params=False, **kwargs):
         """Displays the document or a specific part of it in ipython display or via print
 
         Args:
-            engine (str, optional): The engine to use for displaying. Either "html", "markdown", "md", "tex", "latex", or "pdf"
+            engine (str, optional): The engine to use for displaying. Either "html", "markdown", "md", "tex", "latex", or "pdf" (pdf only works in Ipython!)
             index (int, optional): The index of the part to display.
             chapter (str, optional): The name of the chapter to display.
+            files_to_upload (dict, optional): ONLY VALID WHEN engine='pdf'. See to_pdf method for details. Defaults to None.
+            template (jinja2 template or string, optional): ONLY VALID WHEN engine='pdf'. See to_pdf method for details. Defaults to None.
+            template_params (dict, optional): ONLY VALID WHEN engine='pdf'. See to_pdf method for details. Defaults to None.
+            do_escape_template_params (bool, optional): ONLY VALID WHEN engine='pdf'. See to_pdf method for details. Defaults to False.
 
         Raises:
+            KeyError: if the specified engine is not found or not valid
             AssertionError: If both `index` and `chapter` are specified.
         """
-        
+
         assert index is None or chapter is None, f'can either give index OR chapter!'
         
+
         if index:
             DocBuilder([self[index]]).show()
         elif chapter:
@@ -1003,24 +1011,28 @@ class DocBuilder(UserList):
         if is_notebook():
             from IPython.display import display, HTML, Markdown, IFrame, Code
             if engine in 'html'.split():
-                display(HTML(self.to_html()))
+                display(HTML(self.to_html(**kwargs)))
             elif engine in 'markdown md'.split():
                 display(Markdown(self.to_markdown()))
             elif engine in 'tex latex'.split():
-                display(Code(self.to_tex()[0], language='tex'))
+                display(Code(self.to_tex(**kwargs)[0], language='tex'))
             elif engine == 'pdf':
-                pdf_bytes = self.to_pdf()
+                kwargs['files_to_upload'] = files_to_upload
+                kwargs['template'] = template
+                kwargs['template_params'] = template_params
+                kwargs['do_escape_template_params'] = do_escape_template_params
+                pdf_bytes = self.to_pdf(**kwargs)
                 display(IFrame(f'data:application/pdf;base64,{base64.b64encode(pdf_bytes).decode()}', width=1000, height=1200))
             else:
                 raise KeyError(f'engine must be in: "html", "markdown", "md", "tex", "latex", or "pdf", but was {engine=}')
 
         else:
             if engine in 'html'.split():
-                print(self.to_html())
+                print(self.to_html(**kwargs))
             elif engine in 'markdown md'.split():
-                print(self.to_markdown(embed_images=False))
+                print(self.to_markdown(embed_images=False, **kwargs))
             elif engine in 'tex latex'.split():
-                print(self.to_tex()[0])
+                print(self.to_tex(**kwargs)[0])
             else:
                 raise KeyError(f'engine must be in: "html", "markdown", "md", "tex", or "latex", but was {engine=}')
             
