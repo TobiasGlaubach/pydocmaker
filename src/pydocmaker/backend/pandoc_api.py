@@ -34,7 +34,7 @@ def pandoc_convert(input_string, input_format, output_format, is_binary=False, *
     if input_format == output_format:
         return input_string # pandoc would just return the same anyways
     
-    inp = ['pandoc'] + list(args) + ['--from', input_format, '--to', output_format]
+    inp = ['pandoc'] + list(args) + ['--wrap=none', '--from', input_format, '--to', output_format]
 
     process = subprocess.Popen(inp, 
                                stdin=subprocess.PIPE, 
