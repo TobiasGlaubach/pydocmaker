@@ -983,7 +983,7 @@ class DocBuilder(UserList):
     
 
 
-    def show(self, engine = 'markdown', index=None, chapter=None, files_to_upload=None, template=None, template_params=None, do_escape_template_params=False, **kwargs):
+    def show(self, engine = 'html', index=None, chapter=None, files_to_upload=None, template=None, template_params=None, do_escape_template_params=False, **kwargs):
         """Displays the document or a specific part of it in ipython display or via print
 
         Args:

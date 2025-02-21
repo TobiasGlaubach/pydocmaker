@@ -345,7 +345,8 @@ class LatexElementFormatter(BaseFormatter):
         txt = fr'\includegraphics[{width}]{{{file_name}}}'
 
         if caption:
-            txt += '\n' + fr'\caption{{{caption}}}'
+            c = escape(caption)
+            txt += '\n' + fr'\caption{{{c}}}'
 
         txt = r"\begin{figure}[h!]" + '\n' + r"\centering" '\n' + txt + '\n' + r"\end{figure}"
         return txt
