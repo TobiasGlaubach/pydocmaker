@@ -4,7 +4,50 @@ import re
 import tempfile
 from typing import Dict
 import io, datetime
+import time
+import random
+import string
 
+def split_camel_case(st:str):
+    words = []
+    s, last, last2, word = list(st), None, None, ''
+    while s:
+        now = s.pop(0)
+        if not now.isalnum(): # split by non alpha numeric
+            if word:
+                words.append(word)
+                word = ''
+            last, last2 = None, None
+        elif last2 is not None and last is not None and now.islower() and last.isupper() and last2.isupper():
+            n, word = word[-1], word[:-1]
+            words.append(word)
+            word, last, last2 = n + now, None, None
+        elif last is not None and now.isupper() and last.islower():
+            words.append(word)
+            word, last = now, None
+        
+        else:
+            word += now
+            last2 = last
+            last = now
+    if word:
+        words.append(word)
+    return words
+
+def flatten_list(lst):
+    result = []
+    for i in lst:
+        if isinstance(i, list):
+            result.extend(flatten_list(i))
+        elif isinstance(i, dict) and i.get('typ', '').startswith('iter'):
+            result.extend(flatten_list(i['children']))
+        else:
+            result.append(i)
+    return result
+
+def generate_unique_id():
+    random_chars = ''.join(random.choices(string.ascii_letters + string.digits, k=4))
+    return f"{int(time.time())}_{random_chars}"
 
 def get_page_title(docname):
     docname = next(iter(docname)) if not isinstance(docname, str) else docname

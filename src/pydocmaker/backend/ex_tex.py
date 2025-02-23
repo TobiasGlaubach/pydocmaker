@@ -51,13 +51,17 @@ md = markdown.Markdown()
 latex_mdx = mdx_latex.LaTeXExtension()
 latex_mdx.extendMarkdown(md)
 
+color_map = {
+    'green': 'ForestGreen',
+    'blue': 'NavyBlue'
+}
 
 __default_template = r"""
 \documentclass[a4paper]{article}
 \usepackage{hyperref}
 \usepackage{graphicx}
 \usepackage[dvipsnames]{xcolor}
-
+\usepackage{listings}
 
 {% if title %}\title{{ title }}{% endif %}
 {% if author %}\author{{ author }}{% endif %}
@@ -283,11 +287,100 @@ def make_pdf_zip(doc:List[dict], files_to_upload=None, template = None, template
 """
 ###########################################################################################
 
+from enum import Enum
+
+class bcolors(Enum):
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKCYAN = '\033[96m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
+
+
+def _find_all_indices(s, c):
+    inds, i = [], 0
+    while (i := s.find(c, i)) >= 0:
+        inds.append(i)
+        i += len(c)
+    return inds
+
+def _get_substrings(s):
+    inds = []
+    for c in bcolors:
+        inds += [(v,c) for v in _find_all_indices(s, c.value)]
+    inds.sort(key=lambda i:i[0])
+    subs = []
+    if inds:
+        for (k, c), (k2, c2) in zip(inds[0:], inds[1:]):
+            if (k, c) == inds[0] and k != 0: # first iter
+                subs.append((s[:k], None))
+            subs.append((s[k:k2], c))
+            if (k2, c2) == inds[-1] and k2 != len(s): # last iter
+                k2 += len(c2.value)
+                subs.append((s[k2:], None))
+    else:
+        subs.append((s, None))
+    return subs
+        
+        
+
+
+def _handle_bcolors(txt, color):
+    if color is None:
+        return txt
+    
+    sub = txt[len(color.value):]
+    if color == bcolors.HEADER:
+        return '\\textcolor{%s}{%s}' % (mapc("purple"), sub,)
+    elif color == bcolors.OKBLUE:
+        return '\\textcolor{%s}{%s}' % (mapc("blue"), sub,)
+    elif color == bcolors.OKCYAN:
+        return '\\textcolor{%s}{%s}' % (mapc("cyan"), sub,)
+    elif color == bcolors.OKGREEN:
+        return '\\textcolor{%s}{%s}' % (mapc("green"), sub,)
+    elif color == bcolors.WARNING:
+        return '\\textcolor{%s}{%s}' % (mapc("yellow"), sub,)
+    elif color == bcolors.FAIL:
+        return '\\textcolor{%s}{%s}' % (mapc("red"), sub,)
+    elif color == bcolors.ENDC:
+        return sub
+    elif color == bcolors.BOLD:
+        return '\\textbf{%s}' % (sub,)
+    elif color == bcolors.UNDERLINE:
+        return '\\underline{%s}' % (sub,)
+    else:
+        return txt
+
+def replace_bcolors(s):
+    new_parts = [_handle_bcolors(*t) for t in _get_substrings(s)]
+    return ''.join(new_parts)
+
+def mapc(c):
+    if c:
+        c = color_map.get(c.lower(), c)
+        c = c[0].upper() + c[1:]
+    return c
+    
+
+def map_colornames(txt, c):
+    if c:
+        c = color_map.get(c.lower(), c)
+        c = c[0].upper() + c[1:]
+        return '\\color{%s}{%s}' % (c, txt)
+    else:
+        return txt
+    
+
 def handle_color(func):
     def wrapper(*args, **kwargs):
         result = func(*args, **kwargs)
-        c = kwargs.get('color')
-        return '\\color{%s}{%s}' % (c, result) if c else result
+        c = kwargs.get('color', None)
+        return map_colornames(result, c)
     return wrapper
 
 class LatexElementFormatter(BaseFormatter):
@@ -304,12 +397,9 @@ class LatexElementFormatter(BaseFormatter):
             txt += tb_str + '\n'
         else:
             txt += err + '\n'
-        txt = r"""
-\begin{verbatim}
-
+        txt = r"""\begin{small}\begin{lstlisting}[breaklines=true,basicstyle=\ttfamily]
 <REPLACEME:VERBTEXT>
-
-\end{verbatim}""".replace('<REPLACEME:VERBTEXT>', txt)
+\end{lstlisting}\end{small}""".replace('<REPLACEME:VERBTEXT>', txt)
         txt = f'{{\\color{{red}}{txt}}}'
 
         return txt
@@ -317,10 +407,10 @@ class LatexElementFormatter(BaseFormatter):
     @handle_color
     def digest_markdown(self, children='', **kwargs) -> str:
         if can_run_pandoc():
-            return pandoc_convert(children, 'markdown', 'latex')
+            return pandoc_convert(replace_bcolors(children), 'markdown', 'latex')
         else:
-            tex = md.convert(children).lstrip('<root>').rstrip('</root>')
-        return tex
+            tex = md.convert(replace_bcolors(children)).lstrip('<root>').rstrip('</root>')
+        return str(tex)
 
     
     def digest_image(self, children='', width=0.8, caption='', imageblob='', **kwargs) -> str:
@@ -357,9 +447,9 @@ class LatexElementFormatter(BaseFormatter):
         txt = self.digest(children)
         template = r"""\begin{tabular}{|p{.95\textwidth}|}
 \hline
-\begin{tiny}\begin{verbatim}
+\begin{small}\begin{lstlisting}[breaklines=true,basicstyle=\ttfamily]
 <REPLACEME:VERBTEXT>
-\end{verbatim}\end{tiny}
+\end{lstlisting}\end{small}
 \\
 \hline
 \end{tabular}\par"""
@@ -374,66 +464,15 @@ class LatexElementFormatter(BaseFormatter):
         txt = '\n\n'.join(parts)
         return txt
 
-
-    def digest_iterator(self, el) -> str:
-        if isinstance(el, dict) and el.get('typ', '') == 'iter' and isinstance(el.get('children', None), list):
-            el = el['children']
-        return '\n\n'.join([f'% Iterator Element {i}\n' + self.digest(e) for i, e in enumerate(el)])
-    
     @handle_color
     def digest_text(self, children:str, **kwargs):
-        return str(children)
+        return replace_bcolors(str(children))
     
     @handle_color
     def digest_latex(self, children:str, **kwargs):
-        return str(children)
+        return replace_bcolors(str(children))
     
     @handle_color
     def digest_line(self, children:str, **kwargs):
-        return str(children)
-
-    def digest(self, el, make_blue=False):        
-        try:
-            
-            if not el:
-                return ''
-            elif isinstance(el, str):
-                ret = self.digest_str(el)
-            elif isinstance(el, dict) and el.get('typ') == 'iter':
-                ret = self.digest_iterator(el)
-            elif isinstance(el, list) and el:
-                ret = self.digest_iterator(el)
-            elif isinstance(el, dict) and el.get('typ', None) == 'image':
-                ret = self.digest_image(**el)
-            elif isinstance(el, dict) and el.get('typ', None) == 'text':
-                ret = self.digest_text(**el)
-            elif isinstance(el, dict) and el.get('typ', None) == 'latex':
-                ret = self.digest_latex(**el)
-            elif isinstance(el, dict) and el.get('typ', None) == 'line':
-                ret = self.digest_line(**el)
-            elif isinstance(el, dict) and el.get('typ', None) == 'verbatim':
-                ret = self.digest_verbatim(**el)
-            elif isinstance(el, dict) and el.get('typ', None) == 'markdown':
-                ret = self.digest_markdown(**el)
-            else:
-                return self.handle_error(f'the element of typ {type(el)}, could not be parsed.', el)
-            
-            return ret # blue(ret) if make_blue else (set_color(ret) if color else ret)
-        
-        except Exception as err:
-            return self.handle_error(err, el)
-
-
-    def format(self, doc:list) -> str:
-        return '\n\n'.join([self.digest(e, make_blue=self.make_blue) for e in doc])
-
-
-
-
-
-
-
-
-
-
+        return replace_bcolors(str(children))
 

@@ -17,7 +17,7 @@ import os
 
 
 
-from .util import upload_report_to_redmine
+from .util import flatten_list, split_camel_case, upload_report_to_redmine
 
 
 from .backend.ex_html import convert as to_html
@@ -47,6 +47,34 @@ def is_notebook() -> bool:
         return False      # Probably standard Python interpreter
 
 
+def show_pdf(pdf_bytes:[bytes|str], width=1000, height=1200):
+    """
+    Display a PDF file within an IPython environment.
+
+    This function takes a PDF file in bytes or base64 encoded string format and displays it within an IPython notebook.
+
+    Parameters:
+    pdf_bytes (bytes or str): The PDF file in bytes or base64 encoded string format.
+    width (int, optional): The width of the IFrame in which the PDF is displayed. Default is 1000.
+    height (int, optional): The height of the IFrame in which the PDF is displayed. Default is 1200.
+
+    Raises:
+    AssertionError: If the function is not called within an IPython environment.
+
+    Example:
+    >>> with open('example.pdf', 'rb') as file:
+    ...     pdf_bytes = file.read()
+    >>> show_pdf(pdf_bytes)
+    """
+    assert is_notebook(), 'can only show a PDF file within an ipython environment!'
+    from IPython.display import display, IFrame 
+    if isinstance(pdf_bytes, bytes):
+        pdf_bytes = base64.b64encode(pdf_bytes)
+    pdf_bytes = pdf_bytes.decode()
+    if not pdf_bytes.startswith('data:application/pdf;base64,'):
+        pdf_bytes = 'data:application/pdf;base64,' + pdf_bytes
+    display(IFrame(pdf_bytes, width=width, height=height))
+
 
 def _is_chapter(dc):
     global chapter_level
@@ -74,48 +102,63 @@ class constr():
     """This is the basic schema for the main building blocks for a document"""
 
     @staticmethod
-    def markdown(children='', color=''):
+    def meta(children='', data=None, **kwargs):
+        data = {k:v for k,v in data.items()} if data else {}
+        data.update(kwargs)
+        return {
+            'typ': 'meta',
+            'children': children,
+            'data': data,
+        }
+    
+    @staticmethod
+    def markdown(children='', color='', end=None):
         return {
             'typ': 'markdown',
             'children': children,
-            'color': color
+            'color': color,
+            'end': end
         }
     
     @staticmethod
-    def text(children='', color=''):
+    def text(children='', color='', end=None):
         return {
             'typ': 'text',
             'children': children,
-            'color': color
+            'color': color,
+            'end': end
         }
     
     @staticmethod
-    def latex(children='', color=''):
+    def latex(children='', color='', end=None):
         return {
             'typ': 'latex',
             'children': children,
-            'color': color
+            'color': color,
+            'end': end
         }
     
 
     @staticmethod
-    def verbatim(children='', color=''):
+    def verbatim(children='', color='', end=None):
         return {
             'typ': 'verbatim',
             'children': children,
-            'color': color
+            'color': color,
+            'end': end
         }
     
     @staticmethod
-    def iter(children:list=None, color=''):
+    def iter(children:list=None, color='', end=None):
         return {
             'typ': 'iter',
             'children': [] if children is None else children,
-            'color': color
+            'color': color,
+            'end': end
         }
     
     @staticmethod
-    def image(imageblob='', caption='', children='', width=0.8, color=''):
+    def image(imageblob='', caption='', children='', width=0.8, color='', end=None):
 
         if not children:
             # HACK: need to get format somehow
@@ -127,12 +170,13 @@ class constr():
             'imageblob': imageblob.decode("utf-8") if isinstance(imageblob, bytes) else imageblob,
             'caption': caption,
             'width': width,
-            'color': color
+            'color': color,
+            'end': end
         }
     
 
     @staticmethod
-    def image_from_link(url, caption='', children='', width=0.8, color=''):
+    def image_from_link(url, caption='', children='', width=0.8, color='', end=None):
 
         assert url, 'need to give an URL!'
 
@@ -159,12 +203,12 @@ class constr():
             children += '.' + mime_type.split('/')[-1]
 
         imageblob = base64.b64encode(response.content).decode('utf-8')
-        return constr.image(imageblob=imageblob, children=children, caption=caption, width=width, color=color)
+        return constr.image(imageblob=imageblob, children=children, caption=caption, width=width, color=color, end=end)
     
 
 
     @staticmethod
-    def image_from_file(path, children='', caption='', width=0.8, color=''):
+    def image_from_file(path, children='', caption='', width=0.8, color='', end=None):
 
         assert path, 'need to give a path!'
 
@@ -183,10 +227,10 @@ class constr():
             caption = children
 
         imageblob = base64.b64encode(bts).decode('utf-8')
-        return constr.image(imageblob=imageblob, children=children, caption=caption, width=width, color=color)
+        return constr.image(imageblob=imageblob, children=children, caption=caption, width=width, color=color, end=end)
         
 
-    def image_from_fig(caption='', width=0.8, children=None, fig=None, color='', **kwargs):
+    def image_from_fig(caption='', width=0.8, children=None, fig=None, color='', end=None, **kwargs):
         """convert a matplotlib figure (or the current figure) to a document image dict to later add to a document
 
         Args:
@@ -214,11 +258,11 @@ class constr():
             id_ = str(id(img))[-2:]
             children = f'figure_{int(time.time())}_{id_}.png'
 
-        return constr.image(imageblob = make_png_imageblob(img), children=children, caption=caption, width=width, color=color)
+        return constr.image(imageblob = make_png_imageblob(img), children=children, caption=caption, width=width, color=color, end=end)
 
 
     @staticmethod
-    def image_from_obj(img, caption = '', width=0.8, children=None, color=''):
+    def image_from_obj(img, caption = '', width=0.8, children=None, color='', end=None):
         """make a image type dict from given image of type matrix, filelike or PIL image
 
         Args:
@@ -269,15 +313,17 @@ class constr():
             id_ = str(id(img))[-2:]
             children = f'image_{int(time.time())}_{id_}.png'
 
-        return constr.image(imageblob = make_png_imageblob(img), children=children, caption=caption, width=width, color=color)
+        return constr.image(imageblob = make_png_imageblob(img), children=children, caption=caption, width=width, color=color, end=end)
 
-buildingblocks = 'text markdown image verbatim iter'.split()
+buildingblocks = 'text markdown image verbatim iter line latex meta'.split()
 
 
 
 class DocBuilder(UserList):
             
     """a collection of document parts to make a document (can be used like a list)"""
+
+    default_add_string_type = 'markdown'
 
     export_engines = ['md', 'html', 'json', 'docx', 'textile', 'ipynb', 'tex', 'redmine', 'pdf']
     export_engine_extensions = {
@@ -291,13 +337,36 @@ class DocBuilder(UserList):
         'pdf': '.pdf'
     }
 
-    def __init__(self, initial_data=None, backend=None):
+    def __init__(self, initial_data=None):
         if initial_data is None:
             initial_data = []
 
         super().__init__(initial_data)
 
+    def __add__(a, b):
+        if hasattr(a, 'dump'):
+            a = a.dump()
+        if hasattr(b, 'dump'):
+            b = b.dump()
+        if isinstance(b, str):
+            b = DocBuilder().add_kw(a.default_add_string_type, b, end='').dump()
+        if not isinstance(b, list):
+            b = [b]
+        return DocBuilder(a + b)
     
+    def __iadd__(self, b):
+        if hasattr(b, 'dump'):
+            b = b.dump()
+        if isinstance(b, str):
+            b = DocBuilder().add_kw(self.default_add_string_type, b, end='').dump()
+        for k in b:
+            self.add(k)
+        return self
+    
+    def flatten(self):
+        """unpacks all iterator elements within this documents and returns a new flat document"""
+        return DocBuilder(flatten_list(self.dump()))
+
     def add_chapter(self, chapter_name:str, chapter_index=None, color=''):
         """Adds a new chapter to the document.
 
@@ -361,9 +430,127 @@ class DocBuilder(UserList):
             return {k:self.data[rng] for k, rng in chapters.items()}
         else:
             return chapters
-        
 
-    def add(self, part:dict=None, index=None, chapter=None, color=''):
+
+
+    def parse_filename_meta(self, doc_name, regex_pattern: str, fancy_title_analysis=True):
+        """
+        Parses the metadata from a document name using a regular expression pattern.
+
+        Args:
+            doc_name (str): The name of the document.
+            regex_pattern (str): The regular expression pattern to use for parsing (can also give multiple as list or tuple).
+            fancy_title_analysis (bool, optional): Will Analyse the title for "signed" in it and also resolve CamelCasing from it
+
+        Returns:
+            dict: A dictionary containing the parsed metadata.
+
+        Example:
+            >>> pydocmaker = Pydocmaker()
+            >>> regex_pattern = r'(?P<title>\w+)-(?P<version>[a-zA-Z0-9]+)-(?P<state>\w+)'
+            >>> doc_name = 'myfile-01-draft'
+            >>> doc.parse_filename_meta(doc_name, regex_pattern)
+            {'doc_name': 'myfile-01-draft', 'title': 'myfile', 'version': '01', 'state': 'draft'}
+
+        """
+
+        if isinstance(regex_pattern, str):
+            regex_pattern = [regex_pattern]
+
+        dc = dict(doc_name=doc_name)
+        for pattern in regex_pattern:
+            match = re.match(pattern, doc_name)
+            if match:
+                dc.update(match.groupdict())
+
+        if fancy_title_analysis and 'title' in dc:
+            title = dc['title']
+            if 'signed' in title and not dc.get('status'):
+                dc['status'] = 'signed'
+            title = re.sub('signed', '', title, flags=re.IGNORECASE)
+            title = ' '.join(split_camel_case(title))
+            title = title.strip(' -_')
+            dc['title'] = title
+
+        self.update_meta(dc)
+        return dc
+
+    def set_meta(self, data, **kwargs):
+        """
+        Sets the metadata for the object.
+
+        Args:
+            data (dict): The metadata to be set.
+            **kwargs: Additional keyword arguments to be added to the metadata.
+
+        Returns:
+            dict: The updated metadata.
+        """
+        meta = self.get_meta()
+        if meta is None:
+            return self.add_meta(data, **kwargs)
+        else:
+            if not 'data' in meta:
+                meta['data'] = {}
+            meta['data'].clear()
+            meta['data'].update(data)
+            meta['data'].update(**kwargs)
+            return meta['data']
+        
+    def get_meta(self, default=None):
+        """gets the (first) metadata element in this document if it exists. If not returns None"""
+        return next((k for k in self if isinstance(k, dict) and k.get('typ') == 'meta'), default)
+    
+    def has_meta(self) -> bool:
+        """tests if this document has one or more metadata objects"""
+        return False if self.get_meta() is None else True
+    
+    def update_meta(self, *args, **kwargs) -> dict:
+        """updates the metadata element in this document if it exists. 
+        If not it will be added with the content given. The content can be
+        given either as a dict or as a kwargs.
+
+        Either:
+        .update_meta({'doc_name': 'test'})
+        or
+        .update_meta(doc_name='test') 
+
+        Returns:
+            dict: the meta elements data (content)
+        """
+        
+        data = next(iter(args), {})
+        meta = self.get_meta()
+        if meta is None: 
+            return self.add_meta(data, **kwargs)
+        else:
+            if not 'data' in meta:
+                meta['data'] = {}
+            meta['data'].update(data, **kwargs)
+            return meta['data']
+
+    def add_meta(self, *args, **kwargs):
+        """adds a metadata element to this document if it exists. 
+        If not the medatadata will be updated. The content can be
+        given either as a dict or as a kwargs.
+
+        Either:
+        .add_meta({'doc_name': 'test'})
+        or
+        .add_meta(doc_name='test') 
+
+        Returns:
+            dict: the meta elements data (content)
+        """
+        data = next(iter(args), {})
+        if self.has_meta():
+            return self.update_meta(data, **kwargs)
+        else:
+            el = constr.meta(data, **kwargs)
+            self.add(el)
+            return el['data']
+        
+    def add(self, part:dict=None, index=None, chapter=None, color='', end=None):
         """Appends a new document part to the given location or end of this document.
 
         Args:
@@ -371,6 +558,7 @@ class DocBuilder(UserList):
             index (int, optional): The index where to insert the part. If None, appends to the end.
             chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
             color (str, optional): any color which can be rendered by html or latex (ONLY VALID FOR string INPUTS!). Empty string for default.
+            end (str, optional): If you want to insert a different line ending (than the default) for this element set this argument to any string. None for default.
 
         Raises:
             ValueError: If the `part` is invalid, or if both `index` and `chapter` are specified.
@@ -379,11 +567,12 @@ class DocBuilder(UserList):
         assert part, 'need to give an element_to_add!'
         
         if isinstance(part, str):
-            part = constr.text(part, color=color)
+            part = constr.text(part, color=color, end=end)
             color = ''
         
         
         assert not color, 'giving a color is only allowed for string inputs!'
+        assert not end, 'giving a "end" argument is only allowed for string inputs!'
         assert hasattr(constr, part.get('typ', None)), 'the part to add is of unknown type!'
         assert index is None or chapter is None, f'can either give index OR chapter!'
 
@@ -400,14 +589,15 @@ class DocBuilder(UserList):
 
         if index is None:
             index = len(self) # append to end
-        
+
         assert isinstance(index, int), f'index must be None or int but was {type(index)=} {index=}'
         assert 0 <= index <= len(self), f'index must be 0 <= index <= len(self) but was {index=}, {len(self)=}'    
         self.insert(index, part)
         return self
 
 
-    def add_kw(self, typ, children=None, index=None, chapter=None, color='', **kwargs):
+        
+    def add_kw(self, typ, children=None, index=None, chapter=None, color='', end=None, **kwargs):
         """add a document part to this document with a given typ
 
         Args:
@@ -416,11 +606,12 @@ class DocBuilder(UserList):
             index (int, optional): The index where to insert the part. If None, appends to the end.
             chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
             color (str, optional): any color which can be rendered by html or latex. Empty string for default.
+            end (str, optional): If you want to insert a different line ending (than the default) for this element set this argument to any string. None for default.
 
             kwargs: the kwargs for such a document part
         """
         assert typ, 'need to give a content type!'
-        self.add(construct(typ, children=children, color=color, **kwargs), index=index, chapter=chapter)
+        self.add(construct(typ, children=children, color=color, end=end, **kwargs), index=index, chapter=chapter)
         return self
     
 
@@ -435,11 +626,11 @@ class DocBuilder(UserList):
 
             kwargs: the kwargs for such a document part
         """
-        self.add(construct('text', children=children, color=color, **kwargs), index=index, chapter=chapter)
+        self.add(construct('text', children=children, color=color, end=end, **kwargs), index=index, chapter=chapter)
         return self
 
 
-    def add_tex(self, children=None, index=None, chapter=None, color='', **kwargs):
+    def add_tex(self, children=None, index=None, chapter=None, color='', end=None, **kwargs):
         """add a latex part to this document
 
         Args:
@@ -450,10 +641,10 @@ class DocBuilder(UserList):
 
             kwargs: the kwargs for such a document part
         """
-        self.add(construct('latex', children=children, color=color, **kwargs), index=index, chapter=chapter)
+        self.add(construct('latex', children=children, color=color, end=end, **kwargs), index=index, chapter=chapter)
         return self
 
-    def add_md(self, children=None, index=None, chapter=None, color='', **kwargs):
+    def add_md(self, children=None, index=None, chapter=None, color='', end=None, **kwargs):
         """add a markdown document part to this document
 
         Args:
@@ -461,14 +652,15 @@ class DocBuilder(UserList):
             index (int, optional): The index where to insert the part. If None, appends to the end.
             chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
             color (str, optional): any color which can be rendered by html or latex. Empty string for default.
+            end (str, optional): If you want to insert a different line ending (than the default) for this element set this argument to any string. None for default.
 
             kwargs: the kwargs for such a document part
         """
-        self.add(construct('markdown', children=children, color=color, **kwargs), index=index, chapter=chapter)
+        self.add(construct('markdown', children=children, color=color, end=end, **kwargs), index=index, chapter=chapter)
         return self
     
 
-    def add_pre(self, children=None, index=None, chapter=None, color='', **kwargs):
+    def add_pre(self, children=None, index=None, chapter=None, color='', end=None, **kwargs):
         """add a verbaim (pre formatted) document part to this document
 
         Args:
@@ -476,14 +668,15 @@ class DocBuilder(UserList):
             index (int, optional): The index where to insert the part. If None, appends to the end.
             chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
             color (str, optional): any color which can be rendered by html or latex. Empty string for default.
+            end (str, optional): If you want to insert a different line ending (than the default) for this element set this argument to any string. None for default.
 
             kwargs: the kwargs for such a document part
         """
-        self.add(construct('verbatim', children=children, color=color, **kwargs), index=index, chapter=chapter)
+        self.add(construct('verbatim', children=children, color=color, end=end, **kwargs), index=index, chapter=chapter)
         return self
     
 
-    def add_fig(self, fig=None, caption = '', width=0.8, children=None, index=None, chapter=None, color='', **kwargs):
+    def add_fig(self, fig=None, caption = '', width=0.8, children=None, index=None, chapter=None, color='', end=None, **kwargs):
         """add a pyplot figure type dict from given image input.
         
         Args:
@@ -494,14 +687,15 @@ class DocBuilder(UserList):
             index (int, optional): The index where to insert the part. If None, appends to the end.
             chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
             color (str, optional): any color which can be rendered by html or latex. Empty string for default.
+            end (str, optional): If you want to insert a different line ending (than the default) for this element set this argument to any string. None for default.
 
 
         """
-        self.add(constr.image_from_fig(caption=caption, width=width, children=children, fig=fig, color=color, **kwargs), index=index, chapter=chapter)
+        self.add(constr.image_from_fig(caption=caption, width=width, children=children, fig=fig, color=color, end=end, **kwargs), index=index, chapter=chapter)
         return self
     
 
-    def add_image(self, image, caption = '', width=0.8, children=None, index=None, chapter=None, color='', **kwargs):
+    def add_image(self, image, caption = '', width=0.8, children=None, index=None, chapter=None, color='', end=None, **kwargs):
         """add a image type dict from given image input.
         image can be of type:
             - pyplot figure
@@ -518,19 +712,20 @@ class DocBuilder(UserList):
             index (int, optional): The index where to insert the part. If None, appends to the end.
             chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
             color (str, optional): any color which can be rendered by html or latex. Empty string for default.
-            
+            end (str, optional): If you want to insert a different line ending (than the default)  for this element set this argument to any string. None for default.
+
         """
 
         if isinstance(image, str) and image.startswith('http'):
-            docpart = constr.image_from_link(url=image, caption=caption, children=children, width=width, color=color)
+            docpart = constr.image_from_link(url=image, caption=caption, children=children, width=width, color=color, end=end)
         elif isinstance(image, str) and len(image) < 5_000 and os.path.exists(image):
-            docpart = constr.image_from_file(path=image, caption=caption, children=children, width=width, color=color)
+            docpart = constr.image_from_file(path=image, caption=caption, children=children, width=width, color=color, end=end)
         elif isinstance(image, str):
-            docpart = constr.image(imageblob=image, caption=caption, children=children, width=width, color=color)
+            docpart = constr.image(imageblob=image, caption=caption, children=children, width=width, color=color, end=end)
         elif 'Figure' in str(type(image)):
-            docpart = constr.image_from_fig(fig=image, caption=caption, children=children, width=width, color=color)
+            docpart = constr.image_from_fig(fig=image, caption=caption, children=children, width=width, color=color, end=end)
         else:
-            docpart = constr.image_from_obj(image, caption=caption, children=children, width=width, color=color)
+            docpart = constr.image_from_obj(image, caption=caption, children=children, width=width, color=color, end=end)
 
         self.add(docpart, index=index, chapter=chapter)
         return self
@@ -661,11 +856,17 @@ class DocBuilder(UserList):
         Raises:
             Warning: If the provided file path does not end with '.zip' or '.pdf', a warning is issued and the file is assumed to be in PDF format.
         """
-        
+        params = {}
+        meta = self.get_meta(default={})
+        params.update(meta.get('data', {}))
+
+        if template_params:
+            params.update(template_params)
+
         kwargs = {
             "files_to_upload": files_to_upload,
             "template": template,
-            "template_params": template_params,
+            "template_params": params,
             'do_escape_template_params': do_escape_template_params,
             "docname": docname,
             "base_dir": base_dir,
@@ -674,6 +875,16 @@ class DocBuilder(UserList):
             "verb": verb,
             "ignore_error": ignore_error
         }
+
+        # unpacks any argument from params into kwargs in case something else than default is given for that argument
+        for param_name, param_value in kwargs.items():
+            if param_name == 'docname' and not param_value and param_name in params:
+                kwargs[param_name] = params.get(param_name)
+            elif param_name == 'verb' and param_value == 1 and param_name in params:
+                kwargs[param_name] = params.get(param_name)
+            elif param_value is None and param_name in params:
+                kwargs[param_name] = params.get(param_name)
+
 
         fun = to_pdf
 
@@ -1002,6 +1213,7 @@ class DocBuilder(UserList):
 
         assert index is None or chapter is None, f'can either give index OR chapter!'
         
+        engine = engine.lower()
 
         if index:
             DocBuilder([self[index]]).show()
@@ -1022,7 +1234,7 @@ class DocBuilder(UserList):
                 kwargs['template_params'] = template_params
                 kwargs['do_escape_template_params'] = do_escape_template_params
                 pdf_bytes = self.to_pdf(**kwargs)
-                display(IFrame(f'data:application/pdf;base64,{base64.b64encode(pdf_bytes).decode()}', width=1000, height=1200))
+                show_pdf(pdf_bytes)
             else:
                 raise KeyError(f'engine must be in: "html", "markdown", "md", "tex", "latex", or "pdf", but was {engine=}')
 

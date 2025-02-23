@@ -9,10 +9,8 @@ except Exception as err:
 
 def convert(doc:List[dict], with_attachments=True, aformat_redmine=False):
 
-
     formatter = DocumentRedmineFormatter(aformat_redmine=aformat_redmine)
-    s = formatter.digest(doc)
-    text = '\n'.join(s)
+    text = formatter.digest(doc)
     if with_attachments:
         if aformat_redmine:
             attachments = [v for v in formatter.attachments]
@@ -60,6 +58,17 @@ def im2attachment(dc_img, filename, content):
     return {"path" : content, "filename" : filename, "content_type" : "application/octet-stream", "description": description}
 
 
+def handle_color(func):
+    def wrapper(*args, **kwargs):
+        result = func(*args, **kwargs)
+        color = kwargs.get('color', '')
+        if color:
+            result = '%{color:' +  str(color) + '}' + str(result) + '%'
+        return result
+    
+    return wrapper
+
+
 class DocumentRedmineFormatter(BaseFormatter):
 
     def __init__(self, aformat_redmine=True, out_format='textile') -> None:
@@ -76,18 +85,17 @@ class DocumentRedmineFormatter(BaseFormatter):
             txt += err + '\n'
         txt = f"""<pre style="margin: 15px; margin-left: 25px; padding: 10px; border: 1px solid gray; border-radius: 3px; color: red;">\n{txt}\n</pre>"""
 
-        return [txt]
+        return txt
 
+    @handle_color
+    def digest_markdown(self, children='', **kwargs) -> str:
+        return children
 
-    def digest_markdown(self, children='', **kwargs) -> list:
-        color = kwargs.get('color', '')
-        if color:
-            children = '%{color:' +  str(color) + '}' + str(children) + '%'
-
-        return [children]
-
+    @handle_color
+    def digest_text(self, children='', **kwargs) -> str:
+        return children
     
-    def digest_image(self, **kwargs) -> list:
+    def digest_image(self, **kwargs) -> str:
         filename, content = im2file(kwargs)
         attachment = im2attachment(kwargs, filename, content)
 
@@ -99,45 +107,21 @@ class DocumentRedmineFormatter(BaseFormatter):
             self.attachments.append((filename, content.read()))
 
         s = f'!{filename}({caption})!\n**IMAGE:** attachment:"{filename}" {caption}\n'
-        return [s]
+        return s
     
-    def digest_text(self, children='', **kwargs) -> list:
-        color = kwargs.get('color', '')
-        if color:
-            children = '%{color:' +  str(color) + '}' + str(children) + '%'
-        
-        return [children]
-    
-    def digest_latex(self, children='', **kwargs) -> list:
+    def digest_latex(self, children='', **kwargs) -> str:
         return self.digest_verbatim(children=children, **kwargs)
 
-    def digest_line(self, **kwargs):
-        return self.digest_text(**kwargs)
-    
-    def digest_verbatim(self, children='', **kwargs) -> list:
+    @handle_color
+    def digest_verbatim(self, children='', **kwargs) -> str:
         if isinstance(children, str):
             txt = children.strip('\n')
         else:
             txt = self.digest(children)
-        color = kwargs.get('color', '')
-        if color:
-            color = f'color:{color};'
-    
-        s = f"""<pre style="margin: 15px; margin-left: 25px; padding: 10px; border: 1px solid gray; border-radius: 3px;{color}">{txt}</pre>"""
-        return [s]
+        color = kwargs.get('color', 'black')
+        s = f"""<pre style="margin: 15px; margin-left: 25px; padding: 10px; border: 1px solid gray; border-radius: 3px;color={color}">{txt}</pre>"""
+        return s
 
-
-    def digest_iterator(self, el) -> list:
-        parts = []
-        if isinstance(el, dict) and el.get('typ', '') == 'iter' and isinstance(el.get('children', None), list):
-            el = el['children']
-        
-        assert isinstance(el, list)
-        for p in el:
-            parts += self.digest(p)
-            parts.append('\n\n')
-
-        return parts
     
     def parse_md2html(self, s) -> str:
         return markdown.markdown(s, extensions=['extra', 'toc'])
@@ -168,7 +152,4 @@ class DocumentRedmineFormatter(BaseFormatter):
         s = re.sub(r"(\[)([\s\S]*?)(?=\])(\])(\()([\s\S]*?)(?=\))(\))", r'"\2":\5', s)
         
         return s
-
-    def digest_str(self, el) -> list:
-        return [el]
         

@@ -81,13 +81,12 @@ class docx_renderer(BaseFormatter):
         return new_run
 
 
-
-    def handle_error(self, children, *args, **kwargs):
-        if isinstance(children, BaseException):
+    def handle_error(self, err, el) -> list:
+        if isinstance(err, BaseException):
             traceback.print_exc(limit=5)
-            children = '\n'.join(traceback.format_exception(type(err), value=err, tb=err.__traceback__, limit=5))
+            err = '\n'.join(traceback.format_exception(type(err), value=err, tb=err.__traceback__, limit=5))
 
-        new_run = self.add_run(children)
+        new_run = self.add_run(err)
         new_run.font.name = 'Courier New'  # Or any other monospace font
         new_run.font.size = docx.shared.Pt(8)  # Adjust font size as needed
         red(new_run)

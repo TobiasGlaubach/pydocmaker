@@ -237,9 +237,6 @@ class html_renderer(BaseFormatter):
                 return f'<div style="{color}">{content}</div>'
             else:
                 return f'<div>{content}</div>'
-
-    def digest_line(self, **kwargs):
-        return self.digest_text(**kwargs)
     
     
     def digest_latex(self, **kwargs):
@@ -267,11 +264,7 @@ class html_renderer(BaseFormatter):
         
         s = markdown.markdown(content)
         fun = lambda x:  f'<div style="{color}">{x}</div>' if color else f'<div>{x}</div>'
-            
-        # s = f'<pre disabled=true style="width:90%; min-height:200px; overflow-x: scroll; overflow-y: none; margin:5px;display:block;font-family: Lucida Console, Courier New, monospace;font-size: 0.8em;">\n\n{content}\n\n</pre>'
-        #s = f'<span style="display:block;" class="note">\n\n{content}\n\n</span>'
         parts += [fun(s)]
-
         return '\n\n'.join(parts)
     
 
@@ -295,48 +288,13 @@ class html_renderer(BaseFormatter):
         if imageblob is None:
             imageblob = ''
 
-
-        if not children:
-            uid = (id(imageblob) + int(time.time()) + random.randint(1, 100))
-            children = f'image_{uid}.png'
-
         s = imageblob.decode("utf-8") if isinstance(imageblob, bytes) else imageblob
         if not s.startswith('data:image'):
             s = 'data:image/png;base64,' + s
         
-        if children:
-            children = [
-                # f'<div style="margin-top: 1.5em; width: 100%; text-align: center;"><span style="min-width:100;display: inline-block;"><b>image-name: </b>{children}</span></div>',
-            ]
-        else:
-            children = []
-        
-        children += [    
-            f"<div style=\"width: 100%; text-align: center;\"><img src=\"{s}\" style=\"max-width:{int(width*100)}%;display: inline-block;\"></img></div>",
-        ]
+        children = [f"<div style=\"width: 100%; text-align: center;\"><img src=\"{s}\" style=\"max-width:{int(width*100)}%;display: inline-block;\"></img></div>"]
 
         if caption:
-            children.append(f'<div style="width: 100%; text-align: center;"><span style="min-width:100;display: inline-block;"><b>caption: </b>{caption}</span></div>')
-        
-        # children = dcc.Upload(id=self.mkid('helper_uploadfile'), children=children, multiple=False, disable_click=True)
+            children += [f'<div style="width: 100%; text-align: center;"><span style="min-width:100;display: inline-block;"><b>caption: </b>{caption}</span></div>']
 
         return '\n\n'.join(children)
-
-    def digest_iterator(self, **kwargs):
-        content = kwargs.get('content', kwargs.get('children'))
-        return f'\n\n'.join([f'<div>{c}</div>' for c in content])
-
-    
-    def format(self, doc:list):
-        return '\n\n'.join([self.digest(dc) for dc in doc])
-    
-    def handle_error(self, err, el) -> list:
-        txt = 'ERROR WHILE HANDLING ELEMENT:\n{}\n\n'.format(el)
-        if not isinstance(err, str):
-            tb_str = '\n'.join(traceback.format_exception(type(err), value=err, tb=err.__traceback__, limit=5))
-            txt += tb_str + '\n'
-        else:
-            txt += err + '\n'
-        txt = f'\n<pre style="margin: 15px; margin-left: 25px; padding: 10px; border: 1px solid gray; border-radius: 3px; color: red;">\n{txt}\n</pre>\n'
-
-        return txt

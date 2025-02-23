@@ -4,6 +4,25 @@ import traceback
 
 
 class BaseFormatter(abc.ABC):
+
+    default_linebreak = '\n\n'
+
+    def digest_iterator(self, **kwargs):
+        content = kwargs.get('content', kwargs.get('children'))
+        return f''.join([self.digest(c) for c in content])
+
+    def digest_str(self, el):
+        return str(el)
+
+    def digest_text(self, children='', **kwargs) -> list:
+        return self.digest(children) # will result in digest_str being called
+    
+    def digest_line(self, **kwargs):
+        return self.digest_text(**kwargs) 
+    
+    def digest_meta(self, **kwargs):
+        return '' # meta element will not influence the rendering and is just ignored
+    
     @abc.abstractmethod
     def digest_markdown(self, children='', **kwargs) -> str:
         pass
@@ -17,63 +36,75 @@ class BaseFormatter(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def digest_iterator(self, el) -> str:
-        pass
-
-    def digest_str(self, el):
-        return el
-
-    @abc.abstractmethod
-    def digest_text(self, children:str, **kwargs):
-        pass
-
-    @abc.abstractmethod
     def digest_latex(self, children:str, **kwargs):
         pass
 
-    @abc.abstractmethod
-    def digest_line(self, children:str, **kwargs):
-        pass
-
-    def digest(self, el, **kwargs) -> list:
+    def digest(self, children, **kwargs) -> str:
         try:
             
-            if not el:
-                return ''
-            elif isinstance(el, str):
-                ret = self.digest_str(el)
-            elif isinstance(el, dict) and 'typ' in el and el['typ'] == 'iter':
-                ret = self.digest_iterator(el)
-            elif isinstance(el, list) and el:
-                ret = self.digest_iterator(el)
-            elif isinstance(el, dict) and 'typ' in el and el['typ'] == 'image':
-                ret = self.digest_image(**el)
-            elif isinstance(el, dict) and 'typ' in el and el['typ'] == 'text':
-                ret = self.digest_text(**el)
-            elif isinstance(el, dict) and el.get('typ', None) == 'latex':
-                ret = self.digest_latex(**el)
-            elif isinstance(el, dict) and el.get('typ', None) == 'line':
-                ret = self.digest_line(**el)
-            elif isinstance(el, dict) and 'typ' in el and el['typ'] == 'verbatim':
-                ret = self.digest_verbatim(**el)
-            elif isinstance(el, dict) and 'typ' in el and el['typ'] == 'markdown':
-                ret = self.digest_markdown(**el)
+
+            if not children:
+                ret = ''
+            elif isinstance(children, str):
+                ret = self.digest_str(children)
+            elif isinstance(children, dict) and children.get('typ', None) == 'meta':
+                ret = self.digest_meta(children=children, **kwargs)
+            elif isinstance(children, dict) and children.get('typ', None) == 'iter':
+                ret = self.digest_iterator(children=children, **kwargs)
+            elif isinstance(children, list) and children:
+                ret = self.digest_iterator(children=children, **kwargs)
+            elif isinstance(children, dict) and children.get('typ', None) == 'image':
+                ret = self.digest_image(**children)
+            elif isinstance(children, dict) and children.get('typ', None) == 'text':
+                ret = self.digest_text(**children)
+            elif isinstance(children, dict) and children.get('typ', None) == 'latex':
+                ret = self.digest_latex(**children)
+            elif isinstance(children, dict) and children.get('typ', None) == 'line':
+                ret = self.digest_line(**children)
+            elif isinstance(children, dict) and 'typ' in children and children['typ'] == 'verbatim':
+                ret = self.digest_verbatim(**children)
+            elif isinstance(children, dict) and 'typ' in children and children['typ'] == 'markdown':
+                ret = self.digest_markdown(**children)
             else:
-                return self.handle_error(f'the element of type {type(el)} {el=}, could not be parsed.')
+                ret = self.handle_error(f'the element of type {type(children)} {children=}, could not be parsed.')
             
+            if isinstance(ret, str):
+                linebreak = self.default_linebreak
+                if isinstance(children, dict):
+                    tmp = children.get('end', None) 
+                    if not tmp is None:
+                        linebreak = tmp
+
+                tmp = kwargs.get('end', None) 
+                if not tmp is None:
+                    linebreak = tmp
+
+                ret += linebreak
             return ret
         
         except Exception as err:
-            return self.handle_error(err, el)
+            return self.handle_error(err, children)
 
 
-    @abc.abstractmethod
-    def format(self, doc:list) -> str:
-        pass
-    
-    def format(self, doc:list):
-        raise NotImplementedError()
-    
-    @abc.abstractmethod
     def handle_error(self, err, el) -> list:
-        pass
+        e = str(el)
+        if len(e) > 300:
+            e = e[:300] + f'... (n={len(e)-300} more chars hidden)'
+
+        txt = 'ERROR WHILE HANDLING ELEMENT:\n{}\n\n'.format(e)
+        if not isinstance(err, str):
+            txt += '\n'.join(traceback.format_exception(type(err), value=err, tb=err.__traceback__, limit=5))
+        else:
+            txt += err
+        return self.digest_verbatim(txt + '\n', color='red')
+    
+        
+    def format(self, doc:list) -> str:
+        if hasattr(doc, 'dump'):
+            doc = doc.dump()
+        if not isinstance(doc, list):
+            doc = [doc]
+        return ''.join([self.digest(p) for p in doc])
+    
+
+
