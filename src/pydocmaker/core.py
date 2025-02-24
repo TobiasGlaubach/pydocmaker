@@ -355,11 +355,13 @@ class DocBuilder(UserList):
         super().__init__(initial_data)
 
     def __add__(a, b):
+        default = a.default_add_string_type
+        
         if hasattr(a, 'dump'):
             a = a.dump()
         if hasattr(b, 'dump'):
             b = b.dump()
-        default = a.default_add_string_type
+        
 
         if hasattr(b, 'dump'):
             b = b.dump()
