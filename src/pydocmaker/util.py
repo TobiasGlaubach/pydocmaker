@@ -7,6 +7,41 @@ import io, datetime
 import time
 import random
 import string
+from enum import Enum
+
+class bcolors(Enum):
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKCYAN = '\033[96m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
+colors_dc = {
+    'purple': bcolors.HEADER.value,
+    'blue': bcolors.OKBLUE.value,
+    'cyan': bcolors.OKCYAN.value,
+    'green': bcolors.OKGREEN.value,
+    'warning': bcolors.WARNING.value,
+    'red': bcolors.FAIL.value,
+    'endc': bcolors.ENDC.value,
+    'bold': bcolors.BOLD.value,
+    'underline': bcolors.UNDERLINE.value
+}
+
+colors_dc.update({e.name:e.value for e in bcolors})
+colors_dc.update({e.name.lower():e.value for e in bcolors})
+colors_dc.update({e.value:e.value for e in bcolors})
+
+def txtcolor(s:str, color:str):
+    c = colors_dc.get(str(color).lower(), '')
+    if c:
+        return str(c) + s + str(bcolors.ENDC.value)
+    else:
+        return s
 
 def split_camel_case(st:str):
     words = []

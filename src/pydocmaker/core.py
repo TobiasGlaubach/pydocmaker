@@ -101,6 +101,17 @@ def make_png_imageblob(im_bytes:str):
 class constr():
     """This is the basic schema for the main building blocks for a document"""
 
+    # some aliases
+    typalias = {
+        'pre': 'verbatim',
+        'metadata': 'meta',
+        'md': 'markdown',
+        'txt': 'text',
+        'tex': 'latex', 
+        'iterator': 'iter',
+        'picture': 'image'
+    }
+
     @staticmethod
     def meta(children='', data=None, **kwargs):
         data = {k:v for k,v in data.items()} if data else {}
@@ -348,17 +359,27 @@ class DocBuilder(UserList):
             a = a.dump()
         if hasattr(b, 'dump'):
             b = b.dump()
+        default = a.default_add_string_type
+
+        if hasattr(b, 'dump'):
+            b = b.dump()
+        if isinstance(b, (tuple, list)) and len(b) == 2 and isinstance(b[0], str) and isinstance(b[-1], str):
+            (b, default) = b
         if isinstance(b, str):
-            b = DocBuilder().add_kw(a.default_add_string_type, b, end='').dump()
+            b = DocBuilder().add_kw(default, b, end='').dump()
         if not isinstance(b, list):
             b = [b]
         return DocBuilder(a + b)
     
     def __iadd__(self, b):
+        default = self.default_add_string_type
+
         if hasattr(b, 'dump'):
             b = b.dump()
+        if isinstance(b, (tuple, list)) and len(b) == 2 and isinstance(b[0], str) and isinstance(b[-1], str):
+            (b, default) = b
         if isinstance(b, str):
-            b = DocBuilder().add_kw(self.default_add_string_type, b, end='').dump()
+            b = DocBuilder().add_kw(default, b, end='').dump()
         for k in b:
             self.add(k)
         return self
@@ -564,7 +585,7 @@ class DocBuilder(UserList):
             ValueError: If the `part` is invalid, or if both `index` and `chapter` are specified.
             AssertionError: If `index` is not an integer or is out of bounds.
         """
-        assert part, 'need to give an element_to_add!'
+        assert part, f'need to give an element_to_add!, but got {type(part)=} {part=}'
         
         if isinstance(part, str):
             part = constr.text(part, color=color, end=end)
@@ -1311,6 +1332,7 @@ def _construct(v):
 def construct(typ:str, **kwargs):
     """construct a document-part dict from the given typ and some kwargs"""
     assert isinstance(typ, str)
+    typ = constr.typalias.get(typ, typ)
     if not kwargs and not hasattr(constr, typ):
         return typ
     elif hasattr(constr, typ):
