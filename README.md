@@ -29,7 +29,7 @@ pip install pydocmaker
 
 ## TL;DR;
 
-### Minimal Mini Example:
+### Snippet:
 
 ```python
 
@@ -37,7 +37,6 @@ import pydocmaker as pyd
 
 doc = pyd.Doc.get_example()
 doc.show()
-
 ```
 
 ### Minimal Usage Example:
@@ -53,7 +52,6 @@ doc.add('dummy text') # adds raw text
 doc.add_pre('this will be shown as preformatted') # preformatted
 doc.add_md('This is some *fancy* `markdown` **text**') # markdown
 doc.add_tex(r'\textbf{Hello, LaTeX!}') # latex
-
 
 # this is how to add an image from link
 doc.add_image("https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png", caption='', children='', width=0.8)
@@ -116,10 +114,73 @@ import redminelib
 redmine = redminelib.Redmine('https://your-redmine-instance.com', key='your_redmine_token')
 page = doc.to_redmine_upload(redmine, 'your-test-project')
 ```
+### Using Template Folders
 
-### Using Jinja2 Templates for Exporting to HTML or PDF
+pydocmaker supports mounting Jinja2 Templates organized in folders together with (optional) default parameters and assets. Suppose you have the following folder structure 
 
-you can use Jinja2 Templates to make HTML or PDF (latex) documents. An example is given below:
+```
+home/jovyan/templates/
+├─ assets/
+│  ├─ i_can_use_this_everywhere.png
+├─ fancy_tempate.assets/
+│  ├─ fancy_logo.png
+│  ├─ fancy_title_picture.png
+├─ fancy_template.params.json
+├─ fancy_template.tex.j2
+├─ normal_template.params.json
+├─ normal_template.tex.j2
+```
+
+(NOTE: you can also check out the `templates` folder in this repository for an example).
+
+You can then mount this folder in pydocmaker using 
+
+```python
+pyd.register_new_template_dir(r'home/jovyan/templates/')
+```
+
+Which will give you two available templates to use for exporting tex and pdf documents: 
+
+
+```python
+print(pyd.get_available_template_ids())
+```
+`>>> ["fancy_template", "normal_template"]`
+
+
+
+You can mark the templates to be used for a doc by setting it to the reports metadata:
+```python
+import pydocmaker as pyd
+doc = pyd.get_example()
+doc.set_template_to_meta('fancy_template')
+```
+
+which will write all needed data to the documents "metadata". Specifically:
+- `template_id` will hold the id with which the specific template can be loaded. In our case it will be `fancy_template`.
+- `files_to_upload` will hold all assets as base64 encoded bytes in our case the following files:
+   - **key**: `fancy_logo.png` **value** content from `.../fancy_tempate.assets/fancy_logo.png`
+   - **key**: `fancy_title_picture.png` **value** content from `.../fancy_tempate.assets/fancy_title_picture.png` 
+    - **key**: `i_can_use_this_everywhere.png` **value** content from `.../assets/i_can_use_this_everywhere.png` (content from `assets` will be made available shared for all templates)
+- and all other fields loaded from `fancy_template.params.json` will be loaded to the metadata dictionary directly. 
+
+If you thereafter export your document to pdf (or html if you have an html type template), pydocmaker will automatically load the template and render it with parameters, attachments and your document as the body. 
+
+you can view the template and params by 
+```python
+print(doc.get_meta())
+```
+
+and change them by:
+
+```python
+doc.update_meta(author='Me!')
+```
+
+
+### Using Jinja2 Templates Directly for Exporting to HTML or PDF
+
+you can also use Jinja2 Templates directly to make HTML or PDF (latex) documents. An example is given below:
 
 ```python
 

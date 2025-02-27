@@ -28,6 +28,23 @@ def register_new_template_dir(new_template_dir:str, check_exists=True) -> bool:
     registered_template_dirs.add(new_template_dir)
     return new_template_dir in registered_template_dirs
 
+def remove_from_template_dir(to_remove:str) -> bool:
+    """Removes an existing template directory if it exists.
+
+    Args:
+        to_remove (str): The path to remove from the template dirs.
+
+    Returns:
+        bool: Always True
+    """
+
+    global registered_template_dirs
+    if to_remove in registered_template_dirs:
+        registered_template_dirs.remove(to_remove)
+    return True
+
+
+
 def get_registered_template_dirs(include_default=True):
     """Returns a list of registered template directories.
 

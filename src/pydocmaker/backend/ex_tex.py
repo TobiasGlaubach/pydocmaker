@@ -115,13 +115,13 @@ def escape(s):
 
 def auto_escape_latex(params):
     if isinstance(params, str):
-        return params if params.startswith('%%latex') else escape(params)
+        return params if params.startswith('%%latex') or params.startswith('%latex') or params.startswith('%tex') else escape(params)
     elif isinstance(params, dict):
         return {k:auto_escape_latex(v) for k, v in params.items()}
     elif isinstance(params, list):
         return [auto_escape_latex(v) for k, v in params.items()]
     else:
-        raise ValueError('Can only auto escape strings, lists, or dicts as parameters!')
+        return params
 
 
 
