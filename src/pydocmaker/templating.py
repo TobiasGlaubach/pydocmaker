@@ -1,6 +1,7 @@
 
 import os
 import json
+from typing import List
 
 from jinja2 import Environment, FileSystemLoader, ChoiceLoader
 
@@ -118,7 +119,7 @@ class TemplateDirSource():
     """
 
 
-    def __init__(self, template_dirs:list[str]=None) -> None:
+    def __init__(self, template_dirs:List[str]=None) -> None:
         
         if template_dirs is None:
             template_dirs = get_registered_template_dirs(include_default=True)
