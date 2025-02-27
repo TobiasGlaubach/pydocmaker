@@ -51,7 +51,7 @@ def is_notebook() -> bool:
         return False      # Probably standard Python interpreter
 
 
-def show_pdf(pdf_bytes:[bytes|str], width=1000, height=1200):
+def show_pdf(pdf_bytes:bytes, width=1000, height=1200):
     """
     Display a PDF file within an IPython environment.
 
