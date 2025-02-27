@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        
+    </style>
+    {% if title %}
+    <title>{{ title }}</title>
+    {% endif %}
+</head>
+<body>
+
+{% if applicables or references or acronyms %}
+<h1>{References}</h1>
+{% endif %}
+{% if acronyms %}
+<h2>List of Acronyms</h2>
+<table>
+{% for key, value in acronyms.items() %}
+<tr><td><b>{{ key }}</b></td><td>{{ value }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+{% if applicables %}
+<h2>Applicable Documents</h2>
+<table>
+{% for key, value in applicables.items() %}
+<tr><td><b>AD[{{ key }}]</b></td><td>{{ value }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+{% if references %}
+<h2>Reference Documents</h2>
+<table>
+{% for key, value in references.items() %}
+<tr><td><b>RD[{{ key }}]</b></td><td>{{ value }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+
+    {{ body }}
+
+</body>
+</html>

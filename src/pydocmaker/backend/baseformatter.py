@@ -1,5 +1,26 @@
 import abc
 import traceback
+import os
+
+
+
+from jinja2 import Template
+
+def _handle_template(template, default_template):
+    if not template:
+        template = default_template
+
+    attachments = {}
+    if hasattr(template, 'render'):
+        template_obj = template
+    elif isinstance(template, str) and os.path.exists(template):
+        with open(template, 'r') as fp:
+            template_obj = Template(fp.read())
+    elif isinstance(template, str):
+        template_obj = Template(template)
+    else:
+        raise KeyError(f'Unknown template type! {type(template)=}')    
+    return template_obj, attachments
 
 
 
@@ -96,7 +117,7 @@ class BaseFormatter(abc.ABC):
             txt += '\n'.join(traceback.format_exception(type(err), value=err, tb=err.__traceback__, limit=5))
         else:
             txt += err
-        return self.digest_verbatim(txt + '\n', color='red')
+        return self.digest_verbatim(children=(txt + '\n'), color='red')
     
         
     def format(self, doc:list) -> str:

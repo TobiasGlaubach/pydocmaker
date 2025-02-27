@@ -29,7 +29,11 @@ from .backend.ex_redmine import convert as to_textile
 from .backend.ex_tex import make_pdf as to_pdf
 from .backend.ex_tex import make_pdf_zip as to_pdf_zip
 
+from .backend.ex_tex import auto_escape_latex
+
 from .backend.pdf_maker import make_pdf_from_tex, get_latex_compiler, set_latex_compiler
+
+from .templating import DocTemplate
 
 
 chapter_level = 1 # this is the level of heading to use for chapters which is equivalent to html <h1> to <h5> or whatever
@@ -455,6 +459,97 @@ class DocBuilder(UserList):
             return chapters
 
 
+    def get_template_from_meta(self, tformat ='', template_dir = None):
+        """Gets the template from the metadata in this document if there is any defined.
+
+        Args:
+            tformat (str, optional): The format of the template either 'tex' or 'html'. Defaults to ''.
+            template_dir (str, optional): If this is given only this specific template dir is mounted to load templates from. Otherwise all registered templates are loaded
+
+        Returns:
+            DocTemplate: The template object if a template_id is found in the metadata, otherwise None.
+        """
+        meta = self.get_meta({}).get("data", {})
+        template_id = meta.get("template_id", None)
+        if template_id is None:
+            return None    
+        try:
+            template = DocTemplate.from_tid(template_id, tformat, template_dir)
+            template.params = {k:v for k, v in meta.items() if k in template.params}
+            attachments = meta.get("files_to_upload", {})
+            attachments = {k:base64.b64decode(v) if isinstance(v, str) else v for k, v in attachments.items()}
+            template.attachments.update(attachments)
+            return template
+        except KeyError as err:
+            if 'my_template_id=' in str(err):
+                tformat = 'Any' if not tformat else tformat
+                warnings.warn(f'The {template_id=} was defined for this document, and the current serializer tried to get it with the format="{tformat}", but it could not be resolved.\nWill continue without template. Original Error message\n' + str(err) )
+                return None
+            else:
+                raise
+
+    
+
+    def set_template_to_meta(self, template_id:str, with_params=True, with_assets=True, test_found=True, on_exist='fail'):
+        """
+        Sets a template by a given template_id to the document metadata.
+
+        Args:
+            template_id (str): The ID of the template to set.
+            with_params (bool, optional): Whether to include the (defalt) parameters from the template in the metadata. Defaults to True.
+            with_assets (bool, optional): Whether to include the assets (files) from the template in the metadata. Defaults to True.
+            test_found (bool, optional): Whether to test if the template exists before adding anything. Defaults to True.
+            on_exist (str, optional): What to do if the parameters or assets from a template already exist in the metadata. Can be 'fail', 'overwrite', or 'skip'. Defaults to 'fail'.
+
+        Raises:
+            FileNotFoundError: If the template with the given ID does not exist.
+            AssertionError: If overwrite protection is enabled and the template would overwrite existing data.
+            ValueError: If an unknown value is passed for the on_exist parameter.
+
+        Returns:
+            dict: the meta elements data (content)
+        """
+        if (test_found or with_params or with_assets) and not DocTemplate.test_tid_exists(template_id):
+            available_tids = DocTemplate.get_available_tids()
+            raise FileNotFoundError(f'The template with the ID {template_id=} could not be found in {available_tids=}')
+
+        if with_params or with_assets:
+            template = DocTemplate.from_tid(template_id)
+
+        params = template.params if with_params else {}
+        files_to_upload = template.attachments if with_assets else {}
+        files_to_upload = {k:base64.b64encode(v).decode() if isinstance(v, bytes) else v for k, v in files_to_upload.items()}
+
+        meta = self.get_meta({}).get("data", {})
+
+        if on_exist == 'fail':
+            if files_to_upload:
+                assert not "files_to_upload" in meta or not meta.get("files_to_upload", None), f'Overwrite Protection! found "files_to_upload" key in meta, but this would be overwritten by assets from template. If this is what you want set on_exist="overwrite".'
+            if params:
+                existing_keys = [k for k in params if k in meta]
+                assert not existing_keys, f'Overwrite Protection! found {existing_keys=} in meta, but this would be overwritten by params from template. If this is what you want set on_exist="overwrite".'
+            if not 'files_to_upload' in meta:
+                meta['files_to_upload'] = {}
+            meta["files_to_upload"].update(files_to_upload)
+            meta.update(params)
+
+        elif on_exist == 'overwrite':
+            if not 'files_to_upload' in meta:
+                meta['files_to_upload'] = {}
+            meta["files_to_upload"].update(files_to_upload)
+            meta.update(params)
+        elif on_exist == "skip":
+            if not 'files_to_upload' in meta:
+                meta['files_to_upload'] = {}
+            meta["files_to_upload"].update(files_to_upload)
+            meta.update(params)
+        else:
+            raise ValueError(f'Unknown key for {on_exist=} allowed is only "fail", "overwrite", or "skip"')
+        
+        meta['template_id'] = template_id
+
+        return self.update_meta(meta)
+    
 
     def parse_filename_meta(self, doc_name, regex_pattern: str, fancy_title_analysis=True):
         """
@@ -544,12 +639,13 @@ class DocBuilder(UserList):
         
         data = next(iter(args), {})
         meta = self.get_meta()
+        data.update(**kwargs)
         if meta is None: 
-            return self.add_meta(data, **kwargs)
+            return self.add_meta(data)
         else:
             if not 'data' in meta:
                 meta['data'] = {}
-            meta['data'].update(data, **kwargs)
+            meta['data'].update(**data)
             return meta['data']
 
     def add_meta(self, *args, **kwargs):
@@ -566,10 +662,12 @@ class DocBuilder(UserList):
             dict: the meta elements data (content)
         """
         data = next(iter(args), {})
+        data.update(**kwargs)
+
         if self.has_meta():
-            return self.update_meta(data, **kwargs)
+            return self.update_meta(data)
         else:
-            el = constr.meta(data, **kwargs)
+            el = constr.meta(data=data)
             self.add(el)
             return el['data']
         
@@ -846,11 +944,25 @@ class DocBuilder(UserList):
         Returns:
             str: The data as string, or True if the data was saved successfully to a file or stream.
         """
+        params = {}
+        meta = self.get_meta(default={}).get('data', {})
+        mytemplate = self.get_template_from_meta(tformat='html')
+        if template is None and not mytemplate is None:
+            template = mytemplate.template
+        if not mytemplate is None:
+            params_from_meta = mytemplate.params
+        else:
+            params_from_meta = {k:v for k, v in meta.items() if not k in ["template_id", "files_to_upload", "additional_files"]}
+        params.update(params_from_meta)
+
+        if template_params:
+            params.update(template_params)
+
         return self._ret(to_html(self.dump(), template=template, template_params=template_params), path_or_stream)
 
         
 
-    def to_pdf(self, path_or_stream=None, docname='', files_to_upload=None, base_dir=None, latex_compiler=None, n_times_make=None, verb=1, ignore_error=True, template=None, template_params=None, do_escape_template_params=False):
+    def to_pdf(self, path_or_stream=None, docname='', files_to_upload=None, base_dir=None, latex_compiler=None, n_times_make=None, verb=1, ignore_error=True, template=None, template_params=None, do_escape_template_params='auto'):
         """Converts the current object to a PDF file or zipped latex project folder.
 
         Args:
@@ -871,7 +983,7 @@ class DocBuilder(UserList):
             template (str, optional): A string containing the LaTeX code for the document template. Either a Jinja2 Latex template, or a string
                 If not provided, a default template will be used.
             template_params (dict, optional): A dictionary containing the parameters for the document template which will be parsed to the "render" method of Jinja2
-            do_escape_template_params (bool, optional): Whether to escape the template parameters. Defaults to False.
+            do_escape_template_params (bool, optional): Whether to escape the template parameters. "auto" will scan for %%latex at the start of a string to determine if its a latex string. Defaults to 'auto'.
 
         Returns:
             str: The data as bytes, or True if the data was saved successfully to a file or stream.
@@ -879,12 +991,34 @@ class DocBuilder(UserList):
         Raises:
             Warning: If the provided file path does not end with '.zip' or '.pdf', a warning is issued and the file is assumed to be in PDF format.
         """
+        if files_to_upload is None:
+            files_to_upload = {}
+            
         params = {}
-        meta = self.get_meta(default={})
-        params.update(meta.get('data', {}))
+        meta = self.get_meta(default={}).get('data', {})
+        mytemplate = self.get_template_from_meta(tformat='tex')
+        if template is None and not mytemplate is None:
+            template = mytemplate.template
+        if not mytemplate is None:
+            if verb:
+                print(f'found template "{mytemplate.template_id}"')
+            params_from_meta = mytemplate.params
+            if verb:
+                print(f'found params: "{params_from_meta.keys()=}"')
+            files_to_upload = {**mytemplate.attachments, **files_to_upload}
+            if verb:
+                print(f'found attachments: "{files_to_upload.keys()=}"')
+        else:
+            params_from_meta = {k:v for k, v in meta.items() if not k in ["template_id", "files_to_upload", "additional_files"]}
+        params.update(params_from_meta)
 
         if template_params:
             params.update(template_params)
+
+        if do_escape_template_params == 'auto':
+            params = auto_escape_latex(params)
+            do_escape_template_params = False
+
 
         kwargs = {
             "files_to_upload": files_to_upload,
@@ -929,14 +1063,14 @@ class DocBuilder(UserList):
     
 
     
-    def to_tex(self, path_or_stream=None, additional_files=None, template = None, do_escape_template_params=False, template_params=None):
+    def to_tex(self, path_or_stream=None, additional_files=None, template = None, do_escape_template_params='auto', template_params=None):
         """Converts the current object to a TEX file (and attachments).
 
         Args:
             path_or_stream (str or io.IOBase, optional): The path to save the file to, or a file-like object to write the data to. If not provided, the data will be returned as a string.
             additional_files (dict[str:bytes], optional): Any additional files you want to upload to the tex document, such as an image as a logo in the header.
             template (str, optional): The LaTeX template to use.
-            do_escape_template_params (bool, optional): Whether to escape the template parameters. Defaults to False.
+            do_escape_template_params (bool, optional): Whether to escape the template parameters. "auto" will scan for %%latex at the start of a string to determine if its a latex string. Defaults to 'auto'.
             template_params (dict, optional): Additional parameters to pass to the LaTeX template.
 
         Returns:
@@ -946,7 +1080,29 @@ class DocBuilder(UserList):
                 str: The tex file as a string.
                 dict: The additional input files needed for LaTeX (bytes) as values and their relative paths (str) as keys.
         """
-        
+        if additional_files is None:
+            additional_files = {}
+
+        params = {}
+        meta = self.get_meta(default={}).get('data', {})
+        mytemplate = self.get_template_from_meta(tformat='tex')
+        if template is None and not mytemplate is None:
+            template = mytemplate.template
+        if not mytemplate is None:
+            params_from_meta = mytemplate.params
+            additional_files = {**mytemplate.attachments, **additional_files}
+        else:
+            params_from_meta = {k:v for k, v in meta.items() if not k in ["template_id", "files_to_upload", "additional_files"]}
+        params.update(params_from_meta)
+
+        if template_params:
+            params.update(template_params)
+
+        if do_escape_template_params == 'auto':
+            params = auto_escape_latex(params)
+            do_escape_template_params = False
+
+
         tex, files = to_tex(self.dump(), with_attachments=True, template=template, files_to_upload=additional_files, do_escape_template_params=do_escape_template_params, template_params=template_params)
 
         with io.BytesIO() as in_memory_zip:

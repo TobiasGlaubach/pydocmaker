@@ -1,13 +1,15 @@
-__version__ = '2.1.7'
+__version__ = '2.2.0'
 
-from pydocmaker.core import DocBuilder, construct, constr, buildingblocks, print_to_pdf, get_latex_compiler, set_latex_compiler, make_pdf_from_tex
+from pydocmaker.core import DocBuilder, construct, constr, buildingblocks, print_to_pdf, get_latex_compiler, set_latex_compiler, make_pdf_from_tex, show_pdf
 from pydocmaker.util import upload_report_to_redmine, bcolors, txtcolor, colors_dc
 
 
-from pydocmaker.backend.ex_tex import can_run_pandoc, get_default_tex_template
+from pydocmaker.backend.ex_tex import can_run_pandoc
 from pydocmaker.backend.pdf_maker import get_all_installed_latex_compilers, get_latex_compiler
 
 from pydocmaker.core import DocBuilder as Doc
+from pydocmaker.templating import DocTemplate, TemplateDirSource, register_new_template_dir, get_registered_template_dirs, get_available_template_ids, test_template_exists
+
 from latex import escape as tex_escape
 
 try:

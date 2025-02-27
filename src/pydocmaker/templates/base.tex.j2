@@ -1,0 +1,44 @@
+\documentclass[a4paper]{article}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{listings}
+
+{% if title %}\title{{ title }}{% endif %}
+{% if author %}\author{{ author }}{% endif %}
+{% if date %}\date{{ date }}{% endif %}
+
+{% if applicables or references or acronyms %}
+\section*{References}
+{% endif %}
+{% if acronyms %}
+\subsection*{List of Acronyms}
+\begin{tabular}{l@{\hspace{3cm}}l}
+{% for key, value in acronyms.items() %}
+{{ key }} & {{ value }} \\
+{% endfor %}
+\end{tabular}
+{% endif %}
+{% if applicables %}
+\subsection*{Applicable Documents}
+\begin{tabular}{l@{\hspace{1cm}}p{13cm}}
+{% for i, value in applicables.items() %}
+AD[{{ i }}] & {{ value }} \\
+{% endfor %}
+\end{tabular}
+{% endif %}
+{% if references %}
+\subsection*{Reference Documents}
+\begin{tabular}{l@{\hspace{1cm}}p{13cm}}
+{% for i, value in references.items() %}
+RD[{{ i }}] & {{ value }} \\
+{% endfor %}
+\end{tabular}
+{% endif %}
+
+
+\begin{document}
+
+{{ body }}
+
+\end{document}

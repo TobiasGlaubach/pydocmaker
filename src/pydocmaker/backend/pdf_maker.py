@@ -209,7 +209,22 @@ def make_pdf_from_tex(input_latex_text, attachments_dc=None, docname='', out_for
                     print('_'*20)
                     print(fp.read())
                     print('='*100)
-                    
+            
+            if not os.path.exists(out_path_pdf):
+                info_string = f"The file {out_path_pdf} does not exist."
+                if os.path.exists(output_dir):
+                    files_in_dir = os.listdir(output_dir)
+                    sep = '\n-'
+                    info_string += f"\The directory '{output_dir}' exists and contains the following files:\n{sep.join(files_in_dir)}"
+                else:
+                    info_string += f"\nThe directory {output_dir} does not exist either."
+                if os.path.exists(logfile):
+                    with open(logfile, 'r') as fp:
+                        info_string += '\nHere is the last 500 chars from the log file:\n---------\n' + fp.read()[-500:]
+                info_string += '\n To debug the latex code you can have a look at doc.to_tex() or doc.show("tex") directly to see the source. You can also call doc.to_pdf("myfolder/mydoc.zip") to get the full folder directly'
+
+                raise FileNotFoundError(info_string)
+            
             with open(out_path_pdf, 'rb') as fp:
                 bts = fp.read()
             return bts
