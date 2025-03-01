@@ -483,7 +483,8 @@ class DocBuilder(UserList):
         except KeyError as err:
             if 'my_template_id=' in str(err):
                 tformat = 'Any' if not tformat else tformat
-                warnings.warn(f'The {template_id=} was defined for this document, and the current serializer tried to get it with the format="{tformat}", but it could not be resolved.\nWill continue without template. Original Error message\n' + str(err) )
+                s = f'The {template_id=} was defined for this document, and the current serializer tried to get it with the format="{tformat}", but it could not be resolved.\nWill continue without template. Original Error message\n' + str(err) 
+                warnings.warn(s)
                 return None
             else:
                 raise
@@ -970,7 +971,7 @@ class DocBuilder(UserList):
 
         
 
-    def to_pdf(self, path_or_stream=None, docname='', files_to_upload=None, base_dir=None, latex_compiler=None, n_times_make=None, verb=1, ignore_error=True, template=None, template_params=None, do_escape_template_params='auto'):
+    def to_pdf(self, path_or_stream=None, docname='', files_to_upload=None, base_dir=None, latex_compiler=None, n_times_make=None, verb=1, ignore_error=True, template=None, template_params=None, do_escape_template_params='auto', **kwargs):
         """Converts the current object to a PDF file or zipped latex project folder.
 
         Args:
@@ -1002,6 +1003,8 @@ class DocBuilder(UserList):
         if files_to_upload is None:
             files_to_upload = {}
             
+        files_to_upload.update(kwargs.pop('additional_files', {}))
+
         params = {}
         meta = self.get_meta(default={}).get('data', {})
         mytemplate = self.get_template_from_meta(tformat='tex')
@@ -1071,7 +1074,7 @@ class DocBuilder(UserList):
     
 
     
-    def to_tex(self, path_or_stream=None, additional_files=None, template = None, do_escape_template_params='auto', template_params=None):
+    def to_tex(self, path_or_stream=None, additional_files=None, template = None, do_escape_template_params='auto', template_params=None, text_only=False):
         """Converts the current object to a TEX file (and attachments).
 
         Args:
@@ -1080,6 +1083,7 @@ class DocBuilder(UserList):
             template (str, optional): The LaTeX template to use.
             do_escape_template_params (bool, optional): Whether to escape the template parameters. "auto" will scan for %%latex at the start of a string to determine if its a latex string. Defaults to 'auto'.
             template_params (dict, optional): Additional parameters to pass to the LaTeX template.
+            text_only (bool, optional): Only valid if path_or_stream is None. Whether or not to return attachments as well. Defaults to False
 
         Returns:
             If saving to a file or stream:
@@ -1130,9 +1134,12 @@ class DocBuilder(UserList):
             path_or_stream.write(m)
             return True
         else:
-            return tex, files
+            if text_only:
+                return tex
+            else:
+                return tex, files
     
-    def to_textile(self, path_or_stream=None):
+    def to_textile(self, path_or_stream=None, text_only=False):
         """
         Converts the current object to a TEXTILE file (and attachments). 
         If path_or_stream is given it will zip all contents and write it to the stream or file path given.
@@ -1140,6 +1147,7 @@ class DocBuilder(UserList):
 
         Args:
             path_or_stream (str or io.IOBase, optional): The path to save the file to, or a file-like object to write the data to. If not provided, the data will be returned as string.
+            text_only (bool, optional): Only valid if path_or_stream is None. Whether or not to return attachments as well. Defaults to False
         """
         
         textile, files = to_textile(self.dump(), with_attachments=True, aformat_redmine=False)
@@ -1160,7 +1168,10 @@ class DocBuilder(UserList):
             path_or_stream.write(m)
             return True
         else:
-            return textile, files
+            if text_only:
+                return textile
+            else:
+                return textile, files
         
     def to_redmine(self):
         """
@@ -1402,24 +1413,29 @@ class DocBuilder(UserList):
         
         engine = engine.lower()
 
+        
+        if engine in ['html', 'pdf', 'tex']:
+            kwargs['additional_files'] = files_to_upload
+            kwargs['template'] = template
+            kwargs['template_params'] = template_params
+
+        if engine in ['pdf', 'tex']:
+            kwargs['do_escape_template_params'] = do_escape_template_params
+
         if index:
-            DocBuilder([self[index]]).show()
+            DocBuilder([self[index]]).show(**kwargs)
         elif chapter:
-            DocBuilder(self.get_chapter(chapter)).show()
+            DocBuilder(self.get_chapter(chapter)).show(**kwargs)
         
         if is_notebook():
-            from IPython.display import display, HTML, Markdown, IFrame, Code
+            from IPython.display import display, HTML, Markdown, Code
             if engine in 'html'.split():
                 display(HTML(self.to_html(**kwargs)))
             elif engine in 'markdown md'.split():
                 display(Markdown(self.to_markdown()))
             elif engine in 'tex latex'.split():
-                display(Code(self.to_tex(**kwargs)[0], language='tex'))
+                display(Code(self.to_tex(text_only=True, **kwargs), language='tex'))
             elif engine == 'pdf':
-                kwargs['files_to_upload'] = files_to_upload
-                kwargs['template'] = template
-                kwargs['template_params'] = template_params
-                kwargs['do_escape_template_params'] = do_escape_template_params
                 pdf_bytes = self.to_pdf(**kwargs)
                 show_pdf(pdf_bytes)
             else:
@@ -1431,7 +1447,7 @@ class DocBuilder(UserList):
             elif engine in 'markdown md'.split():
                 print(self.to_markdown(embed_images=False, **kwargs))
             elif engine in 'tex latex'.split():
-                print(self.to_tex(**kwargs)[0])
+                print(self.to_tex(text_only=True, **kwargs))
             else:
                 raise KeyError(f'engine must be in: "html", "markdown", "md", "tex", or "latex", but was {engine=}')
             

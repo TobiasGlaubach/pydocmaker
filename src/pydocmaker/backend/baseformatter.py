@@ -7,7 +7,7 @@ import os
 from jinja2 import Template
 
 def _handle_template(template, default_template):
-    if not template:
+    if template is None:
         template = default_template
 
     attachments = {}
@@ -16,6 +16,8 @@ def _handle_template(template, default_template):
     elif isinstance(template, str) and os.path.exists(template):
         with open(template, 'r') as fp:
             template_obj = Template(fp.read())
+    elif isinstance(template, str) and not template:
+        template_obj = Template('{{ body }}')
     elif isinstance(template, str):
         template_obj = Template(template)
     else:

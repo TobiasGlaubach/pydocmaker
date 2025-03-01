@@ -338,6 +338,12 @@ class DocTemplate():
         self.env = env
         self.template_id = template_id
 
+    def __str__(self):
+        return f"TemplateObject(id={self.template_id}, template={self.template}, params.keys()={self.params.keys()})"
+
+    def __repr__(self):
+        return self.__str__()
+
     def render(self, **kwargs):
         """Render the Jinja2 template with given parameters.
 
