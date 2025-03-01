@@ -1002,8 +1002,10 @@ class DocBuilder(UserList):
         """
         if files_to_upload is None:
             files_to_upload = {}
-            
-        files_to_upload.update(kwargs.pop('additional_files', {}))
+        
+        additional_files = kwargs.pop('additional_files', {})
+        if additional_files:
+            files_to_upload.update(additional_files)
 
         params = {}
         meta = self.get_meta(default={}).get('data', {})
