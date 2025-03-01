@@ -593,31 +593,39 @@ class DocBuilder(UserList):
         self.update_meta(dc)
         return dc
 
-    def set_meta(self, data, **kwargs):
+    def set_meta(self, *args, **kwargs):
         """
-        Sets the metadata for the object.
-
-        Args:
-            data (dict): The metadata to be set.
-            **kwargs: Additional keyword arguments to be added to the metadata.
+        Sets the metadata for this document. 
+        Use by either
+        .set_meta({'doc_name': 'test'})
+        or
+        .set_meta(doc_name='test') 
 
         Returns:
             dict: The updated metadata.
         """
+        data = next(iter(args), {})
+        data.update(kwargs)
+
         meta = self.get_meta()
         if meta is None:
-            return self.add_meta(data, **kwargs)
+            return self.add_meta(data)
         else:
             if not 'data' in meta:
                 meta['data'] = {}
             meta['data'].clear()
             meta['data'].update(data)
-            meta['data'].update(**kwargs)
             return meta['data']
         
     def get_meta(self, default=None):
-        """gets the (first) metadata element in this document if it exists. If not returns None"""
+        """gets the (first) meta element in this document if it exists. If not returns None"""
         return next((k for k in self if isinstance(k, dict) and k.get('typ') == 'meta'), default)
+    
+    def get_metadata(self):
+        """Equivalent to self.get_meta(default={}).get('data', {})
+        Gets the data of the (first) meta element in this document if it exists. 
+        If not exists an new empty dict is returned"""
+        return self.get_meta(default={}).get('data', {})
     
     def has_meta(self) -> bool:
         """tests if this document has one or more metadata objects"""
@@ -639,7 +647,7 @@ class DocBuilder(UserList):
         
         data = next(iter(args), {})
         meta = self.get_meta()
-        data.update(**kwargs)
+        data.update(kwargs)
         if meta is None: 
             return self.add_meta(data)
         else:
@@ -662,7 +670,7 @@ class DocBuilder(UserList):
             dict: the meta elements data (content)
         """
         data = next(iter(args), {})
-        data.update(**kwargs)
+        data.update(kwargs)
 
         if self.has_meta():
             return self.update_meta(data)

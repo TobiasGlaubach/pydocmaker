@@ -119,7 +119,7 @@ def auto_escape_latex(params):
     elif isinstance(params, dict):
         return {k:auto_escape_latex(v) for k, v in params.items()}
     elif isinstance(params, list):
-        return [auto_escape_latex(v) for k, v in params.items()]
+        return [auto_escape_latex(v) for v in params]
     else:
         return params
 
