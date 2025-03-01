@@ -1415,11 +1415,11 @@ class DocBuilder(UserList):
 
         
         if engine in ['html', 'pdf', 'tex']:
-            kwargs['additional_files'] = files_to_upload
             kwargs['template'] = template
             kwargs['template_params'] = template_params
 
         if engine in ['pdf', 'tex']:
+            kwargs['additional_files'] = files_to_upload
             kwargs['do_escape_template_params'] = do_escape_template_params
 
         if index:
