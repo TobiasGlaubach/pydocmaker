@@ -5,7 +5,12 @@ try:
     from pydocmaker.backend.baseformatter import BaseFormatter
 except Exception as err:
     from .baseformatter import BaseFormatter
-
+    
+try:
+    from pydocmaker.backend.pandoc_api import can_run_pandoc, pandoc_convert
+except Exception as err:
+    from .pandoc_api import can_run_pandoc, pandoc_convert
+    
 
 def convert(doc:List[dict], with_attachments=True, aformat_redmine=False):
 
@@ -89,12 +94,16 @@ class DocumentRedmineFormatter(BaseFormatter):
 
     @handle_color
     def digest_markdown(self, children='', **kwargs) -> str:
-        return children
+        if can_run_pandoc():
+            return pandoc_convert(children, 'markdown', 'textile')
+        else:
+            return children
 
     @handle_color
     def digest_text(self, children='', **kwargs) -> str:
         return children
     
+
     def digest_image(self, **kwargs) -> str:
         filename, content = im2file(kwargs)
         attachment = im2attachment(kwargs, filename, content)
@@ -110,8 +119,11 @@ class DocumentRedmineFormatter(BaseFormatter):
         return s
     
     def digest_latex(self, children='', **kwargs) -> str:
-        return self.digest_verbatim(children=children, **kwargs)
-
+        if can_run_pandoc():
+            return pandoc_convert(children, 'latex', 'textile')
+        else:
+            return self.digest_verbatim(children=children, **kwargs)
+        
     @handle_color
     def digest_verbatim(self, children='', **kwargs) -> str:
         if isinstance(children, str):
@@ -123,33 +135,23 @@ class DocumentRedmineFormatter(BaseFormatter):
         return s
 
     
-    def parse_md2html(self, s) -> str:
-        return markdown.markdown(s, extensions=['extra', 'toc'])
+    def digest_table(self, children=None, **kwargs) -> str:
+        borders = kwargs.pop('borders', None)
+        if borders is None:
+            borders = True
+        caption = kwargs.pop('caption', '')
+        if not caption:
+            caption = ''
 
-    def parse_md2textile_line(self, line):
-        r = re.match(r'([ \t]*)#+', line)
-        n = r.group().count('#') if r else None
-        if n:
-            line = re.sub(r'([ \t]*)#+', rf'\1h{n}. ', line)
+        head, mat = self._map_table2mat(children=children, **kwargs)
+        striprow = lambda x: [str(xx).strip() for xx in x]
 
-        r = re.match(r'^([ \t]*-{1}[ ]{1})', line)
-        if r:
-            g = r.group()
-            line = line.replace(g, ('*'*len(g)) + ' ')
-
-        return line
-
+        header = '|_.' + ' |_.'.join(striprow(head)) + ' |'
+        
+        rows = ['| ' + ' |'.join(striprow(row)) + ' |' for row in mat]
+        body = '\n'.join([header] + rows)
+        if caption:
+            body += f'\n\nCaption: {caption}\n'
+        return body
     
-
-    def parse_md2textile(self, s) -> str:
-        f = self.parse_md2textile_line
-        lines = [f(line) for line in s.split('\n')]
-        s = '\n'.join(lines)
-        # code blocks
-        s = re.sub(r"(```)([\s\S]*?)(?=```)(```)", r'<pre>\2</pre>', s)
-
-        # links
-        s = re.sub(r"(\[)([\s\S]*?)(?=\])(\])(\()([\s\S]*?)(?=\))(\))", r'"\2":\5', s)
-        
-        return s
-        
+   

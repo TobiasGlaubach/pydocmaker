@@ -225,3 +225,35 @@ class html_renderer(BaseFormatter):
             children += [f'<div style="width: 100%; text-align: center;"><span style="min-width:100;display: inline-block;"><b>caption: </b>{caption}</span></div>']
 
         return '\n\n'.join(children)
+
+    def digest_table(self, children=None, **kwargs) -> str:
+        borders = kwargs.pop('borders', None)
+        if borders is None:
+            borders = True
+        caption = kwargs.pop('caption', '')
+        if not caption:
+            caption = ''
+
+        head, mat = self._map_table2mat(children=children, **kwargs)
+        lines = []
+        st = ' style="border: 1px solid black;"' if borders else ''
+
+        lines.append('<table style="border-collapse: collapse; margin-left: auto; margin-right: auto;">')
+        lines.append("  <tr>")
+        lines += [f"    <th{st}>{h}</th>" for h in head]
+        lines.append("  </tr>")
+        for row in mat:
+            lines.append("  <tr>")
+            lines += [f"    <td{st}>{cell}</td>" for cell in row]
+            lines.append("  </tr>")
+
+        lines.append("</table>")
+
+        body = '\n'.join(lines)
+        txt = f'<div>{body}</div>'
+
+        if caption:
+            txt += f'\n<div style="text-align: center;"><span style="min-width:100;display: inline-block;"><b>Caption: </b>{caption}</span></div>'
+
+        return txt
+        

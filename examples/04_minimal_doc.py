@@ -1,3 +1,6 @@
+import sys, json
+sys.path.insert(0, r'C:\Users\tglaubach\repos\pydocmaker\src')
+
 import pydocmaker as pyd
 
 print(pyd.__file__)
@@ -34,6 +37,20 @@ function metamorphose(protagonist,author){
 }
 """)
 doc.add_tex("\\textit{This is some dummy LaTeX text.}")
+
+doc.add_md("this is how to embed a table:")
+
+header = ['Name', 'Age', 'City']
+table = [
+    ['John Doe', "30", 'New York'],
+    ['Jane Smith', "25", 'Los Angeles'],
+    ['Mike Johnson', "35", 'Chicago']
+]
+doc.add_table(table, header=header, borders=True, caption='This is my example table')
+
 doc.add('And this is how to embed an Image:')
 doc.add_image(image="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEYAAAAUCAAAAAAVAxSkAAABrUlEQVQ4y+3TPUvDQBgH8OdDOGa+oUMgk2MpdHIIgpSUiqC0OKirgxYX8QVFRQRpBRF8KShqLbgIYkUEteCgFVuqUEVxEIkvJFhae3m8S2KbSkcFBw9yHP88+eXucgH8kQZ/jSm4VDaIy9RKCpKac9NKgU4uEJNwhHhK3qvPBVO8rxRWmFXPF+NSM1KVMbwriAMwhDgVcrxeMZm85GR0PhvGJAAmyozJsbsxgNEir4iEjIK0SYqGd8sOR3rJAGN2BCEkOxhxMhpd8Mk0CXtZacxi1hr20mI/rzgnxayoidevcGuHXTC/q6QuYSMt1jC+gBIiMg12v2vb5NlklChiWnhmFZpwvxDGzuUzV8kOg+N8UUvNBp64vy9q3UN7gDXhwWLY2nMC3zRDibfsY7wjEkY79CdMZhrxSqqzxf4ZRPXwzWJirMicDa5KwiPeARygHXKNMQHEy3rMopDR20XNZGbJzUtrwDC/KshlLDWyqdmhxZzCsdYmf2fWZPoxCEDyfIvdtNQH0PRkH6Q51g8rFO3Qzxh2LbItcDCOpmuOsV7ntNaERe3v/lP/zO8yn4N+yNPrekmPAAAAAElFTkSuQmCC")
 
+doc.update_meta(author='Me')
+
+doc.to_pdf('template_example.pdf')

@@ -23,6 +23,29 @@ class DocumentMarkdownFormatter(BaseFormatter):
     def digest_markdown(self, children='', **kwargs) -> list:
         return children
     
+    def digest_table(self, children=None, **kwargs) -> str:
+        borders = kwargs.pop('borders', None)
+        if borders is None:
+            borders = True
+        caption = kwargs.pop('caption', '')
+        if not caption:
+            caption = ''
+
+        head, mat = self._map_table2mat(children=children, **kwargs)
+        striprow = lambda x: [str(xx).strip() for xx in x]
+
+        header = '| ' + ' | '.join(striprow(head)) + ' |'
+        separator = '|' + (' --- |' if borders else ' ---:|') * len(head)
+        rows = ['| ' + ' | '.join(striprow(row)) + ' |' for row in mat]
+        body = '\n'.join([header, separator] + rows)
+    
+        if caption:
+            body += f'\n\n**Caption:** {caption}\n'
+
+        return body
+
+   
+        
     def digest_image(self, **kwargs) -> list:
         
         filename = kwargs.get('filename')

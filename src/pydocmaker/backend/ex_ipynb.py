@@ -191,6 +191,10 @@ class ipynb_renderer(BaseFormatter):
         self.cells += [make_markdown(content)]
         return ''
     
+    def digest_table(self, children=None, **kwargs) -> str:
+        self.handle_error(NotImplementedError(f'exporter of type {type(self)} can not handle tables'))
+    
+
     def digest_image(self,imageblob=None, children='', width=0.8, caption="", **kwargs):       
         
         if imageblob is None:

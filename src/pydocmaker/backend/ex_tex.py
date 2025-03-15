@@ -427,3 +427,60 @@ class LatexElementFormatter(BaseFormatter):
     def digest_line(self, children:str, **kwargs):
         return replace_bcolors(str(children))
 
+
+    def digest_table(self, children=None, **kwargs) -> str:
+        borders = kwargs.pop('borders', None)
+        if borders is None:
+            borders = True
+
+        caption = kwargs.pop('caption', '')
+        if not caption:
+            caption = ''
+
+        head, mat = self._map_table2mat(children=children, **kwargs)
+        if not head and not mat[0]:
+            return ''
+        
+
+        striprow = lambda x: [str(xx).strip() for xx in x]
+        bold = lambda x: '\\textbf{' + str(x).strip() + '}'
+
+        n_cols = len(head) if head else len(mat[0])
+
+        lines = []
+        if borders:
+            lines.append(r'\hline')
+
+        if head:
+            lines.append(' & '.join([bold(hh) for hh in head]) + r' \\')
+            if borders:
+                lines.append(r'\hline')
+        for row in mat:
+            lines.append(' & '.join(striprow(row)) + r' \\')
+            if borders:
+                lines.append(r'\hline')
+        
+        if not borders:
+            d = ' '.join(['c'] * n_cols)
+        else:
+            d = '|' + '|'.join(['c'] * n_cols) + '|'
+
+        if caption:
+            caption = '\\caption{%s}' % (escape(caption))
+            
+            txt = '''\\begin{table}[h!]
+\centering
+\\begin{tabular}{ %s }
+%s 
+\end{tabular}
+%s
+\end{table}''' % (d, '\n'.join(lines), caption)
+        else:
+            txt = '''\\begin{center}
+\\begin{tabular}{ %s }
+%s 
+\end{tabular}
+\end{center}''' % (d, '\n'.join(lines))
+
+        return txt  
+

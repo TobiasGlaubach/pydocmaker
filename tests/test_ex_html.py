@@ -32,6 +32,19 @@ class TestHtmlRenderer(unittest.TestCase):
         result = self.formatter.digest({'typ': 'verbatim'})
         self.assertIsInstance(result, str)
 
+    def test_digest_table(self):
+        result = self.formatter.digest([['element1', 'element2']])
+        self.assertIsInstance(result, str)
+
+        dc = {
+            'children': [['element1', 'element2']], 
+            'header': ['h1', 'h2'], 
+            'n_cols': 3, 
+            'typ': 'table'
+        }
+        result = self.formatter.digest(dc)
+        self.assertIsInstance(result, str)
+
     def test_digest_iterator(self):
         result = self.formatter.digest(['element1', 'element2'])
         self.assertIsInstance(result, str)
@@ -61,6 +74,7 @@ class TestHtmlRenderer(unittest.TestCase):
         res = ex_html.convert(doc)
         self.assertIsInstance(res, str)
         self.assertTrue(res)
+
 
 if __name__ == '__main__':
     unittest.main()

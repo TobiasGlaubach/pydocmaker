@@ -98,7 +98,9 @@ class docx_renderer(BaseFormatter):
             return [self.digest(val, *args, **kwargs) for val in children]
         return []
 
-
+    def digest_table(self, children=None, **kwargs) -> str:
+        self.handle_error(NotImplementedError(f'exporter of type {type(self)} can not handle tables'))
+    
     def digest_image(self, children, *args, **kwargs):
 
         image_width = Inches(max(1, kwargs.get('width', 0.8)*5))

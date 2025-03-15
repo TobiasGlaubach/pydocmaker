@@ -31,7 +31,7 @@ class BaseFormatter(abc.ABC):
     default_linebreak = '\n\n'
 
     def digest_iterator(self, **kwargs):
-        content = kwargs.get('content', kwargs.get('children'))
+        content = kwargs.get('children', kwargs.get('content'))
         return f''.join([self.digest(c) for c in content])
 
     def digest_str(self, el):
@@ -46,6 +46,10 @@ class BaseFormatter(abc.ABC):
     def digest_meta(self, **kwargs):
         return '' # meta element will not influence the rendering and is just ignored
     
+    @abc.abstractmethod
+    def digest_table(self, children=None, **kwargs) -> str:
+        pass
+
     @abc.abstractmethod
     def digest_markdown(self, children='', **kwargs) -> str:
         pass
@@ -65,13 +69,14 @@ class BaseFormatter(abc.ABC):
     def digest(self, children, **kwargs) -> str:
         try:
             
-
             if not children:
                 ret = ''
             elif isinstance(children, str):
                 ret = self.digest_str(children)
             elif isinstance(children, dict) and children.get('typ', None) == 'meta':
                 ret = self.digest_meta(children=children, **kwargs)
+            elif isinstance(children, dict) and children.get('typ', None) == 'table':
+                ret = self.digest_table(**children, **kwargs)
             elif isinstance(children, dict) and children.get('typ', None) == 'iter':
                 ret = self.digest_iterator(children=children, **kwargs)
             elif isinstance(children, list) and children:
@@ -103,9 +108,11 @@ class BaseFormatter(abc.ABC):
                     linebreak = tmp
 
                 ret += linebreak
+
             return ret
         
         except Exception as err:
+            raise
             return self.handle_error(err, children)
 
 
@@ -131,3 +138,37 @@ class BaseFormatter(abc.ABC):
     
 
 
+    def _map_table2mat(self, children=None, **kwargs) -> str:
+        if children is None:
+            children = [[]]
+
+        assert isinstance(children, (list, tuple)), f'children must be of type list! but was {type(children)=} {children=}'
+        header = kwargs.get('header', None)
+        header = list(header) if header else []
+
+        assert isinstance(header, (list, tuple)), f'header must be of type list! but was {type(header)=} {header=}'
+        data = list(children)
+        wrong_rows = [row for row in children if not isinstance(row, (list, tuple))]
+        assert not wrong_rows, f'all rows must be of type list! but found {wrong_rows=}'
+
+        n_rows = kwargs.get('n_rows', None)
+        if n_rows is None:
+            n_rows = len(data)
+        n_cols = kwargs.get('n_cols', None)
+        if n_cols is None:
+            n_cols = max(len(header), max([len(row) for row in data]))
+        
+        head = [self.digest(el) for el in header]
+        if len(head) < n_cols:
+            head += ['']*(n_cols-len(head))
+
+        mat = []
+        for i in range(n_rows):
+            mat.append(['']*n_cols)
+
+        for irow, row in enumerate(data):
+            for icol, el in enumerate(row):
+                mat[irow][icol] = self.digest(el)
+
+        return head, mat
+    

@@ -145,6 +145,15 @@ class constr():
         }
     
     @staticmethod
+    def line(children='', color='', end=None):
+        return {
+            'typ': 'line',
+            'children': children,
+            'color': color,
+            'end': '\n' if end is None else end
+        }
+    
+    @staticmethod
     def latex(children='', color='', end=None):
         return {
             'typ': 'latex',
@@ -170,6 +179,20 @@ class constr():
             'children': [] if children is None else children,
             'color': color,
             'end': end
+        }
+    
+    @staticmethod
+    def table(children:list=None, color='', end=None, header=None, caption=None, n_cols=None, n_rows=None, borders=True):
+        return {
+            'typ': 'table',
+            'children': children,
+            'n_cols': n_cols,
+            'n_rows': n_rows,
+            'borders': borders,
+            'header': header,
+            'caption': caption,
+            'color': color,
+            'end': end,
         }
     
     @staticmethod
@@ -789,7 +812,29 @@ class DocBuilder(UserList):
         self.add(construct('markdown', children=children, color=color, end=end, **kwargs), index=index, chapter=chapter)
         return self
     
+    def add_table(self, children=None, index=None, chapter=None, color='', end=None, header=None, caption='', n_rows=None, n_cols=None, borders=True, **kwargs):
+        """add a table element to this document
 
+        Args:
+            children (list of lists): the "children" for this element. Must be a matrix (list of lists) with formatable elements in it.
+            index (int, optional): The index where to insert the part. If None, appends to the end.
+            chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
+            color (str, optional): any color which can be rendered by html or latex. Empty string for default.
+            end (str, optional): If you want to insert a different line ending (than the default) for this element set this argument to any string. None for default.
+            header (list, optional): The header row for the table. If given it must be a list with formatable elements in it.
+            caption (str, optional): The caption to place at/under the table. Empty for no caption.
+            n_rows (int, optional): The number of rows to give this table. If not given it will be determined from the number of rows in children.
+            n_cols (int, optional): The number of columns to give this table. If not given it will be determined from the max number of columns in all rows in children.
+            borders (bool, optional): Whether or not the table should have lines between its cells.
+        """
+        if header: kwargs['header'] = header
+        if n_rows: kwargs['n_rows'] = n_rows
+        if n_cols: kwargs['n_cols'] = n_cols
+        if borders: kwargs['borders'] = borders
+        if caption: kwargs['caption'] = caption
+        self.add(constr.table(children=children, color=color, end=end, **kwargs), index=index, chapter=chapter)
+        return self
+    
     def add_pre(self, children=None, index=None, chapter=None, color='', end=None, **kwargs):
         """add a verbaim (pre formatted) document part to this document
 
@@ -1495,6 +1540,17 @@ function metamorphose(protagonist,author){
 }
         """)
         doc.add_tex("\\textit{This is some dummy LaTeX text.}")
+
+        doc.add_md("this is how to embed a table:")
+
+        header = ['Name', 'Age', 'City']
+        table = [
+            ['John Doe', "30", 'New York'],
+            ['Jane Smith', "25", 'Los Angeles'],
+            ['Mike Johnson', "35", 'Chicago']
+        ]
+        doc.add_table(table, header=header, borders=True, caption='This is my example table')
+
         doc.add('And this is how to embed an Image:')
         doc.add_image(image="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEYAAAAUCAAAAAAVAxSkAAABrUlEQVQ4y+3TPUvDQBgH8OdDOGa+oUMgk2MpdHIIgpSUiqC0OKirgxYX8QVFRQRpBRF8KShqLbgIYkUEteCgFVuqUEVxEIkvJFhae3m8S2KbSkcFBw9yHP88+eXucgH8kQZ/jSm4VDaIy9RKCpKac9NKgU4uEJNwhHhK3qvPBVO8rxRWmFXPF+NSM1KVMbwriAMwhDgVcrxeMZm85GR0PhvGJAAmyozJsbsxgNEir4iEjIK0SYqGd8sOR3rJAGN2BCEkOxhxMhpd8Mk0CXtZacxi1hr20mI/rzgnxayoidevcGuHXTC/q6QuYSMt1jC+gBIiMg12v2vb5NlklChiWnhmFZpwvxDGzuUzV8kOg+N8UUvNBp64vy9q3UN7gDXhwWLY2nMC3zRDibfsY7wjEkY79CdMZhrxSqqzxf4ZRPXwzWJirMicDa5KwiPeARygHXKNMQHEy3rMopDR20XNZGbJzUtrwDC/KshlLDWyqdmhxZzCsdYmf2fWZPoxCEDyfIvdtNQH0PRkH6Q51g8rFO3Qzxh2LbItcDCOpmuOsV7ntNaERe3v/lP/zO8yn4N+yNPrekmPAAAAAElFTkSuQmCC")
         
