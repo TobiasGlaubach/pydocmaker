@@ -49,18 +49,23 @@ class DocumentMarkdownFormatter(BaseFormatter):
         lines.append('')
 
         # HACK: handle non PNG type properly!
-        if self.embed_images:
-            lines.append(f'![{description}](data:image/png;base64,{imageblob})')
+        if imageblob.startswith('data:image/png;base64,'):
+            i = imageblob
         else:
-            i = imageblob[:20] + f'... (n={len(imageblob)-20} more chars hidden))' if len(imageblob) > 20 else imageblob
-            lines.append(f'#[{description}](data:image/png;base64,{i}')
+            i = 'data:image/png;base64,' + str(imageblob)
+
+        if self.embed_images:
+            lines.append(f'![{description}]({i})')
+        else:
+            i = i[:35] + f'... (n={len(i)-35} more chars hidden))' if len(i) > 35 else i
+            lines.append(f'#[{description}]({i}')
         lines.append('')
 
         if caption:
             lines.append(f'*caption:* {filename}')
             lines.append('')
 
-        return lines
+        return '\n'.join(lines)
     
 
     def digest_verbatim(self, children='', **kwargs) -> list:
