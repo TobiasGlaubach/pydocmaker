@@ -149,6 +149,11 @@ def convert(doc:List[dict], template = None, template_params=None, **kwargs):
 
 class html_renderer(BaseFormatter):
 
+    def __init__(self):
+        self.cnt_img = 0
+        self.cnt_table = 0
+
+        super().__init__()
 
     def digest_text(self, **kwargs):
         label = kwargs.get('label', '')
@@ -172,13 +177,15 @@ class html_renderer(BaseFormatter):
         else:
             s = 'native backend can not convert latex to html and no pandoc is available. Falling back to show as verbatim'
             warnings.warn(s)
-            return '<br>' + self.digest_text(children='Warning! ' + s, color='purple') + html_renderer.digest_verbatim(**kwargs)    
+            return '<br>' + self.digest_text(children='Warning! ' + s, color='purple') + self.digest_verbatim(**kwargs)    
 
     
     def digest_markdown(self, **kwargs):
         label = kwargs.get('label', '')
         content = kwargs.get('content', kwargs.get('children'))
         color = kwargs.get('color', '')
+        use_pandoc = kwargs.get('use_pandoc', 0)
+
         if color:
             color = f'color:{color};'
 
@@ -188,8 +195,12 @@ class html_renderer(BaseFormatter):
                 f'<div style="min-width:100;{color}">{label}</div>',
                 '<hr/>'
             ]
-        
-        s = markdown.markdown(content)
+
+        if use_pandoc and can_run_pandoc():
+            s = pandoc_convert(content, 'markdown', 'html')
+        else:
+            s = markdown.markdown(content)
+
         fun = lambda x:  f'<div style="{color}">{x}</div>' if color else f'<div>{x}</div>'
         parts += [fun(s)]
         return '\n\n'.join(parts)
@@ -209,9 +220,13 @@ class html_renderer(BaseFormatter):
         ]
         return '\n\n'.join(children)
 
-    
-    def digest_image(self, imageblob=None, children='', width=0.8, caption="", **kwargs):       
         
+    def digest_image(self, **kwargs):
+        imageblob = kwargs.get('imageblob', None)
+        children = kwargs.get('children', '')
+        width = kwargs.get('width', 0.8)
+        caption = kwargs.get('caption', "")
+
         if imageblob is None:
             imageblob = ''
 
@@ -222,15 +237,16 @@ class html_renderer(BaseFormatter):
         children = [f"<div style=\"width: 100%; text-align: center;\"><img src=\"{s}\" style=\"max-width:{int(width*100)}%;display: inline-block;\"></img></div>"]
 
         if caption:
-            children += [f'<div style="width: 100%; text-align: center;"><span style="min-width:100;display: inline-block;"><b>caption: </b>{caption}</span></div>']
+            self.cnt_img += 1
+            children += [f'<div style="width: 100%; text-align: center;"><span style="min-width:100;display: inline-block;"><b>Figure {self.cnt_img}: </b>{caption}</span></div>']
 
         return '\n\n'.join(children)
 
     def digest_table(self, children=None, **kwargs) -> str:
-        borders = kwargs.pop('borders', None)
+        borders = kwargs.get('borders', None)
         if borders is None:
             borders = True
-        caption = kwargs.pop('caption', '')
+        caption = kwargs.get('caption', '')
         if not caption:
             caption = ''
 
@@ -253,7 +269,8 @@ class html_renderer(BaseFormatter):
         txt = f'<div>{body}</div>'
 
         if caption:
-            txt += f'\n<div style="text-align: center;"><span style="min-width:100;display: inline-block;"><b>Caption: </b>{caption}</span></div>'
+            self.cnt_table += 1
+            txt += f'\n<div style="text-align: center;"><span style="min-width:100;display: inline-block;"><b>Table {self.cnt_table}: </b>{caption}</span></div>'
 
         return txt
         
