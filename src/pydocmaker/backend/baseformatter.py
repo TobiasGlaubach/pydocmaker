@@ -94,7 +94,7 @@ class BaseFormatter(abc.ABC):
             elif isinstance(children, dict) and 'typ' in children and children['typ'] == 'markdown':
                 ret = self.digest_markdown(**children)
             else:
-                ret = self.handle_error(f'the element of type {type(children)} {children=}, could not be parsed.')
+                ret = self.handle_error(f'the element of type {type(children)} {children=}, could not be parsed.', children)
             
             if isinstance(ret, str):
                 linebreak = self.default_linebreak
@@ -112,11 +112,10 @@ class BaseFormatter(abc.ABC):
             return ret
         
         except Exception as err:
-            raise
             return self.handle_error(err, children)
 
 
-    def handle_error(self, err, el) -> list:
+    def handle_error(self, err, el=None) -> list:
         e = str(el)
         if len(e) > 300:
             e = e[:300] + f'... (n={len(e)-300} more chars hidden)'
