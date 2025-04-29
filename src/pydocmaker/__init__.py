@@ -1,4 +1,4 @@
-__version__ = '2.2.9'
+__version__ = '2.3.0'
 
 from pydocmaker.core import DocBuilder, construct, constr, buildingblocks, print_to_pdf, get_latex_compiler, set_latex_compiler, make_pdf_from_tex, show_pdf
 from pydocmaker.util import upload_report_to_redmine, bcolors, txtcolor, colors_dc
