@@ -375,6 +375,29 @@ class DocBuilder(UserList):
         'pdf': '.pdf'
     }
 
+    @staticmethod
+    def load_json(path):
+        """Load a JSON file and return a DocBuilder object.
+
+        Args:
+            path (str or file-like object): The path to the JSON file or a file-like object.
+
+        Returns:
+            DocBuilder: A DocBuilder object initialized with the loaded JSON data.
+
+        Raises:
+            json.JSONDecodeError: If the JSON file is not valid.
+            TypeError: If the loaded JSON object is not of type list.
+        """
+        if hasattr(path, 'read'): # test file pointer
+            lst = json.load(path)
+        else:
+            with open(path, 'r') as fp:
+                lst = json.load(fp)
+        if not isinstance(lst, list):
+            warnings.warn(f'The loaded json object is not of type list, but instead of type ({type(lst)=})')
+        return DocBuilder(lst)
+    
     def __init__(self, initial_data=None):
         if initial_data is None:
             initial_data = []
@@ -576,7 +599,7 @@ class DocBuilder(UserList):
     
 
     def parse_filename_meta(self, doc_name, regex_pattern: str, fancy_title_analysis=True):
-        """
+        r"""
         Parses the metadata from a document name using a regular expression pattern.
 
         Args:
@@ -871,7 +894,7 @@ class DocBuilder(UserList):
     
 
     def add_image(self, image, caption = '', width=0.8, children=None, index=None, chapter=None, color='', end=None, **kwargs):
-        """add a image type dict from given image input.
+        """add an image type dict from given image input.
         image can be of type:
             - pyplot figure
             - link to download an image from
@@ -919,7 +942,9 @@ class DocBuilder(UserList):
 
         if path_or_stream and isinstance(path_or_stream, str):
             mode = 'w' if isinstance(m, str) else 'wb'
-            with open(path_or_stream, mode) as f:
+            encoding = 'utf-8' if isinstance(m, str) else None
+
+            with open(path_or_stream, mode, encoding=encoding) as f:
                 f.write(m)
             return True
         
@@ -1116,8 +1141,13 @@ class DocBuilder(UserList):
                 fun = to_pdf
             else:
                 warnings.warn(f'the given filename is neither "zip" nor "pdf" this is unusual. I will assume it`s "pdf" format and write to the given path: "{path_or_stream}"')
+        
+        r = self._ret(fun(self.dump(), **kwargs), path_or_stream)
 
-        return self._ret(fun(self.dump(), **kwargs), path_or_stream)
+        if isinstance(path_or_stream, (str, os.PathLike)) and verb:
+            print(f'Saved to path_or_stream="{path_or_stream}" with function "{fun.__name__}"')
+
+        return r
     
 
     
@@ -1318,12 +1348,15 @@ class DocBuilder(UserList):
         Returns:
             dict: A dictionary containing the exported data or paths for each engine.
         """
-        if engines is None and dir_path is None:
-            engines = [e for e in DocBuilder.export_engines] # all engines
-        else:
-            engines = list(DocBuilder.export_engine_extensions.keys())
+        if engines is None and dir_path is None or not engines:
+            engines = list(DocBuilder.export_engines.keys()) # all engines
 
-        
+        unknown_engines = [e for e in engines if not e in DocBuilder.export_engine_extensions]
+        engines = [e for e in engines if e in DocBuilder.export_engine_extensions]
+
+        if unknown_engines: 
+            warnings.warn(f'Found unknown engines in requested engines. These will be ignored! {unknown_engines=}')
+
         if not dir_path is None:
             assert os.path.exists(dir_path), f'given {dir_path=} does not exist!'
             assert os.path.isdir(dir_path), f'given {dir_path=} is not a directory'
