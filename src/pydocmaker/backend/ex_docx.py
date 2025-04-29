@@ -7,6 +7,8 @@ from typing import List
 import docx
 from docx.shared import Inches, Pt
 
+import tempfile
+import os
 
 import markdown
 
@@ -14,7 +16,21 @@ try:
     from pydocmaker.backend.baseformatter import BaseFormatter
 except Exception as err:
     from .baseformatter import BaseFormatter
-    
+
+can_run_pandoc = lambda : False
+
+
+try:
+    from pydocmaker.backend.pandoc_api import can_run_pandoc, pandoc_convert, pandoc_convert_file
+except Exception as err:
+    from .pandoc_api import can_run_pandoc, pandoc_convert, pandoc_convert_file
+
+try:
+    from pydocmaker.backend.ex_html import convert as convert_html
+except Exception as err:
+    from .ex_html import convert as convert_html
+
+
 
 def blue(run):
     run.font.color.rgb = docx.shared.RGBColor(0, 0, 255)
@@ -22,10 +38,27 @@ def blue(run):
 def red(run):
     run.font.color.rgb = docx.shared.RGBColor(255, 0, 0)
 
+def convert_pandoc(doc:List[dict]) -> bytes:
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        html_file_path = os.path.join(temp_dir, 'temp.html')
+        docx_file_path = os.path.join(temp_dir, 'temp.docx')
+
+        with open(html_file_path, 'w', encoding='utf-8') as fp:
+            fp.write(convert_html(doc))
+        
+        pandoc_convert_file(html_file_path, docx_file_path)
+        with open(docx_file_path, 'rb') as fp:
+            return fp.read()
+        
 def convert(doc:List[dict]) -> bytes:
-    renderer = docx_renderer()
-    renderer.digest(doc)
-    return renderer.doc_to_bytes()
+
+    if can_run_pandoc():
+        return convert_pandoc(doc)
+    else:
+        renderer = docx_renderer()
+        renderer.digest(doc)
+        return renderer.doc_to_bytes()
 
 class docx_renderer(BaseFormatter):
     def __init__(self, template_path:str=None, make_blue=False) -> None:
@@ -81,7 +114,7 @@ class docx_renderer(BaseFormatter):
         return new_run
 
 
-    def handle_error(self, err, el) -> list:
+    def handle_error(self, err, el=None) -> list:
         if isinstance(err, BaseException):
             traceback.print_exc(limit=5)
             err = '\n'.join(traceback.format_exception(type(err), value=err, tb=err.__traceback__, limit=5))
