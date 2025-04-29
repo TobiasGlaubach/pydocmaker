@@ -13,6 +13,7 @@ import zipfile
 import tempfile
 import io
 
+allow_pandoc = True
 
 _is_pandoc_installed = None
 
@@ -24,6 +25,9 @@ def test_is_pandoc_installed():
         return False
 
 def can_run_pandoc(force_retest=False):
+    if not allow_pandoc:
+        return False
+    
     global _is_pandoc_installed
     if _is_pandoc_installed is None or force_retest:
          _is_pandoc_installed = test_is_pandoc_installed()
@@ -60,7 +64,42 @@ def pandoc_convert(input_string, input_format, output_format, is_binary=False, *
     else:
         return output
 
+def pandoc_set_allowed(is_allowed):
+    """Set whether or not pandoc is allowed to be used as a valid conversion option"""
+
+    global allow_pandoc
+    allow_pandoc = True if is_allowed else False
+    return allow_pandoc
+
     
+def pandoc_convert_file(inp_file, out_file_or_format):
+    """
+    Convert a file using pandoc.
+
+    Parameters:
+    inp_file (str): The path to the input file.
+    out_file_or_format (str or Path): The path to the output file or the desired output format.
+        If it's a string starting with a dot, it's considered as a file extension and the output file
+        will be the input file with the new extension.
+
+    Returns:
+    subprocess.CompletedProcess: The result of the pandoc conversion command.
+
+    Raises:
+    AssertionError: If the input file does not exist or if no output file or format is provided.
+    """
+    
+    assert inp_file, "Need to give an inout file name!"
+    assert os.path.exists(inp_file), f"input file {inp_file=} does not exist!"
+
+    out_file = out_file_or_format
+
+    if isinstance(out_file, str) and out_file.startswith("."):
+        out_file = os.path.splitext(inp_file)[0] + out_file
+        
+    assert out_file, "Need to give an output file name!"
+    return subprocess.run(['pandoc', inp_file, '-o', out_file])
+
 
 
 def convert(output_format, doc:List[dict], with_attachments=True, files_to_upload=None):
