@@ -268,7 +268,7 @@ class constr():
         return constr.image(imageblob=imageblob, children=children, caption=caption, width=width, color=color, end=end)
         
 
-    def image_from_fig(caption='', width=0.8, children=None, fig=None, color='', end=None, **kwargs):
+    def image_from_fig(caption='', width=0.8, children=None, fig=None, color='', end=None, bbox_inches='tight', **kwargs):
         """convert a matplotlib figure (or the current figure) to a document image dict to later add to a document
 
         Args:
@@ -285,9 +285,9 @@ class constr():
 
         with io.BytesIO() as buf:
             if fig:
-                fig.savefig(buf, format='png', **kwargs)
+                fig.savefig(buf, format='png', bbox_inches=bbox_inches, **kwargs)
             else:
-                plt.savefig(buf, format='png', **kwargs)
+                plt.savefig(buf, format='png', bbox_inches=bbox_inches, **kwargs)
             buf.seek(0)   
 
             img = base64.b64encode(buf.read()).decode('utf-8')
@@ -874,22 +874,22 @@ class DocBuilder(UserList):
         return self
     
 
-    def add_fig(self, fig=None, caption = '', width=0.8, children=None, index=None, chapter=None, color='', end=None, **kwargs):
+    def add_fig(self, fig=None, caption = '', width=0.8, bbox_inches='tight', children=None, index=None, chapter=None, color='', end=None, **kwargs):
         """add a pyplot figure type dict from given image input.
         
         Args:
             fig (matplotlib figure, optional): the figure which to upload (or the current figure if None). Defaults to None.
             caption (str, optional): the caption to give to the image. Defaults to ''.
             width (float, optional): The width for the image to have in the document. Defaults to 0.8.
+            bbox_inches (str, optional): will give better spacing for matplotlib figures.
             children (str, optional): A specific name/id to give to the image (will be auto generated if None). Defaults to None.
             index (int, optional): The index where to insert the part. If None, appends to the end.
             chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
             color (str, optional): any color which can be rendered by html or latex. Empty string for default.
             end (str, optional): If you want to insert a different line ending (than the default) for this element set this argument to any string. None for default.
 
-
         """
-        self.add(constr.image_from_fig(caption=caption, width=width, children=children, fig=fig, color=color, end=end, **kwargs), index=index, chapter=chapter)
+        self.add(constr.image_from_fig(caption=caption, width=width, bbox_inches=bbox_inches, children=children, fig=fig, color=color, end=end, **kwargs), index=index, chapter=chapter)
         return self
     
 

@@ -1,4 +1,4 @@
-__version__ = '2.3.0'
+__version__ = '2.3.1'
 
 from pydocmaker.core import DocBuilder, construct, constr, buildingblocks, print_to_pdf, get_latex_compiler, set_latex_compiler, make_pdf_from_tex, show_pdf
 from pydocmaker.util import upload_report_to_redmine, bcolors, txtcolor, colors_dc
@@ -149,13 +149,14 @@ def mk_pre(children=None, index=None, chapter=None, color='', end=None, **kwargs
    return DocBuilder().add_pre(children=children, index=index, chapter=chapter, color=color, end=end, **kwargs)[0]
 
 
-def mk_fig(fig=None, caption='', width=0.8, children=None, color='', end=None, **kwargs):
+def mk_fig(fig=None, caption='', width=0.8, bbox_inches='tight', children=None, color='', end=None, **kwargs):
     """make an image document part from a pyplot figure type dict from given image input.
     
     Args:
         fig (matplotlib figure, optional): the figure which to upload (or the current figure if None). Defaults to None.
         caption (str, optional): the caption to give to the image. Defaults to ''.
         width (float, optional): The width for the image to have in the document. Defaults to 0.8.
+        bbox_inches (str, optional): will give better spacing for matplotlib figures.
         children (str, optional): A specific name/id to give to the image (will be auto generated if None). Defaults to None.
         index (int, optional): The index where to insert the part. If None, appends to the end.
         chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
@@ -165,7 +166,7 @@ def mk_fig(fig=None, caption='', width=0.8, children=None, color='', end=None, *
     Returns:
         dict: The created document part.
     """
-    return DocBuilder().add_fig(fig=fig, caption=caption, width=width, children=children, color=color, end=end, **kwargs)[0]
+    return DocBuilder().add_fig(fig=fig, caption=caption, width=width, bbox_inches=bbox_inches, children=children, color=color, end=end, **kwargs)[0]
 
 def mk_image(image, caption='', width=0.8, children=None, color='', end=None, **kwargs):
     """make an image type dict from given image input.
