@@ -1,4 +1,4 @@
-__version__ = '2.3.1'
+__version__ = '2.3.2'
 
 from pydocmaker.core import DocBuilder, construct, constr, buildingblocks, print_to_pdf, get_latex_compiler, set_latex_compiler, make_pdf_from_tex, show_pdf
 from pydocmaker.util import upload_report_to_redmine, bcolors, txtcolor, colors_dc
@@ -126,9 +126,9 @@ def mk_md(children=None, index=None, chapter=None, color='', end=None, **kwargs)
        **kwargs: Additional keyword arguments for the document part.
 
    Returns:
-       DocBuilder: A new DocBuilder object with the added markdown document part.
+       dict: The newly created markdown document part.
    """
-   return DocBuilder().add_md(children=children, index=index, chapter=chapter, color=color, end=end, **kwargs)
+   return DocBuilder().add_md(children=children, index=index, chapter=chapter, color=color, end=end, **kwargs)[0]
 
 
 def mk_pre(children=None, index=None, chapter=None, color='', end=None, **kwargs):
