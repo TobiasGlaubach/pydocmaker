@@ -1,9 +1,9 @@
-__version__ = '2.3.2'
+__version__ = '2.3.3'
 
 from pydocmaker.core import DocBuilder, construct, constr, buildingblocks, print_to_pdf, get_latex_compiler, set_latex_compiler, make_pdf_from_tex, show_pdf
 from pydocmaker.util import upload_report_to_redmine, bcolors, txtcolor, colors_dc
 
-
+from pydocmaker.backend.ex_docx import edit_docx_xml
 from pydocmaker.backend.ex_tex import can_run_pandoc
 from pydocmaker.backend.pdf_maker import get_all_installed_latex_compilers, get_latex_compiler
 from pydocmaker.backend.pandoc_api import pandoc_convert_file, pandoc_set_allowed

@@ -10,6 +10,10 @@ from docx.shared import Inches, Pt
 import tempfile
 import os
 
+from pathlib import Path
+import zipfile, os, sys
+from io import BytesIO
+
 import markdown
 
 try:
@@ -30,6 +34,57 @@ try:
 except Exception as err:
     from .ex_html import convert as convert_html
 
+
+
+
+
+def edit_docx_xml(file_path, replace_dict, output_file_or_buffer=None):
+    """
+    Edit raw XML content of a DOCX file by replacing specified strings in all XML files within the document.
+
+    This function reads a DOCX file, extracts its contents (which are stored as a ZIP archive),
+    searches for specific strings in all XML files inside the archive, replaces them with new values,
+    and writes the modified content back into a new DOCX file or returns it as bytes.
+    Args:
+        file_path (str): Path to the input DOCX file to be modified
+        replace_dict (dict): Dictionary mapping strings to be replaced (keys) to their replacement values (values)
+        output_file_or_buffer (str, Path, or buffer object, optional): Path to save the modified DOCX file, or a buffer object to write to. If None, returns the modified DOCX content as bytes.
+    Returns:
+        bool or bytes: If output_file_or_buffer is a path, returns True if successful. If output_file_or_buffer is a buffer or None, returns the modified DOCX content as bytes.
+    """
+    # Read the original DOCX file
+    with open(file_path, 'rb') as f:
+        docx_data = f.read()
+    
+    # Create a temporary zip file from the DOCX data
+    zip_buffer = BytesIO(docx_data)
+    with zipfile.ZipFile(zip_buffer, 'r') as zip_file:
+        # Get all file names in the archive
+        file_list = zip_file.namelist()
+
+        output_buffer = BytesIO()
+        with zipfile.ZipFile(output_buffer, 'w', zipfile.ZIP_DEFLATED) as new_zip:
+            # Process each file in the original zip
+            for filename in file_list:
+                # Read the file content
+                content = zip_file.read(filename)
+                
+                for key_to_replace, new_value in replace_dict.items():
+                    content = content.replace(key_to_replace.encode('utf-8'), new_value.encode('utf-8'))
+                
+                # Add file to new zip
+                new_zip.writestr(filename, content)
+            # Create a new zip file in memory
+    
+    if isinstance(output_file_or_buffer, (str, Path)):
+        os.makedirs(os.path.dirname(output_file_or_buffer), exist_ok=True)
+        with open(output_file_or_buffer, 'wb') as output_buffer:
+            output_buffer.write(output_buffer.getvalue())
+        return os.path.exists(output_file_or_buffer)
+    elif hasattr(output_file_or_buffer, 'write'):
+        return output_buffer.write(output_buffer.getvalue())
+    else:
+        return output_buffer.getvalue()
 
 
 def blue(run):
