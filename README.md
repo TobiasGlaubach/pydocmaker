@@ -104,6 +104,61 @@ doc.to_ipynb('path/to/my_file.ipynb') # will write a ipynb file
 
 doc.to_json('path/to/doc.json') # saves the document
 ```
+### Writing Word docx Documents with templates and fields
+
+Below is an example on how to use pydocmaker to write word docx documents from format templates
+and also automatically "replace" fields (MergeFields in Word or plain text) to be filled out in 
+the docx document with text from python.
+
+(NOTE: some of the code below utilized the win32com api and only works on windows)
+
+```python 
+import pydocmaker as pyd
+
+# this is some fields in my template which I want to populate automatically
+metadata = {
+    'repno': "1234",
+    "summary": "This is a nice workflow for automatically creating docx documents",
+    "date": "2025-12-13",
+    "comment": f"this works!",
+    "author": "Me"
+}
+
+templatepath = 'my/path/template.docx'
+outpath = 'my/path/outfile.docx'
+
+# get a pyd example document to combine with my doxc template
+docx_bts = pyd.get_example().to_docx()
+
+print('replacing keywords...')
+# HOWTO: 
+#  Adding MergeFields In Word to replace them later: 
+#    Go to Insert -> Quick Parts -> Field -> MergeField.
+template = pyd.docx_replace_fields(templatepath, metadata)
+
+# Alternative calls working with plain strings as keywords to replace 
+# -- see the function documentation for info
+# template = pyd.docx_replace_keywords_raw(template, metadata)
+# template = pyd.docx_replace_keywords(template, metadata)
+
+# merge two or more documents by appending them
+docx_bts = pyd.docx_merge(template, docx_bts)
+
+# save out file
+with open(outpath, "wb") as fp:
+    fp.write(docx_bts)
+
+# use the win32com.client api with word to update all fields 
+# like the table of contents in the document after we changed it
+
+# WARNING! only works in windows and with word installed
+pyd.docx_update_w32(outpath)
+
+
+print(outpath)
+
+```
+
 
 ### Uploading to Redmine
 
