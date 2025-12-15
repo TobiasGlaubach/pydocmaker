@@ -35,6 +35,8 @@ from .backend.pdf_maker import make_pdf_from_tex, get_latex_compiler, set_latex_
 
 from .templating import DocTemplate
 
+np = None
+gImage = None
 
 chapter_level = 1 # this is the level of heading to use for chapters which is equivalent to html <h1> to <h5> or whatever
 
@@ -312,10 +314,15 @@ class constr():
         Returns:
             dict with the results
         """
-        if not 'np' in locals():
-            import numpy as np
-        if not 'Image' in locals():
+        global np, gImage
+
+        if np is None:
+            import numpy 
+            np = numpy
+
+        if gImage is None:
             from PIL import Image
+            gImage = Image
 
         # 2D matrix as lists --> make nummpy array
         if isinstance(img, list) and img and img[0] and isinstance(img[0], list):
@@ -802,7 +809,7 @@ class DocBuilder(UserList):
 
             kwargs: the kwargs for such a document part
         """
-        self.add(construct('text', children=children, color=color, end=end, **kwargs), index=index, chapter=chapter)
+        self.add(construct('text', children=children, color=color, **kwargs), index=index, chapter=chapter)
         return self
 
 
@@ -986,18 +993,27 @@ class DocBuilder(UserList):
         """
         return self._ret(to_markdown(self.dump(), embed_images=embed_images), path_or_stream)
 
-    def to_docx(self, path_or_stream=None) -> bytes:
+    def to_docx(self, path_or_stream=None, template:str=None, template_params=None, use_w32=False, as_pdf=False, compress_images=False) -> bytes:
         """
-        Converts the current object to a DOCX file.
+        Converts the current object to a DOCX file, or a PDF file via DOCX (WARNING some options need win32com and word installed if selected).
 
         Args:
-            path_or_stream (str or io.IOBase, optional): The path to save the file to, or a file-like object to write the data to. If not provided, the data will be returned as string.
+            template (str, optional): Path to a DOCX template file. Defaults to None.
+            template_params (dict, optional): Parameters to replace fields in the template. Defaults to None.
+            use_w32 (bool, optional): Whether to use win32com for document field updating and any of the following arguments, THIS OPTION NEEDS win32com and word installed. Defaults to False.
+            as_pdf (bool, optional): Whether to output the document as a PDF (via docx and win32com). Defaults to False.
+            compress_images (bool, optional): Whether to compress images in the document using win32com. Defaults to False.
+
 
         Returns:
             bytes: The data as bytes, or True if the data was saved successfully to a file or stream.
+
+        Raises:
+            ValueError: If attempting to export to PDF without win32com and Word.Application installed and use_w32 set to True.
+
         """
-        return self._ret(to_docx(self.dump()), path_or_stream)        
-    
+        return self._ret(to_docx(self.dump(), template=template, template_params=template_params, use_w32=use_w32, as_pdf=as_pdf, compress_images=compress_images), path_or_stream)        
+
     def to_ipynb(self, path_or_stream=None) -> str:
         """
         Converts the current object to an ipynb (iPython notebook) file.

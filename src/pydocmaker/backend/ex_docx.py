@@ -1,8 +1,10 @@
+import copy
 import traceback
 import io
 
 import base64
 from typing import List
+import warnings
 
 import docx
 from docx.shared import Inches, Pt, RGBColor
@@ -23,6 +25,7 @@ except Exception as err:
 
 can_run_pandoc = lambda : False
 
+from enum import Enum
 
 try:
     from pydocmaker.backend.pandoc_api import can_run_pandoc, pandoc_convert, pandoc_convert_file
@@ -38,15 +41,19 @@ except Exception as err:
 
 from docx import Document
 
-def _make_output(bts, output_file_or_buffer):
+gwin32 = None
+gcomposer = None
+gmailmerge = None
+
+def _make_output(bts, output_path_or_buffer):
     
-    if isinstance(output_file_or_buffer, (str, Path)):
-        os.makedirs(os.path.dirname(output_file_or_buffer), exist_ok=True)
-        with open(output_file_or_buffer, 'wb') as f:
+    if isinstance(output_path_or_buffer, (str, Path)):
+        os.makedirs(os.path.dirname(output_path_or_buffer), exist_ok=True)
+        with open(output_path_or_buffer, 'wb') as f:
             f.write(bts)
-        return os.path.exists(output_file_or_buffer)
-    elif hasattr(output_file_or_buffer, 'write'):
-        return output_file_or_buffer.write(bts)
+        return os.path.exists(output_path_or_buffer)
+    elif hasattr(output_path_or_buffer, 'write'):
+        return output_path_or_buffer.write(bts)
     else:
         return bts
     
@@ -62,137 +69,201 @@ def _get_bytes_file_or_buffer(file_path_or_buffer):
             bts_data = f.read()
     return bts_data
 
-def docx_update_w32(inpath, outpath=None):
-    """
-    Update all fields in a Word document using COM automation.
+def _test_docxw32_installed(verb=0, force_reload=False):
+        """tests if win32com and Microsoft Word is available
 
-    This function opens a `.docx` file via the Word COM interface,
-    updates all fields in the main body and in all story ranges
-    (including headers and footers), and then saves the document.
-    If `outpath` is provided, the updated document is saved to that
-    path; otherwise, the original file is overwritten.
+        Returns:
+            int: 0 if both are available, 1 if win32com is not available 2 if win32com is available and word is not available.
+        """
+        if _test_docxw32_installed.cache is None or force_reload:
+            global gwin32
 
-    Args:
-        inpath (str): Path to the input Word document (.docx).
-        outpath (str, optional): Path to save the updated document.
-            If None, the input file is overwritten. Defaults to None.
+            try:
+                
+                import win32com.client
+                if verb: print("win32com is available.")
+                
+                gwin32 = win32com.client
 
-    Returns:
-        None
-
-    Raises:
-        pywintypes.com_error: If Word cannot open the document or
-            if COM automation fails.
-
-    Example:
-        >>> docx_update_w32("C:/docs/report.docx")
-        # Updates fields in report.docx and overwrites the file
-
-        >>> docx_update_w32("C:/docs/report.docx", "C:/docs/report_updated.docx")
-        # Updates fields and saves to a new file
-    """
-
-    import win32com.client
-
-    word = win32com.client.Dispatch("Word.Application")
-    doc = word.Documents.Open(inpath)
-    doc.Fields.Update()
-
-    for story_range in doc.StoryRanges:
-        story_range.Fields.Update()
-        # Some story ranges have linked ranges (e.g., next header/footer)
-        while story_range.NextStoryRange is not None:
-            story_range = story_range.NextStoryRange
-            story_range.Fields.Update()
-    if outpath is None:
-        doc.Save()
-    else:
-        doc.SaveAs(outpath)
-
-    doc.Close()
-    word.Quit()
-
-
-def docx_merge(*files, verb=0) -> bytes:
-    """
-    Merge multiple Word (.docx) documents into a single document.
-
-    This function uses the `docxcompose.Composer` class to combine
-    multiple `.docx` files into one. The merged document is returned
-    as raw bytes, suitable for saving to disk or further processing.
-    Input files can be provided as paths, file-like objects, or raw
-    byte buffers. If the first argument is a list or tuple, it will
-    be unpacked as the set of files to merge.
-
-    Args:
-        *files (Union[str, bytes, io.BytesIO, list, tuple]):
-            One or more `.docx` files to merge. Each file can be a
-            filesystem path, a bytes buffer, or a file-like object.
-            If a single list or tuple is passed, it will be expanded.
-        verb (int, optional): Verbosity level. If nonzero, progress
-            messages are printed during merging. Defaults to 0.
-
-    Returns:
-        bytes: The merged `.docx` document as a byte string.
-
-    Raises:
-        AssertionError: If no files are provided.
-        ImportError: If `docxcompose` is not installed.
-        Exception: Any error raised during document loading or merging.
-
-    Example:
-        >>> merged_bytes = docx_merge("intro.docx", "chapter1.docx", "chapter2.docx")
-        >>> with open("book.docx", "wb") as f:
-        ...     f.write(merged_bytes)
-
-        >>> files = ["report_part1.docx", "report_part2.docx"]
-        >>> merged_bytes = docx_merge(files, verb=1)
-        >>> open("report_full.docx", "wb").write(merged_bytes)
-    """
-
-    if not locals().get("Composer", globals().get("Composer")):
-        print('importing Composer from docxcompose...')
-        from docxcompose.composer import Composer
-
-    assert files, f'Must supply files to merge, but given was {files=}!'
-
-    if files and isinstance(files[0], (tuple, list)):
-        files = files[0]
-
-    composer = None
-    for i, file in enumerate(files):
-
-        bts = _get_bytes_file_or_buffer(file)
-        if composer is None:
-            if verb:
-                print(f'loading template {i}/{len(files)}...')
-            composer = Composer(Document(io.BytesIO(bts)))
-            if verb: 
-                print('compose...')
-        else:
-            if verb:
-                print(f'adding doc {i}/{len(files)}')
-                print("load report...")
-                print(f'doc={file}')
-            doc_b = Document(io.BytesIO(bts))
-            if verb:
-                print("adding report to template...")
-            composer.append(doc_b)
-    if verb:
-        print("saving merged as bytes...")
+                # Attempt to create an instance of the Word application
+                word = win32com.client.Dispatch("Word.Application")
+                word.Quit()
+                if verb: print("Microsoft Word is available.")
+                _test_docxw32_installed.cache = 0
+            except ImportError:
+                if verb: print("win32com is not available.")
+                _test_docxw32_installed.cache = 1
+            except Exception as e:
+                if verb: print(f"An error occurred: {e}")
+                _test_docxw32_installed.cache = 2
         
-    with io.BytesIO() as fp:
-        composer.save(fp)
-        fp.seek(0)
-        bts = fp.getvalue()
+        return _test_docxw32_installed.cache
 
-    if verb:
-        print("returning...")
+_test_docxw32_installed.cache = None
 
-    return bts
+class msoPictureCompress(Enum):
+    """Enumeration of picture compression types for MS Office."""
+    Default = 0
+    HQPrint = 1
+    Print = 2
+    Email = 3
+    Screen = 4
+    Photo = 16
+
+class DocxFileW32:
+    """A context manager for working with DOCX files using Win32COM automation.
+    
+    This class provides methods to manipulate DOCX documents via Microsoft Word's COM interface,
+    including image compression, field updates, and exporting to PDF format. It ensures proper
+    cleanup by closing the Word application and document upon exiting the context manager.
+
+    WARNING! This class needs the win32com library and word installed to work properly!
+
+    """
+
+    @staticmethod
+    def is_installed(verb=0, force_reload=False, ret_int=False):
+        r = _test_docxw32_installed(verb=verb, force_reload=force_reload)
+        return r == 0 if not ret_int else r
 
 
-# def docx_replace_color(file_path_or_buffer, output_file_or_buffer=None, color_to_replace=(0, 0, 0), new_color=(0, 112, 192), do_replace_default_color=True):
+    def __init__(self, docx_path, outpath=None):
+        """Initialize the DocxFileW32 instance.
+        
+        WARNING! This class needs the win32com library and word installed to work properly!
+
+        Args:
+            docx_path (str): The path to the input DOCX file.
+            outpath (str, optional): The output path for saving changes, None defaults to the input path. Defaults to None.
+        """
+        self.docx_path = docx_path
+        self.outpath = outpath
+        self.word = None
+        self.worddoc = None
+        self._created_word_app = False
+
+    def __enter__(self):
+        """Enter the runtime context for the DocxFileW32 instance. if "win32com.client" is not available it will be 
+        imported. 
+
+        Returns:
+            DocxFileW32: The instance itself for use in a 'with' statement.
+        """
+        global gwin32
+        if gwin32 is None:
+            import win32com.client as _gwin32
+            gwin32 = _gwin32
+
+        try:
+            # Try to get an existing Word application
+            self.word = gwin32.GetActiveObject("Word.Application")
+        except Exception:
+            # If no Word application is running, create a new one
+            self.word = gwin32.Dispatch("Word.Application")
+            self.word.Visible = False  # Keep Word hidden
+            self._created_word_app = True
+
+        # Open the document
+        self.worddoc = self.word.Documents.Open(self.docx_path)
+        return self
+
+    def compress_images(self, compressionQuality=msoPictureCompress.Screen):
+        """Compress all images within the document based on specified quality settings.
+        
+        Args:
+            compressionQuality (msoPictureCompress or int): The compression level to apply to images.
+                Defaults to msoPictureCompress.Screen (quality 4).
+
+        Returns:
+            DocxFileW32: The instance itself to allow method chaining.
+        """
+        quality = compressionQuality.value if hasattr(compressionQuality, "value") else (int(compressionQuality))
+
+        # Iterate through all shapes in the document
+        for shape in self.worddoc.InlineShapes:
+            if shape.Type == 13:  # 13 corresponds to a picture
+                # Compress the image
+                shape.PictureFormat.CompressionType = quality  # msoPictureCompressPhoto
+        return self
+    
+    def update_fields(self):
+        """Update all fields in the document, including those in headers and footers.
+
+        Returns:
+            DocxFileW32: The instance itself to allow method chaining.
+        """
+        self.worddoc.Fields.Update()
+
+        for story_range in self.worddoc.StoryRanges:
+            story_range.Fields.Update()
+            # Some story ranges have linked ranges (e.g., next header/footer)
+            while story_range.NextStoryRange is not None:
+                story_range = story_range.NextStoryRange
+                story_range.Fields.Update()
+        return self
+    
+    def export(self, pdf_path=None, optimize_for_screen=True):
+        """Export the document to PDF format with specified options.
+
+        Args:
+            pdf_path (str, optional): The path where the PDF will be saved. If None, uses outpath.
+            optimize_for_screen (bool): True for wdExportOptimizeForOnScreen (=1) else wdExportOptimizeForPrint (=0).
+
+        Returns:
+            DocxFileW32: The instance itself to allow method chaining.
+        
+        Raises:
+            AssertionError: If pdf_path is None and outpath is also None.
+        """
+        if pdf_path is None:
+            assert self.outpath, 'If pdf_path is None, the objects "outpath" must be valid!'
+            pdf_path = self.outpath
+
+        pdf_path = pdf_path.replace('.docx', '.pdf')
+        # Define the PDF save options
+        pdf_options = {
+            'OutputFileName': pdf_path,
+            'ExportFormat': 17,  # FileFormat=17 is for PDF
+            'OptimizeFor': 1 if optimize_for_screen else 0
+        }
+
+        os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
+        self.worddoc.ExportAsFixedFormat(**pdf_options)
+        
+        return self
+    
+    def save(self):
+        # Save the document
+        if self.worddoc:
+            if self.outpath is None:
+                self.worddoc.Save()
+            else:
+                os.makedirs(os.path.dirname(self.outpath), exist_ok=True)
+                self.worddoc.SaveAs(self.outpath)
+        return self
+    
+    def close(self):
+        # Close the document and quit Word
+        if self.worddoc:
+            self.worddoc.Close()
+        # Quit the Word application if it was created by this script
+        if self.word and self._created_word_app:
+            self.word.Quit()
+        return self
+    
+    def __exit__(self, exc_type, exc_value, traceback):
+        """Exit the runtime context for the DocxFileW32 instance, saving and closing resources.
+
+        Args:
+            exc_type: Exception type (if any) that occurred during execution.
+            exc_value: Exception value (if any) that occurred during execution.
+            traceback: Traceback object (if any) that occurred during execution.
+        """
+        self.save()
+        self.close()
+
+
+# def docx_replace_color(file_path_or_buffer, output_path_or_buffer=None, color_to_replace=(0, 0, 0), new_color=(0, 112, 192), do_replace_default_color=True):
 
 #     docx_data = _get_bytes_file_or_buffer(file_path_or_buffer)
         
@@ -217,114 +288,188 @@ def docx_merge(*files, verb=0) -> bytes:
 #         doc.save(fp)
 #         bts = fp.getvalue()
 
-#     return _make_output(bts, output_file_or_buffer)
+#     return _make_output(bts, output_path_or_buffer)
 
 
 
-def docx_replace_fields(file_path_or_buffer, replace_dict, output_file_or_buffer=None):
+
+class DocxFile:
     """
-    replace all MergeFields of a DOCX file with given text in form of a dict.
-    
-    Adding MergeFields In Word:
-        - Go to Insert → Quick Parts → Field → MergeField.
-    - Give it a name like FirstName, Date, etc.
-
-    This function reads a DOCX file, searches for specific MergeFields and replaces them. 
-    Writes the modified content back into a new DOCX file or returns it as bytes.
-    Args:
-        file_path_or_buffer (str, filelike): Path to the input DOCX file to be modified
-        replace_dict (dict): Dictionary mapping strings to be replaced (keys) to their replacement values (values)
-        output_file_or_buffer (str, Path, or filelike object, optional): Path to save the modified DOCX file, or a buffer object to write to. If None, returns the modified DOCX content as bytes.
-    Returns:
-        bool or bytes: If output_file_or_buffer is a path, returns True if successful. If output_file_or_buffer is a buffer or None, returns the modified DOCX content as bytes.
+    A class to handle operations on DOCX files such as appending multiple documents,
+    replacing fields, and saving the modified document.
     """
-        
-    if not locals().get("MailMerge", globals().get("MailMerge")):
-        from mailmerge import MailMerge
 
-    bts = _get_bytes_file_or_buffer(file_path_or_buffer)
-    outbuf = BytesIO()
+    def __init__(self, file_path_or_buffer):
+        """
+        Initialize the DocxFile with a file path or buffer containing DOCX data.
 
-    with MailMerge(BytesIO(bts)) as document:
-        # fields = document.get_merge_fields()
-
-        document.merge(**replace_dict)
-        document.write(outbuf)
-
-    return _make_output(outbuf.getvalue(), output_file_or_buffer)
-
-
-def docx_replace_keywords(file_path_or_buffer, replace_dict, output_file_or_buffer=None):
-    """
-    Edit raw XML content of a DOCX file by replacing specified strings using python docx.
-
-    This function reads a DOCX file, searches for specific strings in all XML files 
-    inside the archive, replaces them with new values,
-    and writes the modified content back into a new DOCX file or returns it as bytes.
-    Args:
-        file_path_or_buffer (str, filelike): Path to the input DOCX file to be modified
-        replace_dict (dict): Dictionary mapping strings to be replaced (keys) to their replacement values (values)
-        output_file_or_buffer (str, Path, or filelike object, optional): Path to save the modified DOCX file, or a buffer object to write to. If None, returns the modified DOCX content as bytes.
-    Returns:
-        bool or bytes: If output_file_or_buffer is a path, returns True if successful. If output_file_or_buffer is a buffer or None, returns the modified DOCX content as bytes.
-    """
-    
-    docx_data = _get_bytes_file_or_buffer(file_path_or_buffer)
-        
-    # Create a temporary zip file from the DOCX data
-    doc = Document(BytesIO(docx_data))
-
-    for p in doc.paragraphs:
-        for key_to_replace, new_value in replace_dict.items():
-            p.text = p.text.replace(str(key_to_replace), str(new_value))
-    
-    with BytesIO() as fp:
-        doc.save(fp)
-        bts = fp.getvalue()
-
-    return _make_output(bts, output_file_or_buffer)
-
-
-
-def docx_replace_keywords_raw(file_path_or_buffer, replace_dict, output_file_or_buffer=None):
-    """
-    Edit raw XML content of a DOCX file by replacing specified strings in all XML files within the document.
-
-    This function reads a DOCX file, extracts its contents (which are stored as a ZIP archive),
-    searches for specific strings in all XML files inside the archive, replaces them with new values,
-    and writes the modified content back into a new DOCX file or returns it as bytes.
-    Args:
-        file_path_or_buffer (str, filelike): Path to the input DOCX file to be modified
-        replace_dict (dict): Dictionary mapping strings to be replaced (keys) to their replacement values (values)
-        output_file_or_buffer (str, Path, or filelike object, optional): Path to save the modified DOCX file, or a buffer object to write to. If None, returns the modified DOCX content as bytes.
-    Returns:
-        bool or bytes: If output_file_or_buffer is a path, returns True if successful. If output_file_or_buffer is a buffer or None, returns the modified DOCX content as bytes.
-    """
-    
-    docx_data = _get_bytes_file_or_buffer(file_path_or_buffer)
-        
-    # Create a temporary zip file from the DOCX data
-    zip_buffer = BytesIO(docx_data)
-    with zipfile.ZipFile(zip_buffer, 'r') as zip_file:
-        # Get all file names in the archive
-        file_list = zip_file.namelist()
-
-        output_buffer = BytesIO()
-        with zipfile.ZipFile(output_buffer, 'w', zipfile.ZIP_DEFLATED) as new_zip:
-            # Process each file in the original zip
-            for filename in file_list:
-                # Read the file content
-                content = zip_file.read(filename)
+        :param file_path_or_buffer: bytes, or a path to the DOCX file or a buffer containing DOCX data.
+        """
                 
-                for key_to_replace, new_value in replace_dict.items():
-                    content = content.replace(key_to_replace.encode('utf-8'), new_value.encode('utf-8'))
-                
-                # Add file to new zip
-                new_zip.writestr(filename, content)
-            # Create a new zip file in memory
-        bts = output_buffer.getvalue()
+        self.file_path_or_buffer = file_path_or_buffer
+        
+        self.docx_data = self._get_bytes_file_or_buffer(file_path_or_buffer)
+        self.inp_data = copy.deepcopy(self.docx_data)
+        
+    def _get_bytes_file_or_buffer(self, file_path_or_buffer):
+        """
+        Retrieve bytes from a file path or buffer.
 
-    return _make_output(bts, output_file_or_buffer)
+        :param file_path_or_buffer: Path to the DOCX file or a buffer containing DOCX data.
+        :return: Bytes of the DOCX file.
+        """
+        # Existing implementation to get bytes from file path or buffer
+        if isinstance(file_path_or_buffer, (io.BytesIO, bytes)):
+            return file_path_or_buffer if isinstance(file_path_or_buffer, bytes) else file_path_or_buffer.getvalue()
+        else:
+            with open(file_path_or_buffer, 'rb') as f:
+                return f.read()
+
+
+    def append(self, *files, verb=0) -> bytes:
+        """
+        Append multiple Word (.docx) documents into a single document.
+
+        :param files: Variable length argument list of either (bytes, or file paths, or buffers) to be appended.
+        :param verb: Verbosity level (0 for silent, 1 for verbose).
+        :return: The current instance of DocxFile with the appended DOCX data.
+        """
+        if not files:
+            raise ValueError(f'Must supply files to merge, but given was {files=}!')
+        
+        global gcomposer
+
+        if gcomposer is None:
+            from docxcompose.composer import Composer
+            gcomposer = Composer
+
+
+        if isinstance(files[0], (tuple, list)):
+            files = files[0]
+        
+        i = 0
+        if verb: print(f'{i}/{len(files)} loading current document into composer ...')
+        composer = gcomposer(Document(io.BytesIO(self.docx_data)))
+
+        for i, file in enumerate(files):
+            bts = self._get_bytes_file_or_buffer(file)
+            if verb:
+                print(f'{i}/{len(files)} appending doc')
+                print("load report...")
+                print(f'doc={file}')
+            doc_b = Document(io.BytesIO(bts))
+            if verb: print("adding report to template...")
+            composer.append(doc_b)
+        if verb: print("saving merged as bytes...")
+            
+        with io.BytesIO() as fp:
+            composer.save(fp)
+            fp.seek(0)
+            bts = fp.getvalue()
+
+        if verb: print("returning...")
+        self.docx_data = bts
+        return self
+
+    def replace_fields(self, replace_dict):
+        """
+        Replace all MergeFields of a DOCX file with given text in form of a dict.
+
+        :param replace_dict: Dictionary where keys are field names and values are replacement texts.
+        :return: The current instance of DocxFile with the replaced fields.
+        """
+        global gmailmerge
+        if gmailmerge is None:
+            from mailmerge import MailMerge
+            gmailmerge = MailMerge
+
+        outbuf = BytesIO()
+
+        with gmailmerge(BytesIO(self.docx_data)) as document:
+            document.merge(**replace_dict)
+            document.write(outbuf)
+
+            
+        self.docx_data = outbuf.getvalue()
+        return self
+    
+
+    def get_fields(self):
+        """
+        Retrieve the merge fields from the DOCX document.
+
+        Returns:
+            list: A list of merge fields present in the DOCX document.
+        """
+        global gmailmerge
+        if gmailmerge is None:
+            from mailmerge import MailMerge
+            gmailmerge = MailMerge
+
+        with gmailmerge(BytesIO(self.docx_data)) as document:
+            return list(document.get_merge_fields())
+            
+
+            
+    
+
+    def replace_keywords(self, replace_dict):
+        """
+        Edit raw XML content of a DOCX file by replacing specified strings using python-docx.
+
+        :param replace_dict: Dictionary where keys are strings to be replaced and values are replacement strings.
+        :return: The current instance of DocxFile with the replaced keywords.
+        """
+        doc = Document(BytesIO(self.docx_data))
+
+        for p in doc.paragraphs:
+            for key_to_replace, new_value in replace_dict.items():
+                p.text = p.text.replace(str(key_to_replace), str(new_value))
+    
+        with BytesIO() as fp:
+            doc.save(fp)
+            bts = fp.getvalue()
+        self.docx_data = bts
+
+        return self
+
+    def replace_keywords_raw(self, replace_dict):
+        """
+        Edit raw XML content of a DOCX file by replacing specified strings in all XML files within the document.
+
+        :param replace_dict: Dictionary where keys are strings to be replaced and values are replacement strings.
+        :return: The current instance of DocxFile with the replaced keywords in raw XML.
+        """
+        zip_buffer = BytesIO(self.docx_data)
+        with zipfile.ZipFile(zip_buffer, 'r') as zip_file:
+            file_list = zip_file.namelist()
+
+            output_buffer = BytesIO()
+            with zipfile.ZipFile(output_buffer, 'w', zipfile.ZIP_DEFLATED) as new_zip:
+                for filename in file_list:
+                    content = zip_file.read(filename)
+                    
+                    for key_to_replace, new_value in replace_dict.items():
+                        content = content.replace(key_to_replace.encode('utf-8'), new_value.encode('utf-8'))
+                    
+                    new_zip.writestr(filename, content)
+            bts = output_buffer.getvalue()
+        self.docx_data = bts
+
+        return self
+    
+
+    def save(self, output_path_or_buffer=None):
+        """
+        Save the modified DOCX data to a file or buffer.
+
+        :param output_path_or_buffer: File path or buffer to save the DOCX data.
+        :return: The current instance of DocxFile.
+        """
+
+        return _make_output(self.docx_data, output_path_or_buffer)
+
+
 
 
 def blue(run):
@@ -346,12 +491,73 @@ def convert_pandoc(doc:List[dict]) -> bytes:
         with open(docx_file_path, 'rb') as fp:
             return fp.read()
         
-def convert(doc:List[dict]) -> bytes:
 
-    if can_run_pandoc():
+
+def convert(doc:List[dict], template = None, template_params=None, use_w32=False, as_pdf=False, compress_images=False, **kwargs) -> bytes:
+    """
+    Convert a list of document sections into a DOCX or PDF (via docx) file using a specified template.
+
+    Parameters:
+    - doc (List[dict]): The document content structured as a list of dictionaries.
+    - template (str, optional): Path to a DOCX template file. Defaults to None.
+    - template_params (dict, optional): Parameters to replace fields in the template. Defaults to None.
+    - use_w32 (bool, optional): Whether to use win32com for document field updating and any of the following arguments, THIS OPTION NEEDS win32com and word installed. Defaults to False.
+    - as_pdf (bool, optional): Whether to output the document as a PDF (via docx and win32com). Defaults to False.
+    - compress_images (bool, optional): Whether to compress images in the document using win32com. Defaults to False.
+    - **kwargs: only used to check if invalid keyword arguments were passed.
+
+    Returns:
+    - bytes: The byte content of the generated DOCX or PDF file.
+
+    Raises:
+    - ValueError: If attempting to export to PDF without win32com and Word.Application installed and use_w32 set to True.
+    """
+    if not template_params:
+        template_params = {}
+
+    unknown_params = kwargs
+    if unknown_params:
+        warnings.warn(f'Unknown parameters passed: {unknown_params=}')
+        
+    _pandoc = can_run_pandoc()
+    if _pandoc and not template:
         return convert_pandoc(doc)
+    if _pandoc and template:
+        bts = None
+        bts_sub = convert_pandoc(doc)
+        tmplt = DocxFile(template)
+        tmplt.append(bts_sub)
+        tmplt.replace_fields(template_params)
+        if DocxFileW32.is_installed() and use_w32:
+            with tempfile.TemporaryDirectory() as td:
+                filepath = os.path.join(td, 'tempfile.docx')
+                
+                tmplt.save(filepath)
+                with DocxFileW32(filepath) as docxw32:
+                    docxw32.update_fields()
+                    if compress_images:
+                        docxw32.compress_images()
+                    if as_pdf:
+                        out = os.path.join(td, 'outfile.pdf')
+                        docxw32.export(out, optimize_for_screen=compress_images)
+                        with open(out, 'rb') as fp:
+                            bts = fp.read()
+                    else:
+                        with open(filepath, 'rb') as fp:
+                            bts = fp.read()
+        elif use_w32:
+            raise ValueError(f'{use_w32=} but either win32com and Word.Application is not installed! But was {use_w32=} and {DocxFileW32.is_installed(ret_int=True)=}')
+        
+        elif as_pdf:
+            raise ValueError(f'can only export via docx to pdf if win32com and Word.Application is installed and the input parameter "use_w32" is True. But was {use_w32=} and {DocxFileW32.is_installed()=}')
+        else:
+            bts = tmplt.save()
+
+        return bts
+
+                    
     else:
-        renderer = docx_renderer()
+        renderer = docx_renderer(None, make_blue=False)
         renderer.digest(doc)
         return renderer.doc_to_bytes()
 

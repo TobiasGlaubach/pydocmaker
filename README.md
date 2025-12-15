@@ -112,10 +112,12 @@ the docx document with text from python.
 
 (NOTE: some of the code below utilized the win32com api and only works on windows)
 
-```python 
+prepare a report, a template and some fields in the template:
+
+```python
+
 import pydocmaker as pyd
 
-# this is some fields in my template which I want to populate automatically
 metadata = {
     'repno': "1234",
     "summary": "This is a nice workflow for automatically creating docx documents",
@@ -124,38 +126,40 @@ metadata = {
     "author": "Me"
 }
 
+# HOWTO: 
+#  Adding MergeFields In Word to replace them later: 
+#    Go to Insert → Quick Parts → Field → MergeField.
 templatepath = 'my/path/template.docx'
 outpath = 'my/path/outfile.docx'
 
-# get a pyd example document to combine with my doxc template
-docx_bts = pyd.get_example().to_docx()
+# get a pyd example document to show the concept
+doc = pyd.get_example()
 
-print('replacing keywords...')
-# HOWTO: 
-#  Adding MergeFields In Word to replace them later: 
-#    Go to Insert -> Quick Parts -> Field -> MergeField.
-template = pyd.docx_replace_fields(templatepath, metadata)
+```
 
-# Alternative calls working with plain strings as keywords to replace 
-# -- see the function documentation for info
-# template = pyd.docx_replace_keywords_raw(template, metadata)
-# template = pyd.docx_replace_keywords(template, metadata)
+this is the quick and easy way using the common pydocmaker api:
 
-# merge two or more documents by appending them
-docx_bts = pyd.docx_merge(template, docx_bts)
+```python
+# three different examples below
+docx_bts = doc.to_docx("my/path/outfile.docx", template=template, template_params=metadata, use_w32=False)
+docx_bts = doc.to_docx("my/path/outfile_w32.docx", template=template, template_params=metadata, use_w32=True)
+docx_bts = doc.to_docx("my/path/outfile_w32_comp.pdf", template=template, template_params=metadata, use_w32=True, as_pdf=True, compress_images=True)
+```
 
-# save out file
-with open(outpath, "wb") as fp:
-    fp.write(docx_bts)
+you can also work with the exporting classes directly to get more control:
 
-# use the win32com.client api with word to update all fields 
-# like the table of contents in the document after we changed it
+```python 
 
-# WARNING! only works in windows and with word installed
-pyd.docx_update_w32(outpath)
+outpath = os.path.join("my/path/", 'outfile_w32_comp.docx')
 
+docxf = pyd.DocxFile(template).replace_fields(metadata).append(doc.to_docx())
+docxf.save(outpath)
 
-print(outpath)
+if pyd.DocxFileW32.is_installed():
+    with pyd.DocxFileW32(outpath) as docxw32f:
+        docxw32f.update_fields()
+        docxw32f.compress_images()
+        docxw32f.export(outpath.replace(".docx", ".pdf") )
 
 ```
 
