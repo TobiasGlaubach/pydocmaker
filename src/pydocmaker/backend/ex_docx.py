@@ -493,7 +493,7 @@ def convert_pandoc(doc:List[dict]) -> bytes:
         
 
 
-def convert(doc:List[dict], template = None, template_params=None, use_w32=False, as_pdf=False, compress_images=False, **kwargs) -> bytes:
+def convert(doc:List[dict], template = None, template_params=None, use_w32=False, as_pdf=False, compress_images=False, filename=None, **kwargs) -> bytes:
     """
     Convert a list of document sections into a DOCX or PDF (via docx) file using a specified template.
 
@@ -504,6 +504,7 @@ def convert(doc:List[dict], template = None, template_params=None, use_w32=False
     - use_w32 (bool, optional): Whether to use win32com for document field updating and any of the following arguments, THIS OPTION NEEDS win32com and word installed. Defaults to False.
     - as_pdf (bool, optional): Whether to output the document as a PDF (via docx and win32com). Defaults to False.
     - compress_images (bool, optional): Whether to compress images in the document using win32com. Defaults to False.
+    - filename (str, optional): The optional filename to give the document in case saving it as a tempfile is necessary. Default will try to get from metadata and if not found use tempfile.docx.
     - **kwargs: only used to check if invalid keyword arguments were passed.
 
     Returns:
@@ -530,7 +531,14 @@ def convert(doc:List[dict], template = None, template_params=None, use_w32=False
         tmplt.replace_fields(template_params)
         if DocxFileW32.is_installed() and use_w32:
             with tempfile.TemporaryDirectory() as td:
-                filepath = os.path.join(td, 'tempfile.docx')
+                if not filename: # try to get filename from metadata or parameters
+                    # get metadata from fields
+                    metadata = next((k for k in doc if isinstance(k, dict) and k.get('typ') == 'meta'), {}).get('data', {})
+                    metadata.update(template_params)
+                    filename = metadata.get('filename', metadata.get('FILENAME', metadata.get('Filename', 'tempfile')))
+
+                filename, ext = os.path.splitext(os.path.basename(filename))
+                filepath = os.path.join(td, f'{filename}.docx')
                 
                 tmplt.save(filepath)
                 with DocxFileW32(filepath) as docxw32:
@@ -538,13 +546,15 @@ def convert(doc:List[dict], template = None, template_params=None, use_w32=False
                     if compress_images:
                         docxw32.compress_images()
                     if as_pdf:
-                        out = os.path.join(td, 'outfile.pdf')
+                        out = os.path.join(td, f'{filename}.pdf')
                         docxw32.export(out, optimize_for_screen=compress_images)
                         with open(out, 'rb') as fp:
                             bts = fp.read()
-                    else:
-                        with open(filepath, 'rb') as fp:
-                            bts = fp.read()
+
+                if not as_pdf: # read back in
+                    with open(filepath, 'rb') as fp:
+                        bts = fp.read()
+
         elif use_w32:
             raise ValueError(f'{use_w32=} but either win32com and Word.Application is not installed! But was {use_w32=} and {DocxFileW32.is_installed(ret_int=True)=}')
         

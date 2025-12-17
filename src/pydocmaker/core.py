@@ -2,6 +2,7 @@ from dataclasses import dataclass, field, is_dataclass
 from collections import UserDict, UserList
 import json, io
 import os
+from pathlib import Path
 import re
 import tempfile
 import time
@@ -1012,7 +1013,8 @@ class DocBuilder(UserList):
             ValueError: If attempting to export to PDF without win32com and Word.Application installed and use_w32 set to True.
 
         """
-        return self._ret(to_docx(self.dump(), template=template, template_params=template_params, use_w32=use_w32, as_pdf=as_pdf, compress_images=compress_images), path_or_stream)        
+        filename = os.path.basename(path_or_stream) if isinstance(path_or_stream, (str, Path)) else None
+        return self._ret(to_docx(self.dump(), filename=filename, template=template, template_params=template_params, use_w32=use_w32, as_pdf=as_pdf, compress_images=compress_images), path_or_stream)        
 
     def to_ipynb(self, path_or_stream=None) -> str:
         """
