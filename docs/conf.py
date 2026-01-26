@@ -75,14 +75,14 @@ autoapi_dirs = [
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = 'classic'
+# html_theme = 'classic'
 # html_theme = 'pydata_sphinx_theme'
 html_static_path = ['_static']
 
 # -- Additional HTML Theme Options ------------------------------------------
-html_theme_options = {
-    'sidebarwidth': '320px',  # Set the sidebar width
-}
+# html_theme_options = {
+#     'sidebarwidth': '320px',  # Set the sidebar width
+# }
 
 #nbsphinx_allow_errors = True
 nbsphinx_execute = 'never'
