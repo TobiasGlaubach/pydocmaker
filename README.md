@@ -1,5 +1,7 @@
 # pydocmaker
 
+![Icon](icon.png)
+
 a minimal python document maker to create reports in the following formats:
 
 - `pdf`: PDF
