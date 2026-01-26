@@ -43,7 +43,7 @@ chapter_level = 1 # this is the level of heading to use for chapters which is eq
 
 def is_notebook() -> bool:
     try:
-        shell = get_ipython().__class__.__name__
+        shell = get_ipython().__class__.__name__ # type: ignore
         if shell == 'ZMQInteractiveShell':
             return True   # Jupyter notebook or qtconsole
         elif shell == 'TerminalInteractiveShell':

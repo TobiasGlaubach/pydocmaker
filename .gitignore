@@ -169,3 +169,6 @@ examples/testing.ipynb
 *any_path_to_my*
 
 *example_templates*
+local_scripts*
+
+.vscode/*
