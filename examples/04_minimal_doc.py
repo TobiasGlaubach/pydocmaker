@@ -54,3 +54,4 @@ doc.add_image(image="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEYAAAAUCAAAA
 doc.update_meta(author='Me')
 
 doc.to_pdf('template_example.pdf')
+

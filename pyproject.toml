@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pydocmaker"
+dynamic = ["version", "dependencies"]
+description = "a minimal python document maker to create and show reports (including figures and tables) from within python and export them as markdown, pdf, html, and word."
+readme = { file="README.md", content-type="text/markdown" }
+license = { file = "LICENSE" }
+
+authors = [
+    { name="Tobias Glaubach" }
+]
+
+classifiers = [
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only"
+]
+requires-python = ">=3.8"
+
+
+[project.urls]
+Homepage = "https://github.com/TobiasGlaubach/pydocmaker"
+Repository = "https://github.com/TobiasGlaubach/pydocmaker"
+"Bug Tracker" = "https://github.com/TobiasGlaubach/pydocmaker/issues"
+
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["devicelib*"]
+
+
+[tool.setuptools.dynamic]
+version = {attr = "pydocmaker.__version__"}
+dependencies = {file = ["requirements.txt"]}

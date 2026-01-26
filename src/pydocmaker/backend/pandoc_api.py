@@ -21,7 +21,7 @@ def test_is_pandoc_installed():
     try:
         subprocess.check_output(['pandoc', '--version'])
         return True
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, FileNotFoundError):
         return False
 
 def can_run_pandoc(force_retest=False):
@@ -71,6 +71,26 @@ def pandoc_set_allowed(is_allowed):
     allow_pandoc = True if is_allowed else False
     return allow_pandoc
 
+def pandoc_merge_files(inp_files, out_file):
+    """
+    Convert a file using pandoc.
+
+    Parameters:
+    inp_files (List[str]): The path to the input file.
+    out_file (str or Path): The path to the output file or the desired output format.
+
+    Returns:
+    subprocess.CompletedProcess: The result of the pandoc conversion command.
+
+    Raises:
+    AssertionError: If the input file does not exist or if no output file or format is provided.
+    """
+    for inp_file in inp_files:
+      assert inp_file, "Need to give an input file name!"
+      assert os.path.exists(inp_file), f"input file {inp_file=} does not exist!"
+
+    assert out_file, "Need to give an output file name!"
+    return subprocess.run(['pandoc', *inp_files, '-o', out_file])
     
 def pandoc_convert_file(inp_file, out_file_or_format):
     """
@@ -89,7 +109,7 @@ def pandoc_convert_file(inp_file, out_file_or_format):
     AssertionError: If the input file does not exist or if no output file or format is provided.
     """
     
-    assert inp_file, "Need to give an inout file name!"
+    assert inp_file, "Need to give an input file name!"
     assert os.path.exists(inp_file), f"input file {inp_file=} does not exist!"
 
     out_file = out_file_or_format
@@ -191,6 +211,7 @@ class PandocFormatter:
     
 
     def digest_markdown(self, children='', **kwargs) -> str:
+        # TODO: handle colors correctly somehow?
         return self.conv(children, 'markdown')
 
     def digest_image(self, children='', width=0.8, caption="", imageblob=None, **kwargs):               
@@ -228,7 +249,7 @@ class PandocFormatter:
 
     def digest_verbatim(self, children='', **kwargs) -> str:
         label = kwargs.get('caption', kwargs.get('label', ''))
-        content = kwargs.get('content', kwargs.get('children'))
+        content = kwargs.get('content', children)
         color = kwargs.get('color', '')
         if color:
             color = f'color:{color};'

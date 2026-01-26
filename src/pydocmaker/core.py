@@ -331,7 +331,7 @@ class constr():
 
         # numpy array --> make PIL image
         if hasattr(img, 'shape') and len(img.shape) == 2:
-            img = Image.fromarray(img)
+            img = gImage.fromarray(img)
         
         # PIL image --> make filelike
         if hasattr(img, 'save'):
@@ -365,7 +365,7 @@ buildingblocks = 'text markdown image verbatim iter line latex meta'.split()
 
 
 
-class DocBuilder(UserList):
+class Doc(UserList):
             
     """a collection of document parts to make a document (can be used like a list)"""
 
@@ -385,13 +385,13 @@ class DocBuilder(UserList):
 
     @staticmethod
     def load_json(path):
-        """Load a JSON file and return a DocBuilder object.
+        """Load a JSON file and return a Doc object.
 
         Args:
             path (str or file-like object): The path to the JSON file or a file-like object.
 
         Returns:
-            DocBuilder: A DocBuilder object initialized with the loaded JSON data.
+            Doc: A Doc object initialized with the loaded JSON data.
 
         Raises:
             json.JSONDecodeError: If the JSON file is not valid.
@@ -404,7 +404,7 @@ class DocBuilder(UserList):
                 lst = json.load(fp)
         if not isinstance(lst, list):
             warnings.warn(f'The loaded json object is not of type list, but instead of type ({type(lst)=})')
-        return DocBuilder(lst)
+        return Doc(lst)
     
     def __init__(self, initial_data=None):
         if initial_data is None:
@@ -426,10 +426,10 @@ class DocBuilder(UserList):
         if isinstance(b, (tuple, list)) and len(b) == 2 and isinstance(b[0], str) and isinstance(b[-1], str):
             (b, default) = b
         if isinstance(b, str):
-            b = DocBuilder().add_kw(default, b, end='').dump()
+            b = Doc().add_kw(default, b, end='').dump()
         if not isinstance(b, list):
             b = [b]
-        return DocBuilder(a + b)
+        return Doc(a + b)
     
     def __iadd__(self, b):
         default = self.default_add_string_type
@@ -439,14 +439,14 @@ class DocBuilder(UserList):
         if isinstance(b, (tuple, list)) and len(b) == 2 and isinstance(b[0], str) and isinstance(b[-1], str):
             (b, default) = b
         if isinstance(b, str):
-            b = DocBuilder().add_kw(default, b, end='').dump()
+            b = Doc().add_kw(default, b, end='').dump()
         for k in b:
             self.add(k)
         return self
     
     def flatten(self):
         """unpacks all iterator elements within this documents and returns a new flat document"""
-        return DocBuilder(flatten_list(self.dump()))
+        return Doc(flatten_list(self.dump()))
 
     def add_chapter(self, chapter_name:str, chapter_index=None, color=''):
         """Adds a new chapter to the document.
@@ -1367,10 +1367,10 @@ class DocBuilder(UserList):
             dict: A dictionary containing the exported data or paths for each engine.
         """
         if engines is None and dir_path is None or not engines:
-            engines = list(DocBuilder.export_engines.keys()) # all engines
+            engines = list(Doc.export_engines.keys()) # all engines
 
-        unknown_engines = [e for e in engines if not e in DocBuilder.export_engine_extensions]
-        engines = [e for e in engines if e in DocBuilder.export_engine_extensions]
+        unknown_engines = [e for e in engines if not e in Doc.export_engine_extensions]
+        engines = [e for e in engines if e in Doc.export_engine_extensions]
 
         if unknown_engines: 
             warnings.warn(f'Found unknown engines in requested engines. These will be ignored! {unknown_engines=}')
@@ -1383,11 +1383,11 @@ class DocBuilder(UserList):
         for engine in engines:
             engine = engine.strip('').strip('.')
             if dir_path is None:
-                ext = DocBuilder.export_engine_extensions.get(engine, '.' + engine)
+                ext = Doc.export_engine_extensions.get(engine, '.' + engine)
                 path = None
                 key = report_name + ext
             else:
-                ext = DocBuilder.export_engine_extensions.get(engine, '.' + engine)
+                ext = Doc.export_engine_extensions.get(engine, '.' + engine)
                 path = os.path.join(dir_path, report_name + ext)
                 key = path
             
@@ -1442,7 +1442,7 @@ class DocBuilder(UserList):
             assert get_latex_compiler(), 'Can not make a PDF file without a latex compiler on the system!'
             return self.to_pdf(path_or_stream=path_or_stream, **kwargs)
         else:
-            raise KeyError(f'engine must be in: {DocBuilder.export_engines=}, but was {engine=}')
+            raise KeyError(f'engine must be in: {Doc.export_engines=}, but was {engine=}')
         
     def upload(self, url, doc_name='', force_overwrite=False, page_title='', requests_kwargs=None, raise_on_fail=True, warn_on_fail=True):
         """Uploads the document data to a specified URL.
@@ -1521,9 +1521,9 @@ class DocBuilder(UserList):
             kwargs['do_escape_template_params'] = do_escape_template_params
 
         if index:
-            DocBuilder([self[index]]).show(**kwargs)
+            Doc([self[index]]).show(**kwargs)
         elif chapter:
-            DocBuilder(self.get_chapter(chapter)).show(**kwargs)
+            Doc(self.get_chapter(chapter)).show(**kwargs)
         
         if is_notebook():
             from IPython.display import display, HTML, Markdown, Code
@@ -1643,7 +1643,7 @@ def load(doc:List[dict]):
         doc (List[dict] | str | BinaryIO | TextIO]): The document data, file path, or stream-like object.
 
     Returns:
-        DocBuilder: A DocBuilder object representing the loaded document.
+        Doc: A Doc object representing the loaded document.
 
     Raises:
         ValueError: If the document is not a list, file path, or stream-like object, or if the file or stream cannot be loaded.
@@ -1662,7 +1662,7 @@ def load(doc:List[dict]):
         doc = json.load(fp)
 
     assert isinstance(doc, list), f'doc must be list but was {type(doc)=} {doc=}'
-    return DocBuilder(doc)
+    return Doc(doc)
 
     
 

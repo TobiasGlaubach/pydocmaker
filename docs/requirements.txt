@@ -1,0 +1,7 @@
+sphinx
+toml
+myst-parser
+pydata-sphinx-theme
+sphinx-version-warning
+sphinx-autoapi
+nbsphinx 

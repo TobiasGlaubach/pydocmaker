@@ -7,11 +7,11 @@ if __name__ == '__main__':
     print(parent_dir)
     sys.path.insert(0, os.path.join(parent_dir, 'src'))
 
-from pydocmaker.core import DocBuilder
+from pydocmaker.core import Doc
 
-class TestDocBuilder(unittest.TestCase):
+class TestDoc(unittest.TestCase):
     def setUp(self):
-        self.doc_builder = DocBuilder.get_example()
+        self.doc_builder = Doc.get_example()
 
     def test_iadd_with_string(self):
         s = "Test String"
@@ -32,9 +32,9 @@ class TestDocBuilder(unittest.TestCase):
         self.assertEqual(self.doc_builder[-1].get('children'), s)
 
     def test_iadd_with_doc_builder(self):
-        other_doc_builder = DocBuilder().add_md("Other Test String")
+        other_doc_builder = Doc().add_md("Other Test String")
         self.doc_builder += other_doc_builder
-        self.assertEqual(len(self.doc_builder), len(DocBuilder.get_example()) + len(other_doc_builder))
+        self.assertEqual(len(self.doc_builder), len(Doc.get_example()) + len(other_doc_builder))
         self.assertEqual(self.doc_builder[-1].get('typ'), 'markdown')
         self.assertEqual(self.doc_builder[-1].get('children'), "Other Test String")
 

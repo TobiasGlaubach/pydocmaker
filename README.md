@@ -27,7 +27,7 @@ pip install pydocmaker
 ```
 
 
-## TL;DR;
+## TL;DR; Code examples
 
 ### Snippet:
 
@@ -104,6 +104,55 @@ doc.to_ipynb('path/to/my_file.ipynb') # will write a ipynb file
 
 doc.to_json('path/to/doc.json') # saves the document
 ```
+
+
+### Install Optional Requirement `pandoc`
+
+In order to get all functionality `pandoc` needs to be available. Please follow the recommended installation steps on the software projects webpage. For convenience the minimal installation is listed here:
+
+On Linux (Debian/Ubuntu) install via: 
+
+```bash
+sudo apt update
+sudo apt install pandoc
+```
+
+On MacOS: 
+
+```bash
+brew install pandoc
+```
+
+On Windows: 
+
+```bash
+winget install JohnMacFarlane.Pandoc
+```
+
+
+### Install Optional Requirement `Latex`
+
+In order to get all functionality a latex compiler needs to be available. Please follow the recommended installation steps on the webpage. For convenience the minimal installation is listed here:
+
+On Linux (Debian/Ubuntu) install via: 
+
+```bash
+sudo apt update
+sudo apt install texlive-latex-base
+```
+
+On MacOS: 
+
+```bash
+brew install --cask mactex
+```
+
+On Windows:
+
+```bash
+winget install MiKTeX.MiKTeX
+```
+
 ### Writing Word docx Documents with templates and fields
 
 Below is an example on how to use pydocmaker to write word docx documents from format templates
@@ -141,153 +190,10 @@ this is the quick and easy way using the common pydocmaker api:
 
 ```python
 # three different examples below
-docx_bts = doc.to_docx("my/path/outfile.docx", template=template, template_params=metadata, use_w32=False)
-docx_bts = doc.to_docx("my/path/outfile_w32.docx", template=template, template_params=metadata, use_w32=True)
-docx_bts = doc.to_docx("my/path/outfile_w32_comp.pdf", template=template, template_params=metadata, use_w32=True, as_pdf=True, compress_images=True)
+docx_bts = doc.to_docx("my/path/outfile.docx", template=templatepath, template_params=metadata, use_w32=False)
+docx_bts = doc.to_docx("my/path/outfile_w32.docx", template=templatepath, template_params=metadata, use_w32=True)
+docx_bts = doc.to_docx("my/path/outfile_w32_comp.pdf", template=templatepath, template_params=metadata, use_w32=True, as_pdf=True, compress_images=True)
 ```
-
-you can also work with the exporting classes directly to get more control:
-
-```python 
-
-outpath = os.path.join("my/path/", 'outfile_w32_comp.docx')
-
-docxf = pyd.DocxFile(template).replace_fields(metadata).append(doc.to_docx())
-docxf.save(outpath)
-
-if pyd.DocxFileW32.is_installed():
-    with pyd.DocxFileW32(outpath) as docxw32f:
-        docxw32f.update_fields()
-        docxw32f.compress_images()
-        docxw32f.export(outpath.replace(".docx", ".pdf") )
-
-```
-
-
-### Uploading to Redmine
-
-upload to redmine via:
-
-```python
-import redminelib
-redmine = redminelib.Redmine('https://your-redmine-instance.com', key='your_redmine_token')
-page = doc.to_redmine_upload(redmine, 'your-test-project')
-```
-### Using Template Folders
-
-pydocmaker supports mounting Jinja2 Templates organized in folders together with (optional) default parameters and assets. Suppose you have the following folder structure 
-
-```
-home/jovyan/templates/
-├─ assets/
-│  ├─ i_can_use_this_everywhere.png
-├─ fancy_tempate.assets/
-│  ├─ fancy_logo.png
-│  ├─ fancy_title_picture.png
-├─ fancy_template.params.json
-├─ fancy_template.tex.j2
-├─ normal_template.params.json
-├─ normal_template.tex.j2
-```
-
-(NOTE: you can also check out the `templates` folder in this repository for an example).
-
-You can then mount this folder in pydocmaker using 
-
-```python
-pyd.register_new_template_dir(r'home/jovyan/templates/')
-```
-
-Which will give you two available templates to use for exporting tex and pdf documents: 
-
-
-```python
-print(pyd.get_available_template_ids())
-```
-`>>> ["fancy_template", "normal_template"]`
-
-
-
-You can mark the templates to be used for a doc by setting it to the reports metadata:
-```python
-import pydocmaker as pyd
-doc = pyd.get_example()
-doc.set_template_to_meta('fancy_template')
-```
-
-which will write all needed data to the documents "metadata". Specifically:
-- `template_id` will hold the id with which the specific template can be loaded. In our case it will be `fancy_template`.
-- `files_to_upload` will hold all assets as base64 encoded bytes in our case the following files:
-   - **key**: `fancy_logo.png` **value** content from `.../fancy_tempate.assets/fancy_logo.png`
-   - **key**: `fancy_title_picture.png` **value** content from `.../fancy_tempate.assets/fancy_title_picture.png` 
-    - **key**: `i_can_use_this_everywhere.png` **value** content from `.../assets/i_can_use_this_everywhere.png` (content from `assets` will be made available shared for all templates)
-- and all other fields loaded from `fancy_template.params.json` will be loaded to the metadata dictionary directly. 
-
-If you thereafter export your document to pdf (or html if you have an html type template), pydocmaker will automatically load the template and render it with parameters, attachments and your document as the body. 
-
-you can view the template and params by 
-```python
-print(doc.get_meta())
-```
-
-and change them by:
-
-```python
-doc.update_meta(author='Me!')
-```
-
-
-### Using Jinja2 Templates Directly for Exporting to HTML or PDF
-
-you can also use Jinja2 Templates directly to make HTML or PDF (latex) documents. An example is given below:
-
-```python
-
-# This is a minimal template, the document will be written to the "body" part.
-template_string = r'''
-\documentclass[a4paper]{article}
-
-{% if title %}\title{{ title }}{% endif %}
-{% if author %}\author{{ author }}{% endif %}
-
-\begin{document}
-
-{{ body }}
-
-\end{document}
-'''
-
-from jinja2 import Environment, FileSystemLoader
-import pydocmaker as pyd
-
-# Create a Template object
-template = Template(template_string)
-
-doc = pyd.get_example()
-pdf_bytes = doc.to_pdf(template=template, template_params=dict(title='My Title', author='Me'))
-
-```
-
-**NOTE**: If your document template has external references such as logos, you need to load them to a bytes array and pass them as a filename, content dictionary into the to_pdf(...) methods using the `files_to_upload` argument.
-
-
-```python
-assets = {}
-with open('my_logo.png', 'rb') as fp:
-    assets = {'my_logo.png': fp.read()} 
-
-pdf_bytes = doc.to_pdf(template=template, template_params=dict(title='My Title', author='Me'), files_to_upload=assets)
-
-```
-___
-
-## Detailed Usage Instructions
-
-Given here is a brief overview. See the ipython notebooks within the `examples` folder within this repository for more detailed usage examples. 
-
-## Document Builder
-
-The `DocBuilder` class from `pydocmaker` is the basic building element for making a report. Here each element will be appended to the end of the document if no `index` or `chapter` is given. Alternatively the chapter to which to append a document part can be specified by `chapter='xxx'`. Furthermore you can also specify the index position (after which part of the document to insert) by adding `index=i` where `i` is `int`. You can use the object like a list.
 
 
 
@@ -314,141 +220,4 @@ An example of the whole schema is given below.
   "verbatim": {"typ": "verbatim", "children": ""},
   "iter":     {"typ": "iter", "children": [] }
 }
-```
-
-
-### Adding document parts to a doc
-
-Alternatively you can add elements to a document directly using the add and add_kw methods of the document builders:
-
-
-```python
-
-import pydocmaker as pyd
-
-doc = pyd.DocBuilder()
-doc.add('dummy text')
-doc.add({"typ": "markdown","children": "some dummy markdown text!"})
-doc.add_kw('verbatim', 'this text will be shown preformatted!')
-doc.add_image('https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png', caption='', children='', width=0.8)
-
-doc.show()
-
-```
-
-You can also combine the two:
-
-```python
-
-import pydocmaker as pyd
-import numpy as np
-
-doc = pyd.DocBuilder()
-doc.add('dummy text')
-
-doc.show()
-
-```
-
-### Working with Images
-
-Image from pyplot figure
-
-```python
-doc = pyd.DocBuilder()
-doc.add(pyd.constr.image_from_fig(caption='test figure', fig=fig))
-```
-
-Image from link
-
-```python
-doc = pyd.DocBuilder()
-doc.add(pyd.constr.image_from_link("https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png"))
-```
-
-Image from numpy array 
-
-```python
-import numpy as np
-m = np.array([np.arange(255).astype(np.uint8).tolist() for i in range(255)], dtype=np.uint8)
-doc = pyd.DocBuilder()
-doc.add(pyd.constr.image_from_obj(m, caption = 'numpy generated image', width=0.8, name=None))
-```
-
-### Adding to Specific Chapters
-
-as said above you can also add elements to specific chapters or locations. below is an example
-
-
-```python
-doc = pyd.DocBuilder()
-
-# this will add a section 'Introduction'
-doc.add_section('Introduction')
-
-# now I can add / access the section (which is a DocBuilder) direcly like a dict
-doc.add('dummy text which will be added to the introduction', chapter='Introduction')
-
-# this will add the section 'Weather Info' and add a markdown element to it
-doc.add_kw('markdown', 'This is my fancy `markdown` text for the Second Chapter', 
-           chapter='Second Chapter')
-
-# I can also add parts to the Introduction like this
-doc.add_kw('markdown', 'This text will be appended to the first section after the 2nd element (`index` is zero based!), which is the text (the chapter definition itself is the 1st element!)', 
-           index=1)
-
-# and like this
-doc.add_image("https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png", 
-              chapter='Second Chapter')
-
-
-doc.show()
-```
-
-
-### Upload to Redmine as Wiki Page
-
-This is how to upload to redmine (assumes `doc` exists as generated in any of the above examples)
-
-```python
-import redminelib, datetime
-
-text_textile, attachments_lst = doc.to_redmine()
-redmine = redminelib.Redmine('https://your-redmine-instance.com', key='my_token')
-
-page = redmine.wiki_page.new()
-page.project_id = 'myproject'
-page.title = 'My Wiki Page'
-
-page.text = text_textile
-page.uploads = attachments_lst
-page.comments = f'updated at {datetime.datetime.utcnow().isoformat()}'
-page.save()
-```
-
-### Constructing Document Parts using the `constr` factory
-
-`document-parts` are under the hood constructed using the `constr` class which is basically a factory for `document-parts`
-
-```python
-
-import pydocmaker as pyd
-import numpy as np
-
-docpart = pyd.constr.markdown(children='')
-docpart = pyd.constr.text(children='')
-docpart = pyd.constr.verbatim(children='')
-docpart = pyd.constr.iter(children=[])
-docpart = pyd.constr.image(imageblob='', caption='', children='', width=0.8)
-docpart = pyd.constr.image_from_link(url='https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png', caption='', children='', width=0.8)
-docpart = pyd.constr.image_from_file(path='path/to/your_file.png', children='', caption='', width=0.8)
-docpart = pyd.constr.image_from_fig(caption='', width=0.8, name=None, fig=None)
-docpart = pyd.constr.image_from_obj(np.array(np.arange(255).tolist() * 255, dtype="uint8"), caption = '', width=0.8, name=None)
-```
-
-you can also combine adding and the functionality from above:
-
-```python 
-import pydocmaker as pyd
-doc.add(pyd.constr.image_from_link("https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png"))
 ```

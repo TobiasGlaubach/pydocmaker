@@ -8,6 +8,7 @@ import warnings
 
 import docx
 from docx.shared import Inches, Pt, RGBColor
+from docx import Document
 
 import tempfile
 import os
@@ -39,7 +40,7 @@ except Exception as err:
 
 
 
-from docx import Document
+
 
 gwin32 = None
 gcomposer = None
@@ -48,7 +49,8 @@ gmailmerge = None
 def _make_output(bts, output_path_or_buffer):
     
     if isinstance(output_path_or_buffer, (str, Path)):
-        os.makedirs(os.path.dirname(output_path_or_buffer), exist_ok=True)
+        if os.path.dirname(output_path_or_buffer):
+            os.makedirs(os.path.dirname(output_path_or_buffer), exist_ok=True)
         with open(output_path_or_buffer, 'wb') as f:
             f.write(bts)
         return os.path.exists(output_path_or_buffer)
@@ -136,7 +138,9 @@ class DocxFileW32:
             docx_path (str): The path to the input DOCX file.
             outpath (str, optional): The output path for saving changes, None defaults to the input path. Defaults to None.
         """
-        self.docx_path = docx_path
+        
+
+        self.docx_path = os.path.abspath(docx_path) # word seems to need absolut pathes
         self.outpath = outpath
         self.word = None
         self.worddoc = None
@@ -219,15 +223,16 @@ class DocxFileW32:
             assert self.outpath, 'If pdf_path is None, the objects "outpath" must be valid!'
             pdf_path = self.outpath
 
-        pdf_path = pdf_path.replace('.docx', '.pdf')
+        pdf_path = os.path.abspath(pdf_path.replace('.docx', '.pdf'))
         # Define the PDF save options
         pdf_options = {
             'OutputFileName': pdf_path,
             'ExportFormat': 17,  # FileFormat=17 is for PDF
             'OptimizeFor': 1 if optimize_for_screen else 0
         }
+        if os.path.dirname(pdf_path):
+            os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
 
-        os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
         self.worddoc.ExportAsFixedFormat(**pdf_options)
         
         return self
