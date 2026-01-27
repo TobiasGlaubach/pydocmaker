@@ -15,8 +15,6 @@ class TestCodeSnippets(unittest.TestCase):
     def test_s1_minimal(self):
         
         doc = pyd.Doc.get_example()
-        doc.show()
-
         self.assertTrue(doc)
     
     def test_s2_concept(self):
@@ -32,28 +30,40 @@ class TestCodeSnippets(unittest.TestCase):
         # this is how to add an image from link
         doc.add_image("https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png", caption='', children='', width=0.8)
 
-        doc.show()
 
-    def test_s3_export(self):
-        doc = pyd.get_example()
+    def _test_s3_export(self, method, filename):
         with tempfile.TemporaryDirectory() as temp_dir:
-            formats = [
-                ('html', 'temp_outfile.html'),
-                ('pdf', 'temp_outfile.pdf'),
-                ('markdown', 'temp_outfile.md'),
-                ('docx', 'temp_outfile.docx'),
-                ('textile', 'temp_outfile.textile.zip'),
-                ('tex', 'temp_outfile.tex.zip'),
-                ('ipynb', 'temp_outfile.ipynb'),
-                ('json', 'temp_outfile.json')
-            ]
+            doc = pyd.get_example()
+            full_path = os.path.join(temp_dir, filename)
+            getattr(doc, f'to_{method}')(full_path)
+            self.assertTrue(os.path.exists(full_path), f"{filename} does not exist")
+            self.assertGreater(os.path.getsize(full_path), 0, f"{filename} is empty")
 
-            for method, filename in formats:
-                full_path = os.path.join(temp_dir, filename)
-                getattr(doc, f'to_{method}')(full_path)
-                self.assertTrue(os.path.exists(full_path), f"{filename} does not exist")
-                self.assertGreater(os.path.getsize(full_path), 0, f"{filename} is empty")
+    def test_s3_export_html(self):
+        self._test_s3_export('html', 'temp_outfile.html')
 
+    @unittest.skipUnless(os.name == 'nt' or os.environ.get('PYDOCMAKER_TESTFULL'), "Skipping since test requires optional dependencies")
+    def test_s3_export_pdf(self):
+        self._test_s3_export('pdf', 'temp_outfile.pdf')
+
+    def test_s3_export_markdown(self):
+        self._test_s3_export('markdown', 'temp_outfile.md')
+
+    def test_s3_export_docx(self):
+        self._test_s3_export('docx', 'temp_outfile.docx')
+
+    def test_s3_export_textile(self):
+        self._test_s3_export('textile', 'temp_outfile.textile.zip')
+
+    def test_s3_export_tex(self):
+        self._test_s3_export('tex', 'temp_outfile.tex.zip')
+
+    def test_s3_export_ipynb(self):
+        self._test_s3_export('ipynb', 'temp_outfile.ipynb')
+
+    def test_s3_export_json(self):
+        self._test_s3_export('json', 'temp_outfile.json')
+        
     def test_s4_addtable(self):
         doc = pyd.Doc()
         rows = []
@@ -63,10 +73,10 @@ class TestCodeSnippets(unittest.TestCase):
             rows.append(row)
 
         doc.add_table(rows, header=['Blue Text', 'Red Text', 'Green Text'])
-        doc.show()
 
         self.assertTrue(doc)
         self.assertEqual(doc[0]['typ'], "table")
         self.assertTrue(doc[0]['children'])
         self.assertTrue(doc[0]['header'])
+
 

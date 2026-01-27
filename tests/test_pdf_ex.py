@@ -10,36 +10,39 @@ if __name__ == '__main__':
 
 import pydocmaker as pyd
 
-class TestCodeSnippets(unittest.TestCase):
+class TestMakePdfs(unittest.TestCase):
+    @unittest.skipUnless(os.name == 'nt' or os.environ.get('PYDOCMAKER_TESTFULL'), "Skipping since test requires optional dependencies")
     def test_pdf_pandoc(self):
         templatepath = None
         metadata = None
         doc = pyd.Doc.get_example()
-        bts = doc.to_pdf(engine='pandoc', template=templatepath, template_params=metadata)
+        bts = doc.to_pdf(engine='pandoc', template=templatepath, template_params=metadata, verb=0)
         self.assertTrue(bts)
         self.assertIsInstance(bts, bytes)
         self.assertTrue(bts.startswith(b'%PDF'), str(bts)[:20])
 
+    @unittest.skipUnless(os.name == 'nt' or os.environ.get('PYDOCMAKER_TESTFULL'), "Skipping since test requires optional dependencies")
     def test_pdf_libreoffice(self):
         templatepath = None
         metadata = None
         doc = pyd.Doc.get_example()
-        bts = doc.to_pdf(engine='libreoffice', template=templatepath, template_params=metadata)
+        bts = doc.to_pdf(engine='libreoffice', template=templatepath, template_params=metadata, verb=0)
         self.assertTrue(bts)
         self.assertIsInstance(bts, bytes)
         self.assertTrue(bts.startswith(b'%PDF'), str(bts)[:20])
         
+    @unittest.skipUnless(os.name == 'nt', "Skipping win32comapi since test requires Windows platform")
     def test_pdf_word(self):
         templatepath = None
         metadata = None
         doc = pyd.Doc.get_example()
-        bts = doc.to_pdf(engine='word', template=templatepath, template_params=metadata, compress_images=True)
+        bts = doc.to_pdf(engine='word', template=templatepath, template_params=metadata, compress_images=True, verb=0)
         self.assertTrue(bts)
         self.assertIsInstance(bts, bytes)
         self.assertTrue(bts.startswith(b'%PDF'), str(bts)[:20])
 
         doc = pyd.Doc.get_example()
-        bts = doc.to_pdf(engine='word', template=templatepath, template_params=metadata, compress_images=False)
+        bts = doc.to_pdf(engine='word', template=templatepath, template_params=metadata, compress_images=False, verb=0)
         self.assertTrue(bts)
         self.assertIsInstance(bts, bytes)
         
