@@ -44,6 +44,16 @@ try:
 except Exception as err:
     from . import libreoffice_api
 
+import logging
+
+# Configure once
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s | %(levelname)-8s | %(filename)-15s:%(lineno)3d] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+log = logging.getLogger(__name__)
 
 
 gwin32 = None
@@ -79,34 +89,37 @@ def _get_bytes_file_or_buffer(file_path_or_buffer):
     return bts_data
 
 def _test_docxw32_installed(verb=0, force_reload=False):
-        """tests if win32com and Microsoft Word is available
+    """tests if win32com and Microsoft Word is available
 
-        Returns:
-            int: 0 if both are available, 1 if win32com is not available 2 if win32com is available and word is not available.
-        """
-        if _test_docxw32_installed.cache is None or force_reload:
-            global gwin32
+    Returns:
+        int: 0 if both are available, 1 if win32com is not available 2 if win32com is available and word is not available.
+    """
+    if os.name != 'nt':
+        _test_docxw32_installed.cache = 0 # only possible on windows
 
-            try:
-                
-                import win32com.client
-                if verb: print("win32com is available.")
-                
-                gwin32 = win32com.client
+    elif _test_docxw32_installed.cache is None or force_reload:
+        global gwin32
 
-                # Attempt to create an instance of the Word application
-                word = win32com.client.Dispatch("Word.Application")
-                word.Quit()
-                if verb: print("Microsoft Word is available.")
-                _test_docxw32_installed.cache = 0
-            except ImportError:
-                if verb: print("win32com is not available.")
-                _test_docxw32_installed.cache = 1
-            except Exception as e:
-                if verb: print(f"An error occurred: {e}")
-                _test_docxw32_installed.cache = 2
-        
-        return _test_docxw32_installed.cache
+        try:
+            
+            import win32com.client
+            if verb: log.info("win32com is available.")
+            
+            gwin32 = win32com.client
+
+            # Attempt to create an instance of the Word application
+            word = win32com.client.Dispatch("Word.Application")
+            word.Quit()
+            if verb: log.info("Microsoft Word is available.")
+            _test_docxw32_installed.cache = 0
+        except ImportError:
+            if verb: log.info("win32com is not available.")
+            _test_docxw32_installed.cache = 1
+        except Exception as e:
+            if verb: log.error(f"An error occurred: {e}")
+            _test_docxw32_installed.cache = 2
+    
+    return _test_docxw32_installed.cache
 
 _test_docxw32_installed.cache = None
 
@@ -396,26 +409,26 @@ class DocxFile:
             files = files[0]
         
         i = 0
-        if verb: print(f'{i}/{len(files)} loading current document into composer ...')
+        if verb: log.info(f'{i}/{len(files)} loading current document into composer ...')
         composer = gcomposer(Document(io.BytesIO(self.docx_data)))
 
         for i, file in enumerate(files):
             bts = self._get_bytes_file_or_buffer(file)
             if verb:
-                print(f'{i}/{len(files)} appending doc')
-                print("load report...")
-                print(f'doc={file}')
+                log.info(f'{i}/{len(files)} appending doc')
+                log.info("load report...")
+                log.info(f'doc={file}')
             doc_b = Document(io.BytesIO(bts))
-            if verb: print("adding report to template...")
+            if verb: log.info("adding report to template...")
             composer.append(doc_b)
-        if verb: print("saving merged as bytes...")
+        if verb: log.info("saving merged as bytes...")
             
         with io.BytesIO() as fp:
             composer.save(fp)
             fp.seek(0)
             bts = fp.getvalue()
 
-        if verb: print("returning...")
+        if verb: log.info("returning...")
         self.docx_data = bts
         return self
 
@@ -687,7 +700,7 @@ class docx_renderer(BaseFormatter):
 
     def handle_error(self, err, el=None) -> list:
         if isinstance(err, BaseException):
-            traceback.print_exc(limit=5)
+            log.error(err, exc_info=1, stacklevel=5)
             err = '\n'.join(traceback.format_exception(type(err), value=err, tb=err.__traceback__, limit=5))
 
         new_run = self.add_run(err)
