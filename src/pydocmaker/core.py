@@ -1159,7 +1159,7 @@ class Doc(UserList):
 
         
 
-    def to_pdf(self, path_or_stream=None, docname='', files_to_upload=None, base_dir=None, engine=None, latex_compiler=None, n_times_make=None, verb=1, ignore_error=True, template=None, template_params=None, do_escape_template_params='auto', **kwargs) -> Union[str, bytes, bool]:
+    def to_pdf(self, path_or_stream=None, docname='', files_to_upload=None, base_dir=None, engine=None, latex_compiler=None, n_times_make=None, verb=0, ignore_error=True, template=None, template_params=None, do_escape_template_params='auto', **kwargs) -> Union[str, bytes, bool]:
         """Converts the current object to a PDF file or zipped latex project folder.
 
         Args:
@@ -1176,7 +1176,7 @@ class Doc(UserList):
             latex_compiler (str, optional): Only used if engine resolves to "tex". The LaTeX compiler to use. Either 'pdflatex', 'lualatex', 'xelatex', or 'pandoc'.
                 If not specified, the function will try to use 'pandoc', 'pdflatex', 'lualatex', or 'xelatex' in that order.
             n_times_make (int, optional): The number of times to run the LaTeX compiler. Defaults to 1 for pandoc and 3 for all others.
-            verb (int, optional): The verbosity level (0, 1, 2). If greater than 0, the function will print more and more debug information. Defaults to 1.
+            verb (int, optional): The verbosity level (0, 1, 2). If greater than 0, the function will print more and more debug information. Defaults to 0.
             ignore_error (bool, optional): Whether to ignore errors during the LaTeX compilation. Defaults to True.
             template (str, optional): A string containing the LaTeX code for the document template. Either a Jinja2 Latex template, or a string
                 If not provided, a default template will be used.
@@ -1682,7 +1682,8 @@ class Doc(UserList):
             elif engine in 'tex latex'.split():
                 display(Code(self.to_tex(text_only=True, **kwargs), language='tex'))
             elif engine == 'pdf':
-                pdf_bytes = self.to_pdf(**kwargs)
+                verb = kwargs.pop('verb', 0)
+                pdf_bytes = self.to_pdf(verb=verb, **kwargs)
                 show_pdf(pdf_bytes)
             else:
                 raise KeyError(f'engine must be in: "html", "markdown", "md", "tex", "latex", or "pdf", but was {engine=}')
