@@ -145,7 +145,7 @@ On Linux (Debian/Ubuntu) install via:
 
 ```bash
 sudo apt update
-sudo apt install texlive-latex-base
+sudo apt install texlive-full
 ```
 
 On MacOS: 

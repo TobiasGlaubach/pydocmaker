@@ -1,19 +1,23 @@
 FROM python:3.8
 
 
-RUN apt-get update && apt-get install -y --no-install-recommends pandoc libreoffice texlive-latex-base
+RUN apt-get update && apt-get install -y --no-install-recommends pandoc
+RUN apt-get update && apt-get install -y --no-install-recommends libreoffice
+RUN apt-get update && apt-get install -y --no-install-recommends texlive-full
+
+# texlive-latex-base texlive-fonts-recommended
+
+RUN pip3 install pytest
 
 ADD ./requirements.txt .requirements.txt
 RUN pip3 install -r .requirements.txt
 
-
-RUN pip3 install pytest
-
 ADD . .
-RUN pip install -e .
+RUN pip3 install -e .
 
 
-
+ENV PYDOCMAKER_TESTFULL 'full'
 
 # Run the tests
-CMD ["pytest", "tests"]
+# CMD ["pytest", "tests"]
+CMD ["python", "-m", "unittest", "discover", "tests", "-v"]

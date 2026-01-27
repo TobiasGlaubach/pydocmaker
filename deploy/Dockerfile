@@ -15,4 +15,4 @@ RUN pip install -e .
 
 
 # Run the tests
-CMD ["pytest", "tests"]
+CMD ["python", "-m", "unittest", "discover", "tests", "-v"]
