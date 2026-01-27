@@ -30,7 +30,7 @@ Documentation = "https://pydocmaker.readthedocs.io"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["devicelib*"]
+include = ["pydocmaker*"]
 
 
 [tool.setuptools.dynamic]
