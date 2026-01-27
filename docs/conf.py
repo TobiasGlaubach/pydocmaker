@@ -7,8 +7,10 @@
 import os
 import sys
 import toml
+from pathlib import Path
 
-srcdir = os.path.join(os.path.dirname(__file__), '../src')
+srcdir = str(Path(os.path.join(os.path.dirname(__file__), '../src')).resolve())
+
 print(srcdir)
 sys.path.insert(0, srcdir)
 
@@ -72,11 +74,16 @@ autoapi_dirs = [
     srcdir
 ]
 
+autoapi_ignore = ['*/tests/*', '*/examples/*']
+
+autoapi_add_toctree_entry = False
+
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 # html_theme = 'classic'
 # html_theme = 'pydata_sphinx_theme'
+html_theme = "sphinx_rtd_theme"
 
 # html_static_path = ['_static']
 
@@ -99,3 +106,20 @@ nbsphinx_execute = 'never'
 
 # # -- MyST Parser Configuration ----------------------------------------------
 # myst_heading_anchors = 3  # Add anchors to headings for linking
+
+html_theme_options = {
+    'collapse_navigation': False,
+    'sticky_navigation': True,
+    'navigation_depth': 4,
+    'includehidden': True,
+    'titles_only': False
+}
+
+html_sidebars = {
+    '**': [
+        'globaltoc.html',
+        'relations.html',
+        'sourcelink.html',
+        'searchbox.html',
+    ]
+}

@@ -2,6 +2,8 @@
 
 ![Icon](icon.png)
 
+Please find the full documentation at https://pydocmaker.readthedocs.io/en/latest/
+
 a minimal python document maker to create reports in the following formats:
 
 - `pdf`: PDF
@@ -108,7 +110,10 @@ doc.to_json('path/to/doc.json') # saves the document
 ```
 
 
-### Install Optional Requirement `pandoc`
+### Install Optional Requirements
+
+
+#### Optional Requirement `pandoc`
 
 In order to get all functionality `pandoc` needs to be available. Please follow the recommended installation steps on the software projects webpage. For convenience the minimal installation is listed here:
 
@@ -132,7 +137,7 @@ winget install JohnMacFarlane.Pandoc
 ```
 
 
-### Install Optional Requirement `Latex`
+### Optional Requirement `Latex`
 
 In order to get all functionality a latex compiler needs to be available. Please follow the recommended installation steps on the webpage. For convenience the minimal installation is listed here:
 
@@ -155,13 +160,49 @@ On Windows:
 winget install MiKTeX.MiKTeX
 ```
 
+### Optional Requirement for DOCX either `libreoffice` or `win32com`
+
+
+Some DOCX functionality need either Microsoft Windows and Microsoft Word and the `win32com` library or `libreoffice` available. 
+
+
+#### Installing `pywin32` (Windows only)
+
+Install via: 
+```bash
+pip install pywin32
+```
+
+#### Installing `libreoffice`
+
+On a Linux (Debian/Ubuntu) system insall via:
+
+```bash
+sudo apt update
+sudo apt-get install libreoffice
+```
+
+On MacOS: 
+
+```bash
+brew install --cask libreoffice
+```
+
+On Windows:
+
+**NOTE**: You need to add 
+
+```bash
+winget install TheDocumentFoundation.LibreOffice
+```
+
 ### Writing Word docx Documents with templates and fields
 
 Below is an example on how to use pydocmaker to write word docx documents from format templates
 and also automatically "replace" fields (MergeFields in Word or plain text) to be filled out in 
 the docx document with text from python.
 
-(NOTE: some of the code below utilized the win32com api and only works on windows)
+(**NOTE**: some of the code below utilized the ``win32com`` api and only works on windows)
 
 prepare a report, a template and some fields in the template:
 
