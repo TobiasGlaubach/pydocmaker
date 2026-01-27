@@ -115,6 +115,7 @@ def to_pdf(input_file, output_pdf):
     subprocess.run(
         cmd,
         check=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE
     )
 
     generated = output_pdf.parent / (input_file.stem + ".pdf")
