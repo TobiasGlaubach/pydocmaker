@@ -38,14 +38,14 @@ class TestCodeSnippets(unittest.TestCase):
         doc = pyd.get_example()
         with tempfile.TemporaryDirectory() as temp_dir:
             formats = [
-                ('html', 'any_path_to_my_file.html'),
-                ('pdf', 'any_path_to_my_file.pdf'),
-                ('markdown', 'any_path_to_my_file.md'),
-                ('docx', 'any_path_to_my_file.docx'),
-                ('textile', 'any_path_to_my_file.textile.zip'),
-                ('tex', 'any_path_to_my_file.tex.zip'),
-                ('ipynb', 'any_path_to_my_file.ipynb'),
-                ('json', 'any_path_to_mydoc.json')
+                ('html', 'temp_outfile.html'),
+                ('pdf', 'temp_outfile.pdf'),
+                ('markdown', 'temp_outfile.md'),
+                ('docx', 'temp_outfile.docx'),
+                ('textile', 'temp_outfile.textile.zip'),
+                ('tex', 'temp_outfile.tex.zip'),
+                ('ipynb', 'temp_outfile.ipynb'),
+                ('json', 'temp_outfile.json')
             ]
 
             for method, filename in formats:
