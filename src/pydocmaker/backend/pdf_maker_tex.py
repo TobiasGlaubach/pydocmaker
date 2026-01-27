@@ -15,10 +15,21 @@ import shutil
 import warnings
 import zipfile
 
+import logging
+
+# Configure once
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s | %(levelname)-8s | %(filename)-15s:%(lineno)3d] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+log = logging.getLogger(__name__)
+
 # Define a function to test if pdflatex, lualatex, or xelatex is installed
 def test_latex_compiler(compiler):
     try:
-        subprocess.run([compiler, '--version'], check=True)
+        subprocess.run([compiler, '--version'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         return True
     except FileNotFoundError:
         return False
@@ -35,10 +46,10 @@ def get_all_installed_latex_compilers():
 def test_latex_compilers(verb=1):
     global _latex_compiler
     if verb:
-        print('testing available latex compilers')
+        log.info('testing available latex compilers')
     _latex_compiler = next((c for c in _allowed_compilers if test_latex_compiler(c)), '')
     if verb:
-        print(f'DONE testing latex compilers: found compiler="{_latex_compiler}"')
+        log.info(f'DONE testing latex compilers: found compiler="{_latex_compiler}"')
 
 
 def set_latex_compiler(new_latex_compiler_str):
@@ -50,7 +61,9 @@ def set_latex_compiler(new_latex_compiler_str):
 def get_latex_compiler(verb=0):
     global _latex_compiler
     if _latex_compiler is None:
+        if verb: log.info("getting latex compiler for the first time")
         test_latex_compilers(verb=verb)
+        if verb: log.info(f"found  {_latex_compiler=}")
     ret = _latex_compiler # copy
     return ret
 
@@ -79,25 +92,32 @@ def zip_folder(folder_path):
 
 
 def _procrun(args, verb=0, ignore_error=False, **kwargs):
-    if verb > 1: print(args)
+    if verb > 1: log.info(args)
 
     process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
     stdout, stderr = process.communicate()
 
     if stdout and verb > 2:
-        print(stdout.decode())
+        log.info(stdout.decode())
 
     if stderr:
         stderr = stderr.decode()
         if 'warn' in stderr.lower() or ignore_error:
-            warnings.warn(stderr)
+            log.warning(stderr)
+            # warnings.warn(stderr)
         elif not ignore_error:
             raise Exception(stderr.decode())
         
     if process.returncode != 0:
-        s = f"Command {' '.join(args)} returned non-zero exit status {process.returncode}"
+        s = f"Command {' '.join(args)} returned non-zero exit status {process.returncode=}"
         if ignore_error:
-            warnings.warn(s)
+            if stderr:
+                log.warning(f'{process.returncode=} from {args=}.')
+                log.warning(f'stderr follows on next line')
+                log.warning(stderr.decode())
+                log.warning(f'stdout follows on next line')
+                log.warning(stdout.decode())
+            # warnings.warn(s)
         else:
             raise Exception(s)
     return process.returncode
@@ -163,6 +183,7 @@ def make_pdf_from_tex(input_latex_text, attachments_dc=None, docname='', out_for
 
 
     if latex_compiler is None:
+        
         latex_compiler = get_latex_compiler()
     else:
         assert test_latex_compiler(latex_compiler), f'The given Latex Compiler "{latex_compiler}" was not found in PATH'
@@ -172,7 +193,7 @@ def make_pdf_from_tex(input_latex_text, attachments_dc=None, docname='', out_for
     if n_times_make is None:
         n_times_make = 1 if latex_compiler == 'pandoc' else 3
         
-    if verb: print(f'Running with {latex_compiler=}')
+    if verb: log.info(f'Running with {latex_compiler=}')
 
     # open a temp folder at base dir which will be deleted after completion
     with tempfile.TemporaryDirectory(dir=base_dir) as od:
@@ -181,7 +202,7 @@ def make_pdf_from_tex(input_latex_text, attachments_dc=None, docname='', out_for
         out_path_tex = os.path.join(output_dir, out_file_tex)
         out_path_pdf = os.path.join(output_dir, f'{docname}.pdf')
 
-        if verb: print(f'Writing file: {out_file_tex}')
+        if verb: log.info(f'Writing file: {out_file_tex}')
         # write the tex file to the folder
         with open(out_path_tex, 'w') as fp:
             fp.write(input_latex_text)
@@ -189,7 +210,7 @@ def make_pdf_from_tex(input_latex_text, attachments_dc=None, docname='', out_for
         # write all attachments to the folder
         for filename, file_content_bytes in attachments_dc.items():
             assert isinstance(filename, str) and isinstance(file_content_bytes, (bytes, str)), f'attachments_dc must only contain path:bytes pairs but given was {filename=} with content type {type(file_content_bytes)}'
-            if verb: print(f'Writing file: {filename}')
+            if verb: log.info(f'Writing file: {filename}')
             out_path = os.path.join(output_dir, filename)
             
             with open(out_path, 'wb' if isinstance(file_content_bytes, bytes) else 'w') as fp:
@@ -199,7 +220,7 @@ def make_pdf_from_tex(input_latex_text, attachments_dc=None, docname='', out_for
         for i in range(n_times_make):
             i1 = i+1
             ir = True if (i1 < n_times_make) or ignore_error else False # only assure the last run did not fail if requested
-            if verb: print(f'Compilation run {i1}')
+            if verb: log.info(f'Compilation run {i1}')
             if latex_compiler == 'pandoc':
                 _procrun(['pandoc', '-o', out_path_pdf, out_path_tex], verb=verb, ignore_error=ir,  cwd=output_dir)
             elif latex_compiler in ['pdflatex', 'lualatex', 'xelatex']:
@@ -208,10 +229,10 @@ def make_pdf_from_tex(input_latex_text, attachments_dc=None, docname='', out_for
                 raise ValueError(f'Need to specify a valid latex compiler! Either "pdflatex", "lualatex", "xelatex", or "pandoc". Given was {latex_compiler=}')
         
         if out_format.lower() == 'zip':
-            if verb: print(f'Zipping folder to bytes: {output_dir}')
+            if verb: log.info(f'Zipping folder to bytes: {output_dir}')
             return zip_folder(output_dir)
         elif out_format.lower() == 'pdf':
-            if verb: print(f'Reading PDF to bytes: {output_dir}')
+            if verb: log.info(f'Reading PDF to bytes: {output_dir}')
             logfile = os.path.join(output_dir, f'{docname}.log')
 
             showlog = False
@@ -223,12 +244,8 @@ def make_pdf_from_tex(input_latex_text, attachments_dc=None, docname='', out_for
                 showlog = False
             if showlog:
                 with open(logfile, 'r') as fp:
-                    print('='*100)
-                    print('PDF FILE NOT FOUND! HERE IS THE LOG')
-                    print('_'*20)
-                    print(fp.read())
-                    print('='*100)
-            
+                    log.warning(f"{'='*100}\nPDF FILE NOT FOUND! HERE IS THE LOG\n{'_'*20}\n{fp.read()}\n{'='*100}")
+                    
             if not os.path.exists(out_path_pdf):
                 info_string = f"The file {out_path_pdf} does not exist."
                 if os.path.exists(output_dir):
@@ -239,7 +256,11 @@ def make_pdf_from_tex(input_latex_text, attachments_dc=None, docname='', out_for
                     info_string += f"\nThe directory {output_dir} does not exist either."
                 if os.path.exists(logfile):
                     with open(logfile, 'r') as fp:
-                        info_string += '\nHere is the last 500 chars from the log file:\n---------\n' + fp.read()[-500:]
+                        s = fp.read()
+                        info_string += '\nHere is the last 500 chars from the log file:\n---------\n' + s[-500:]
+                        if verb and os.environ.get('PYDOCMAKER_TESTFULL'):
+                            log.error(((('>'*100) + '\n')*10) + s + (('<'*100) + '\n')*10)
+
                 info_string += '\n To debug the latex code you can have a look at doc.to_tex() or doc.show("tex") directly to see the source. You can also call doc.to_pdf("myfolder/mydoc.zip") to get the full folder directly'
 
                 raise FileNotFoundError(info_string)
