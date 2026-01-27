@@ -47,10 +47,10 @@ def set_latex_compiler(new_latex_compiler_str):
     _latex_compiler = new_latex_compiler_str
     return _latex_compiler
 
-def get_latex_compiler():
+def get_latex_compiler(verb=0):
     global _latex_compiler
     if _latex_compiler is None:
-        test_latex_compilers()
+        test_latex_compilers(verb=verb)
     ret = _latex_compiler # copy
     return ret
 
@@ -102,23 +102,23 @@ def _procrun(args, verb=0, ignore_error=False, **kwargs):
             raise Exception(s)
     return process.returncode
 
-def _get_platform_tempdir():
-    import platform
-    # HACK: Stupid windows sometimes has a tilde in the user path and PDFlatex does not like this
-    # therefore we need to expand the user name using ctypes. 
-    # NOTE: os.path.expanduser(tempfile.tempdir) does not work for this either
-    if platform.system().lower() == "windows":
-        # Use the Windows API to get the full long path (remove tilde)
-        import ctypes
-        buf_size = ctypes.windll.kernel32.GetLongPathNameW(tempfile.gettempdir(), None, 0)
-        if buf_size == 0:
-            return tempfile.gettempdir()  # In case GetLongPathNameW fails, return original path
-        buffer = ctypes.create_unicode_buffer(buf_size)
-        ctypes.windll.kernel32.GetLongPathNameW(tempfile.gettempdir(), buffer, buf_size)
-        return buffer.value
-    else:
-        # For Unix-like systems (Linux, macOS), plug in None to indicate to use 
-        return None
+# def _get_platform_tempdir():
+#     import platform
+#     # HACK: Stupid windows sometimes has a tilde in the user path and PDFlatex does not like this
+#     # therefore we need to expand the user name using ctypes. 
+#     # NOTE: os.path.expanduser(tempfile.tempdir) does not work for this either
+#     if platform.system().lower() == "windows":
+#         # Use the Windows API to get the full long path (remove tilde)
+#         import ctypes
+#         buf_size = ctypes.windll.kernel32.GetLongPathNameW(tempfile.gettempdir(), None, 0)
+#         if buf_size == 0:
+#             return tempfile.gettempdir()  # In case GetLongPathNameW fails, return original path
+#         buffer = ctypes.create_unicode_buffer(buf_size)
+#         ctypes.windll.kernel32.GetLongPathNameW(tempfile.gettempdir(), buffer, buf_size)
+#         return buffer.value
+#     else:
+#         # For Unix-like systems (Linux, macOS), plug in None to indicate to use 
+#         return None
     
 
 def make_pdf_from_tex(input_latex_text, attachments_dc=None, docname='', out_format='pdf', base_dir=None, latex_compiler=None, n_times_make=None, verb=0, ignore_error=False) -> bytes:
@@ -174,11 +174,9 @@ def make_pdf_from_tex(input_latex_text, attachments_dc=None, docname='', out_for
         
     if verb: print(f'Running with {latex_compiler=}')
 
-    if base_dir is None:
-        base_dir = _get_platform_tempdir() # need this to deal with windows and tilde chars
-        
     # open a temp folder at base dir which will be deleted after completion
-    with tempfile.TemporaryDirectory(dir=base_dir) as output_dir:
+    with tempfile.TemporaryDirectory(dir=base_dir) as od:
+        output_dir = Path(od).resolve() # should remove tilde
         out_file_tex = f'{docname}.tex'
         out_path_tex = os.path.join(output_dir, out_file_tex)
         out_path_pdf = os.path.join(output_dir, f'{docname}.pdf')

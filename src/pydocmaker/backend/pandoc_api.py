@@ -1,6 +1,7 @@
 import base64
 import os
 import random
+import shlex
 import time
 import traceback
 from typing import List
@@ -12,6 +13,8 @@ import subprocess
 import zipfile
 import tempfile
 import io
+
+from pathlib import Path
 
 allow_pandoc = True
 
@@ -38,8 +41,9 @@ def pandoc_convert(input_string, input_format, output_format, is_binary=False, *
     if input_format == output_format:
         return input_string # pandoc would just return the same anyways
     
-    inp = ['pandoc'] + list(args) + ['--wrap=none', '--from', input_format, '--to', output_format]
-
+    argss = [shlex.quote(arg) for arg in args]
+    inp = ['pandoc'] + argss + ['--wrap=none', '--from', input_format, '--to', output_format]
+    
     process = subprocess.Popen(inp, 
                                stdin=subprocess.PIPE, 
                                stdout=subprocess.PIPE, 
@@ -85,13 +89,17 @@ def pandoc_merge_files(inp_files, out_file):
     Raises:
     AssertionError: If the input file does not exist or if no output file or format is provided.
     """
+    files = []
     for inp_file in inp_files:
-      assert inp_file, "Need to give an input file name!"
-      assert os.path.exists(inp_file), f"input file {inp_file=} does not exist!"
+        assert inp_file, "Need to give an input file name!"
+        inp_file = Path(inp_file).resolve()
+        if not inp_file.exists():
+            raise FileNotFoundError(f"input file {inp_file=} does not exist!")
+        files.append(str(inp_file))
 
     assert out_file, "Need to give an output file name!"
-    return subprocess.run(['pandoc', *inp_files, '-o', out_file])
-    
+    return subprocess.run(['pandoc', *files, '-o', str(out_file)])
+
 def pandoc_convert_file(inp_file, out_file_or_format):
     """
     Convert a file using pandoc.
@@ -108,9 +116,12 @@ def pandoc_convert_file(inp_file, out_file_or_format):
     Raises:
     AssertionError: If the input file does not exist or if no output file or format is provided.
     """
-    
+
     assert inp_file, "Need to give an input file name!"
-    assert os.path.exists(inp_file), f"input file {inp_file=} does not exist!"
+    
+    inp_file = Path(inp_file).resolve()
+    if not inp_file.exists():
+        raise FileNotFoundError(f"input file {inp_file=} does not exist!")
 
     out_file = out_file_or_format
 
@@ -118,7 +129,7 @@ def pandoc_convert_file(inp_file, out_file_or_format):
         out_file = os.path.splitext(inp_file)[0] + out_file
         
     assert out_file, "Need to give an output file name!"
-    return subprocess.run(['pandoc', inp_file, '-o', out_file])
+    return subprocess.run(['pandoc', str(inp_file), '-o', str(out_file)])
 
 
 
@@ -136,6 +147,20 @@ def convert(output_format, doc:List[dict], with_attachments=True, files_to_uploa
     else:
         return text
     
+
+
+
+
+def pandoc_to_pdf(input_file, output_pdf):
+    input_file = Path(input_file).resolve()
+    output_pdf = Path(output_pdf).resolve()
+    cmd = ['pandoc', str(input_file), '-o', str(output_pdf)]
+    subprocess.run(cmd, check=True)
+
+    if not output_pdf.exists():
+        raise FileNotFoundError(f"File {output_pdf} was not created successfully")
+    
+
 
 
 # def to_docx(doc:List[dict], with_attachments=True, files_to_upload=None):

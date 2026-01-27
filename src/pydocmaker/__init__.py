@@ -1,22 +1,54 @@
-__version__ = '2.5.2'
+__version__ = '2.5.2-alpha'
 
 from pydocmaker.core import Doc, construct, constr, buildingblocks, print_to_pdf, get_latex_compiler, set_latex_compiler, make_pdf_from_tex, show_pdf
 from pydocmaker.util import upload_report_to_redmine, bcolors, txtcolor, colors_dc
 
-from pydocmaker.backend.ex_docx import DocxFile, DocxFileW32
+from pydocmaker.backend.ex_docx import DocxFile, DocxFileW32, can_use_libreoffice, can_use_w32_word
 from pydocmaker.backend.ex_tex import can_run_pandoc
-from pydocmaker.backend.pdf_maker import get_all_installed_latex_compilers, get_latex_compiler
+from pydocmaker.backend.pdf_maker_tex import get_all_installed_latex_compilers, get_latex_compiler
 from pydocmaker.backend.pandoc_api import pandoc_convert_file, pandoc_set_allowed
 
 from pydocmaker.templating import DocTemplate, TemplateDirSource, register_new_template_dir, get_registered_template_dirs, get_available_template_ids, test_template_exists, remove_from_template_dir
 
 from latex import escape as tex_escape
 
+
+from pydocmaker.backend.libreoffice_api import config_libreoffice_path_get, config_libreoffice_path_set
+from pydocmaker.core import config_pdf_engine_get, config_pdf_engine_set, config_pdf_engine_scan, config_pdf_engine_test
+
 try:
     # tests and caches already if pandoc is installed when import is used, so its faster later when we want to use it (or not)
     can_run_pandoc() 
 except Exception as err:
     pass
+
+
+def info_optionals(force_retest=False):
+    """
+    Test the availability of optional dependencies for pydocmaker.
+
+    Parameters:
+    force_retest (bool): If True, forces a retest of the dependencies.
+
+    Returns:
+    dict: A dictionary containing the status of each dependency.
+          - 'can_run_pandoc': Boolean indicating if pandoc can be run.
+          - 'can_use_w32_word': Boolean indicating if w32com.client can be used with Word.
+          - 'can_use_libreoffice': Boolean indicating if LibreOffice can be used.
+          - 'pdf_engines_available': List of available PDF engines.
+          - 'pdf_engine': currently selected (default) engine to create pdf documents from pydocs
+          - 'libreoffice_path': Path to the LibreOffice executable or None if not found.
+    """
+
+    return {
+        'can_run_pandoc': can_run_pandoc(force_retest=force_retest),
+        'can_use_w32_word': can_use_w32_word(force_reload=force_retest),
+        'can_use_libreoffice': can_use_libreoffice(force_reload=force_retest),
+        'pdf_engines_available': config_pdf_engine_scan(force_reload=False),
+        'pdf_engine': config_pdf_engine_get(),
+        'libreoffice_path': config_libreoffice_path_get(),
+        
+    }
 
 def pandoc_set_enabled():
     """short for pandoc_set_allowed(True), which will allow pandoc to be used as a valid conversion option"""

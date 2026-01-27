@@ -36,9 +36,9 @@ except Exception as err:
     from .baseformatter import BaseFormatter, _handle_template
     
 try:
-    from pydocmaker.backend import pdf_maker
+    from pydocmaker.backend import pdf_maker_tex
 except Exception as err:
-    from . import pdf_maker
+    from . import pdf_maker_tex
     
 
     
@@ -196,7 +196,7 @@ def make_pdf(doc:List[dict], files_to_upload=None, template = None, template_par
     """
 
     latex_str, attachments_dc = convert(doc, files_to_upload=files_to_upload, template=template, template_params=template_params, do_escape_template_params=do_escape_template_params, with_attachments=True)
-    return pdf_maker.make_pdf_from_tex(input_latex_text=latex_str, attachments_dc=attachments_dc, docname=docname, out_format='pdf', **kwargs)
+    return pdf_maker_tex.make_pdf_from_tex(input_latex_text=latex_str, attachments_dc=attachments_dc, docname=docname, out_format='pdf', **kwargs)
 
     
 def make_pdf_zip(doc:List[dict], files_to_upload=None, template = None, template_params=True, do_escape_template_params=False, docname=None, **kwargs):
@@ -221,7 +221,7 @@ def make_pdf_zip(doc:List[dict], files_to_upload=None, template = None, template
         files_to_upload = {}
     files_to_upload['doc.json'] = json.dumps(doc, indent=2)
     latex_str, attachments_dc = convert(doc, files_to_upload=files_to_upload, template=template, template_params=template_params, do_escape_template_params=do_escape_template_params, with_attachments=True)
-    return pdf_maker.make_pdf_from_tex(input_latex_text=latex_str, attachments_dc=attachments_dc, docname=docname, out_format='zip', **kwargs)
+    return pdf_maker_tex.make_pdf_from_tex(input_latex_text=latex_str, attachments_dc=attachments_dc, docname=docname, out_format='zip', **kwargs)
 
     
 

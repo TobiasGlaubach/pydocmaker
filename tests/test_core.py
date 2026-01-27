@@ -16,7 +16,7 @@ class TestDoc(unittest.TestCase):
     def test_iadd_with_string(self):
         s = "Test String"
         self.doc_builder += s
-        self.assertEqual(self.doc_builder[-1].get('typ'), self.doc_builder.default_add_string_type)
+        self.assertEqual(self.doc_builder[-1].get('typ'), self.doc_builder.DEFAULT_ADD_STRING_TYPE)
         self.assertEqual(self.doc_builder[-1].get('children'), s)
 
     def test_iadd_with_tuple(self):

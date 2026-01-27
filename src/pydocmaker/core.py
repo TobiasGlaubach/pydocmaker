@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 import tempfile
 import time
-from typing import List, BinaryIO, TextIO
+from typing import Any, Dict, List, BinaryIO, TextIO, Tuple, Union
 import warnings
 import zipfile
 import requests
@@ -16,7 +16,7 @@ import copy
 import subprocess
 import os
 
-
+import shlex
 
 from .util import flatten_list, split_camel_case, upload_report_to_redmine
 
@@ -27,19 +27,101 @@ from .backend.ex_ipynb import convert as to_ipynb
 from .backend.ex_tex import convert as to_tex
 from .backend.ex_markdown import convert as to_markdown
 from .backend.ex_redmine import convert as to_textile
-from .backend.ex_tex import make_pdf as to_pdf
+from .backend.ex_tex import make_pdf as to_pdf_tex
 from .backend.ex_tex import make_pdf_zip as to_pdf_zip
 
 from .backend.ex_tex import auto_escape_latex
 
-from .backend.pdf_maker import make_pdf_from_tex, get_latex_compiler, set_latex_compiler
+from .backend.pdf_maker_tex import make_pdf_from_tex, get_latex_compiler, set_latex_compiler
+from .backend import ex_docx
 
 from .templating import DocTemplate
+
+from .backend.pandoc_api import can_run_pandoc, pandoc_convert, pandoc_convert_file, pandoc_to_pdf
 
 np = None
 gImage = None
 
 chapter_level = 1 # this is the level of heading to use for chapters which is equivalent to html <h1> to <h5> or whatever
+
+_pdf_engine = 'tex'
+
+def config_pdf_engine_set(choice:str='tex'):
+    """
+    Sets the PDF engine to be used for generating PDF documents.
+
+    Parameters:
+    choice (str): The desired PDF engine. Must be one of 'tex', 'word', or 'libreoffice'.
+                  Default is 'tex'.
+
+    Returns:
+    str: The selected PDF engine.
+
+    Raises:
+    ValueError: If the provided choice is not one of the allowed options.
+    """
+    options = "tex word libreoffice pandoc".split()
+    choice = str(choice).lower()
+    if not choice in options:
+        raise ValueError(f'PDF engine must be one of {options=} but was {choice=}')
+    
+    global _pdf_engine
+    _pdf_engine = choice
+    return _pdf_engine
+
+def config_pdf_engine_get():
+    global _pdf_engine
+    return _pdf_engine
+
+
+def config_pdf_engine_test(raise_on_error=True, force_reload=False):
+    """
+    tests the availability of the currently configured PDF engine.
+
+    Args:
+        raise_on_error (bool): If True, raises a ValueError if no valid compiler is found.
+        force_reload (bool): If True, forces a reload of the PDF engine configuration.
+
+    Returns:
+        bool: True if a valid compiler is found, False otherwise.
+    """
+    res = False
+    global _pdf_engine
+    if _pdf_engine == 'tex':
+        res = get_latex_compiler()
+    elif _pdf_engine == 'word':
+        res = ex_docx.can_use_w32_word(force_reload=force_reload)
+    elif _pdf_engine == 'libreoffice':
+        res = ex_docx.can_use_libreoffice(force_reload=force_reload)
+    elif _pdf_engine == 'pandoc':
+        res = can_run_pandoc(force_retest=force_reload)
+    else: ValueError(f'PDF engine must be one of "{"tex word libreoffice".split()}" but was "{_pdf_engine}"')
+
+    if raise_on_error and not res:
+        raise ValueError(f'No valid compiler found for pdf_engine="{_pdf_engine}"')
+    
+    return res
+
+
+
+def config_pdf_engine_scan(force_reload=False):
+    """
+    Configures the PDF engine and tests its availability.
+
+    Args:
+        raise_on_error (bool): If True, raises a ValueError if no valid compiler is found.
+        force_reload (bool): If True, forces a reload of the PDF engine configuration.
+
+    Returns:
+        bool: True if a valid compiler is found, False otherwise.
+    """
+    res = []
+    if get_latex_compiler(): res.append('tex')
+    if ex_docx.can_use_w32_word(force_reload=force_reload): res.append('word')
+    if ex_docx.can_use_libreoffice(force_reload=force_reload): res.append('libreoffice')
+    if can_run_pandoc(force_retest=force_reload): res.append('pandoc')
+    return res
+
 
 def is_notebook() -> bool:
     try:
@@ -369,19 +451,9 @@ class Doc(UserList):
             
     """a collection of document parts to make a document (can be used like a list)"""
 
-    default_add_string_type = 'markdown'
-
-    export_engines = ['md', 'html', 'json', 'docx', 'textile', 'ipynb', 'tex', 'redmine', 'pdf']
-    export_engine_extensions = {
-        'md': '.md', 
-        'html':'.html', 
-        'json':'.json', 
-        'docx': '.docx',
-        'textile': '.textile.zip',
-        'ipynb': '.ipynb', 
-        'tex': '.tex.zip',
-        'pdf': '.pdf'
-    }
+    DEFAULT_ADD_STRING_TYPE = 'markdown'
+    EXPORT_ENGINES = ['md', 'html', 'json', 'docx', 'textile', 'ipynb', 'tex', 'redmine', 'pdf']
+    EXPORT_ENGINES_EXTENSIONS = {'md': '.md', 'html':'.html', 'json':'.json', 'docx': '.docx', 'textile': '.textile.zip', 'ipynb': '.ipynb', 'tex': '.tex.zip', 'pdf': '.pdf'}
 
     @staticmethod
     def load_json(path):
@@ -413,7 +485,13 @@ class Doc(UserList):
         super().__init__(initial_data)
 
     def __add__(a, b):
-        default = a.default_add_string_type
+        """Add (join) two Docs into a single one and return a new instance.
+
+        This method combines two `Doc` objects into one. If `b` is a tuple or list containing a string and a default type,
+        it uses the provided default type. If `b` is a string, it wraps it in a `Doc` object using the default type.
+        """
+
+        default = a.DEFAULT_ADD_STRING_TYPE
         
         if hasattr(a, 'dump'):
             a = a.dump()
@@ -432,7 +510,21 @@ class Doc(UserList):
         return Doc(a + b)
     
     def __iadd__(self, b):
-        default = self.default_add_string_type
+        """
+        Add content to the current instance using the += operator.
+
+        Parameters:
+        b (str, tuple, list, or object with a dump method): The content to add.
+            - If `b` has a `dump` method, it will be called to get the content.
+            - If `b` is a tuple or list of length 2 with both elements being strings,
+            the first element is used as the key and the second as the value.
+            - If `b` is a string, it will be added with the default key.
+
+        Returns:
+        self: The modified instance after adding the content.
+        """
+        
+        default = self.DEFAULT_ADD_STRING_TYPE
 
         if hasattr(b, 'dump'):
             b = b.dump()
@@ -445,7 +537,11 @@ class Doc(UserList):
         return self
     
     def flatten(self):
-        """unpacks all iterator elements within this documents and returns a new flat document"""
+        """Unpacks all iterator elements within this document and returns a new flat document.
+
+        Returns:
+            Doc: A new document with all elements flattened.
+        """
         return Doc(flatten_list(self.dump()))
 
     def add_chapter(self, chapter_name:str, chapter_index=None, color=''):
@@ -477,7 +573,7 @@ class Doc(UserList):
         """
         return self.get_chapters(as_ranges=False)[chapter]
     
-    def get_chapters(self, as_ranges=False):
+    def get_chapters(self, as_ranges=False) -> dict:
         """Extracts chapters from the internal data and returns them as either dictionaries or ranges.
 
         This method iterates through the internal data structure (represented by `self.data`) and identifies chapters based on a custom logic implemented in the `_is_chapter` function.
@@ -513,7 +609,7 @@ class Doc(UserList):
             return chapters
 
 
-    def get_template_from_meta(self, tformat ='', template_dir = None):
+    def get_template_from_meta(self, tformat ='', template_dir = None) -> DocTemplate:
         """Gets the template from the metadata in this document if there is any defined.
 
         Args:
@@ -545,7 +641,7 @@ class Doc(UserList):
 
     
 
-    def set_template_to_meta(self, template_id:str, with_params=True, with_assets=True, test_found=True, on_exist='fail'):
+    def set_template_to_meta(self, template_id:str, with_params=True, with_assets=True, test_found=True, on_exist='fail') -> dict:
         """
         Sets a template by a given template_id to the document metadata.
 
@@ -606,7 +702,7 @@ class Doc(UserList):
         return self.update_meta(meta)
     
 
-    def parse_filename_meta(self, doc_name, regex_pattern: str, fancy_title_analysis=True):
+    def parse_filename_meta(self, doc_name, regex_pattern: str, fancy_title_analysis=True) -> dict:
         r"""
         Parses the metadata from a document name using a regular expression pattern.
 
@@ -619,7 +715,8 @@ class Doc(UserList):
             dict: A dictionary containing the parsed metadata.
 
         Example:
-            >>> pydocmaker = Pydocmaker()
+            >>> import pydocmaker as pyd
+            >>> doc = pyd.Doc()
             >>> regex_pattern = r'(?P<title>\w+)-(?P<version>[a-zA-Z0-9]+)-(?P<state>\w+)'
             >>> doc_name = 'myfile-01-draft'
             >>> doc.parse_filename_meta(doc_name, regex_pattern)
@@ -648,13 +745,18 @@ class Doc(UserList):
         self.update_meta(dc)
         return dc
 
-    def set_meta(self, *args, **kwargs):
+    def set_meta(self, *args, **kwargs) -> dict:
         """
         Sets the metadata for this document. 
-        Use by either
-        .set_meta({'doc_name': 'test'})
-        or
-        .set_meta(doc_name='test') 
+        Can be used in two ways:
+        - By passing a dictionary: `.set_meta({'doc_name': 'test'})`
+        - By passing keyword arguments: `.set_meta(doc_name='test')`
+
+        This method updates the existing metadata or creates new metadata if it doesn't exist.
+
+        Args:
+            *args: A single dictionary containing metadata.
+            **kwargs: Key-value pairs representing metadata.
 
         Returns:
             dict: The updated metadata.
@@ -672,11 +774,11 @@ class Doc(UserList):
             meta['data'].update(data)
             return meta['data']
         
-    def get_meta(self, default=None):
+    def get_meta(self, default=None) -> Union[Dict, None]:
         """gets the (first) meta element in this document if it exists. If not returns None"""
         return next((k for k in self if isinstance(k, dict) and k.get('typ') == 'meta'), default)
     
-    def get_metadata(self):
+    def get_metadata(self) -> Union[Dict, None]:
         """Equivalent to self.get_meta(default={}).get('data', {})
         Gets the data of the (first) meta element in this document if it exists. 
         If not exists an new empty dict is returned"""
@@ -686,18 +788,17 @@ class Doc(UserList):
         """tests if this document has one or more metadata objects"""
         return False if self.get_meta() is None else True
     
-    def update_meta(self, *args, **kwargs) -> dict:
-        """updates the metadata element in this document if it exists. 
-        If not it will be added with the content given. The content can be
-        given either as a dict or as a kwargs.
+    def update_meta(self, *args, **kwargs) -> Union[Dict, None]:
+        """Updates the metadata element in this document if it exists.
+        If not, it will be added with the content provided. The content can be
+        provided either as a dictionary or as keyword arguments.
 
-        Either:
-        .update_meta({'doc_name': 'test'})
-        or
-        .update_meta(doc_name='test') 
+        Examples:
+            .update_meta({'doc_name': 'test'})
+            .update_meta(doc_name='test')
 
         Returns:
-            dict: the meta elements data (content)
+            dict: The updated metadata content.
         """
         
         data = next(iter(args), {})
@@ -711,18 +812,16 @@ class Doc(UserList):
             meta['data'].update(**data)
             return meta['data']
 
-    def add_meta(self, *args, **kwargs):
-        """adds a metadata element to this document if it exists. 
-        If not the medatadata will be updated. The content can be
-        given either as a dict or as a kwargs.
+    def add_meta(self, *args, **kwargs) -> dict:
+        """Adds a metadata element to this document. If the metadata already exists,
+        it will be updated. The content can be provided either as a dictionary or as keyword arguments.
 
-        Either:
-        .add_meta({'doc_name': 'test'})
-        or
-        .add_meta(doc_name='test') 
+        Examples:
+            .add_meta({'doc_name': 'test'})
+            .add_meta(doc_name='test')
 
         Returns:
-            dict: the meta elements data (content)
+            dict: The metadata element's data (content).
         """
         data = next(iter(args), {})
         data.update(kwargs)
@@ -937,7 +1036,7 @@ class Doc(UserList):
         return self
     
 
-    def dump(self):
+    def dump(self) -> List[Dict]:
         """dump this document to a basic list of dicts for document parts
 
         Returns:
@@ -946,6 +1045,7 @@ class Doc(UserList):
         return [copy.deepcopy(v) for v in self]
     
     def _ret(self, m, path_or_stream):
+        """internal method to return or write data"""
         
 
         if path_or_stream and isinstance(path_or_stream, str):
@@ -1059,7 +1159,7 @@ class Doc(UserList):
 
         
 
-    def to_pdf(self, path_or_stream=None, docname='', files_to_upload=None, base_dir=None, latex_compiler=None, n_times_make=None, verb=1, ignore_error=True, template=None, template_params=None, do_escape_template_params='auto', **kwargs):
+    def to_pdf(self, path_or_stream=None, docname='', files_to_upload=None, base_dir=None, engine=None, latex_compiler=None, n_times_make=None, verb=1, ignore_error=True, template=None, template_params=None, do_escape_template_params='auto', **kwargs) -> Union[str, bytes, bool]:
         """Converts the current object to a PDF file or zipped latex project folder.
 
         Args:
@@ -1072,7 +1172,8 @@ class Doc(UserList):
             files_to_upload (optional): A list of files to be uploaded with the document.
             base_dir (str, optional): The directory to use as the base directory for the temporary directory.
                 Defaults to the system's default temporary directory.
-            latex_compiler (str, optional): The LaTeX compiler to use. Either 'pdflatex', 'lualatex', 'xelatex', or 'pandoc'.
+            engine (str, optional): the pdf engine to use (either "tex", "word", or "libreoffice"). If None, the currently configured default engine will be used.
+            latex_compiler (str, optional): Only used if engine resolves to "tex". The LaTeX compiler to use. Either 'pdflatex', 'lualatex', 'xelatex', or 'pandoc'.
                 If not specified, the function will try to use 'pandoc', 'pdflatex', 'lualatex', or 'xelatex' in that order.
             n_times_make (int, optional): The number of times to run the LaTeX compiler. Defaults to 1 for pandoc and 3 for all others.
             verb (int, optional): The verbosity level (0, 1, 2). If greater than 0, the function will print more and more debug information. Defaults to 1.
@@ -1080,14 +1181,16 @@ class Doc(UserList):
             template (str, optional): A string containing the LaTeX code for the document template. Either a Jinja2 Latex template, or a string
                 If not provided, a default template will be used.
             template_params (dict, optional): A dictionary containing the parameters for the document template which will be parsed to the "render" method of Jinja2
-            do_escape_template_params (bool, optional): Whether to escape the template parameters. "auto" will scan for %%latex at the start of a string to determine if its a latex string. Defaults to 'auto'.
+            do_escape_template_params (bool, optional): Only valid for Latex templates. Whether to escape the template parameters. "auto" will scan for %%latex at the start of a string to determine if its a latex string. Defaults to 'auto'.
 
         Returns:
-            str: The data as bytes, or True if the data was saved successfully to a file or stream.
+            str: Either the data as string, or bytes depending on if its binary. Or True|False to indicate if the data was saved successfully to a file or stream.
 
         Raises:
             Warning: If the provided file path does not end with '.zip' or '.pdf', a warning is issued and the file is assumed to be in PDF format.
         """
+        global _pdf_engine
+
         if files_to_upload is None:
             files_to_upload = {}
         
@@ -1097,7 +1200,11 @@ class Doc(UserList):
 
         params = {}
         meta = self.get_meta(default={}).get('data', {})
-        mytemplate = self.get_template_from_meta(tformat='tex')
+        if engine is None:
+            engine = _pdf_engine
+
+        tformat = 'tex' if engine == 'tex' else 'html'
+        mytemplate = self.get_template_from_meta(tformat=tformat)
         if template is None and not mytemplate is None:
             template = mytemplate.template
         if not mytemplate is None:
@@ -1116,50 +1223,83 @@ class Doc(UserList):
         if template_params:
             params.update(template_params)
 
-        if do_escape_template_params == 'auto':
-            params = auto_escape_latex(params)
-            do_escape_template_params = False
+
+        if engine == 'tex':
+            
+            if do_escape_template_params == 'auto':
+                params = auto_escape_latex(params)
+                do_escape_template_params = False
 
 
-        kwargs = {
-            "files_to_upload": files_to_upload,
-            "template": template,
-            "template_params": params,
-            'do_escape_template_params': do_escape_template_params,
-            "docname": docname,
-            "base_dir": base_dir,
-            "latex_compiler": latex_compiler,
-            "n_times_make": n_times_make,
-            "verb": verb,
-            "ignore_error": ignore_error
-        }
+            kwargs = {
+                "files_to_upload": files_to_upload,
+                "template": template,
+                "template_params": params,
+                'do_escape_template_params': do_escape_template_params,
+                "docname": docname,
+                "base_dir": base_dir,
+                "latex_compiler": latex_compiler,
+                "n_times_make": n_times_make,
+                "verb": verb,
+                "ignore_error": ignore_error
+            }
 
-        # unpacks any argument from params into kwargs in case something else than default is given for that argument
-        for param_name, param_value in kwargs.items():
-            if param_name == 'docname' and not param_value and param_name in params:
-                kwargs[param_name] = params.get(param_name)
-            elif param_name == 'verb' and param_value == 1 and param_name in params:
-                kwargs[param_name] = params.get(param_name)
-            elif param_value is None and param_name in params:
-                kwargs[param_name] = params.get(param_name)
+            # unpacks any argument from params into kwargs in case something else than default is given for that argument
+            for param_name, param_value in kwargs.items():
+                if param_name == 'docname' and not param_value and param_name in params:
+                    kwargs[param_name] = params.get(param_name)
+                elif param_name == 'verb' and param_value == 1 and param_name in params:
+                    kwargs[param_name] = params.get(param_name)
+                elif param_value is None and param_name in params:
+                    kwargs[param_name] = params.get(param_name)
 
 
-        fun = to_pdf
+            fun = to_pdf_tex
+            if isinstance(path_or_stream, str) and path_or_stream:
+                if path_or_stream == 'zip':
+                    fun = to_pdf_zip
+                    path_or_stream = None
+                elif path_or_stream.endswith('.zip'):
+                    fun = to_pdf_zip
+                elif path_or_stream == 'pdf':
+                    fun = to_pdf_tex
+                    path_or_stream = None
+                elif path_or_stream.endswith('.pdf'):
+                    fun = to_pdf_tex
+                else:
+                    warnings.warn(f'the given filename is neither "zip" nor "pdf" this is unusual. I will assume it`s "pdf" format and write to the given path: "{path_or_stream}"')
+            
+        elif engine == 'word':
+            filename = os.path.basename(path_or_stream) if isinstance(path_or_stream, (str, Path)) else None
+            def to_pdf_word(*ar, **kw):
+                return to_docx(*ar, filename=filename, template=template, template_params=params, use_w32=True, as_pdf=True, **kw)
+            fun = to_pdf_word
 
-        if isinstance(path_or_stream, str) and path_or_stream:
-            if path_or_stream == 'zip':
-                fun = to_pdf_zip
-                path_or_stream = None
-            elif path_or_stream.endswith('.zip'):
-                fun = to_pdf_zip
-            elif path_or_stream == 'pdf':
-                fun = to_pdf
-                path_or_stream = None
-            elif path_or_stream.endswith('.pdf'):
-                fun = to_pdf
-            else:
-                warnings.warn(f'the given filename is neither "zip" nor "pdf" this is unusual. I will assume it`s "pdf" format and write to the given path: "{path_or_stream}"')
+        elif engine == 'libreoffice':
+            filename = os.path.basename(path_or_stream) if isinstance(path_or_stream, (str, Path)) else None
+            def to_pdf_libre(*ar, **kw):
+                return to_docx(*ar, filename=filename, template=template, template_params=params, use_w32=False, as_pdf=True, **kw)
+            fun = to_pdf_libre
+        elif engine == 'pandoc':
+            def to_pdf_pandoc(doc, *ar, **kw):
+                if isinstance(doc, list):
+                    doc = Doc(doc)
+                if not isinstance(doc, Doc):
+                    raise TypeError(f'doc must be of type {Doc}, but was {type(doc)=}')
+                
+                with tempfile.TemporaryDirectory() as td:
+                    out = os.path.join(td, f'out.pdf')
+                    inp = os.path.join(td, f'inp.html')
+                    doc.to_html(inp, template=template, template_params=params)
+                    pandoc_to_pdf(inp, out)
+                    with open(out, 'rb') as fp:
+                        bts = fp.read()
+                return bts
+            fun = to_pdf_pandoc
+        else:
+            raise ValueError("unknown engine, Engine must be one of 'tex', 'word', 'libreoffice'")
         
+
         r = self._ret(fun(self.dump(), **kwargs), path_or_stream)
 
         if isinstance(path_or_stream, (str, os.PathLike)) and verb:
@@ -1243,6 +1383,13 @@ class Doc(UserList):
         Args:
             path_or_stream (str or io.IOBase, optional): The path to save the file to, or a file-like object to write the data to. If not provided, the data will be returned as string.
             text_only (bool, optional): Only valid if path_or_stream is None. Whether or not to return attachments as well. Defaults to False
+        
+        Returns:
+            If saving to a file or stream:
+                True if the data was saved successfully to a file or stream.
+            If returning:
+                str: The tex file as a string.
+                dict: The additional input files needed for LaTeX (bytes) as values and their relative paths (str) as keys.
         """
         
         textile, files = to_textile(self.dump(), with_attachments=True, aformat_redmine=False)
@@ -1268,9 +1415,9 @@ class Doc(UserList):
             else:
                 return textile, files
         
-    def to_redmine(self):
+    def to_redmine(self) -> Tuple[str, list]:
         """
-        Converts the current object to a Redmine Textile like text (and attachments) and returns them as tuple
+        Converts the current object to a Redmine Textile like text (and attachments) and returns them as tuple.
         """
 
         return to_textile(self.dump(), with_attachments=True, aformat_redmine=True)
@@ -1297,13 +1444,17 @@ class Doc(UserList):
         return upload_report_to_redmine(self, redmine=redmine, project_id=project_id, report_name=report_name, page_title=page_title, force_overwrite=force_overwrite, verb=verb)
     
     def to_pdf_print(self, path_or_stream=None):
-        """Exports the document to a PDF file by printing the html export to a pdf.
+        """Exports the document to a PDF file by using the systems "print to pdf" function to export from html to pdf.
 
         Args:
             output_pdf_path (str, optional): The path to save the PDF file to. If not provided, a temporary file will be used.
-
+            
         Returns:
-            str: The path to the exported PDF file.
+            If saving to a file or stream:
+                True if the data was saved successfully to a file or stream.
+            If returning:
+                str: The PDF file as bytes.
+
         """
         os_name = os.name
         assert os_name == 'posix', 'only posix like operation systems are supported for printing a pdf file!'
@@ -1367,10 +1518,10 @@ class Doc(UserList):
             dict: A dictionary containing the exported data or paths for each engine.
         """
         if engines is None and dir_path is None or not engines:
-            engines = list(Doc.export_engines.keys()) # all engines
+            engines = list(Doc.EXPORT_ENGINES.keys()) # all engines
 
-        unknown_engines = [e for e in engines if not e in Doc.export_engine_extensions]
-        engines = [e for e in engines if e in Doc.export_engine_extensions]
+        unknown_engines = [e for e in engines if not e in Doc.EXPORT_ENGINES_EXTENSIONS]
+        engines = [e for e in engines if e in Doc.EXPORT_ENGINES_EXTENSIONS]
 
         if unknown_engines: 
             warnings.warn(f'Found unknown engines in requested engines. These will be ignored! {unknown_engines=}')
@@ -1383,11 +1534,11 @@ class Doc(UserList):
         for engine in engines:
             engine = engine.strip('').strip('.')
             if dir_path is None:
-                ext = Doc.export_engine_extensions.get(engine, '.' + engine)
+                ext = Doc.EXPORT_ENGINES_EXTENSIONS.get(engine, '.' + engine)
                 path = None
                 key = report_name + ext
             else:
-                ext = Doc.export_engine_extensions.get(engine, '.' + engine)
+                ext = Doc.EXPORT_ENGINES_EXTENSIONS.get(engine, '.' + engine)
                 path = os.path.join(dir_path, report_name + ext)
                 key = path
             
@@ -1438,14 +1589,11 @@ class Doc(UserList):
         elif engine in ['redmine']:
             assert not path_or_stream, 'redmine engine can not handle writing to path_or_stream!'
             return self.to_redmine(**kwargs)
-        elif engine in ['pdf']:
-            assert get_latex_compiler(), 'Can not make a PDF file without a latex compiler on the system!'
-            return self.to_pdf(path_or_stream=path_or_stream, **kwargs)
         else:
-            raise KeyError(f'engine must be in: {Doc.export_engines=}, but was {engine=}')
+            raise KeyError(f'engine must be in: {Doc.EXPORT_ENGINES=}, but was {engine=}')
         
     def upload(self, url, doc_name='', force_overwrite=False, page_title='', requests_kwargs=None, raise_on_fail=True, warn_on_fail=True):
-        """Uploads the document data to a specified URL.
+        """Uploads the document data to a specified URL using HTTP(s) and requests.
             The json body is constructed as:
             
             upload = {
@@ -1610,7 +1758,7 @@ function metamorphose(protagonist,author){
 
     
 def _construct(v):
-
+    """internal function"""
     if isinstance(v, str):
         return v
     elif isinstance(v, list):
@@ -1671,7 +1819,7 @@ def load(doc:List[dict]):
 
 
 def print_to_pdf(file_path, output_pdf_path):
-    """Prints a file to a PDF file using the appropriate platform-specific command.
+    """Prints a file to a PDF file using the appropriate platform-specific command using subprocess
 
     Args:
         file_path (str): The path to the file to print.
@@ -1681,18 +1829,26 @@ def print_to_pdf(file_path, output_pdf_path):
         ValueError: If the platform is not supported.
     """
 
-    os_name = os.name
-    assert os_name == 'posix', 'only posix like operation systems are supported for printing a pdf file!'
+    p = Path(file_path).resolve()
+    po = Path(output_pdf_path).resolve()
+    
+    if not p.exists():
+        raise ValueError(f'The input file path "{p}" does not exist.')
+    
+    if not po.parent.exists():
+        raise ValueError(f'The directory for the output PDF path "{po}" does not exist.')
 
-    if os_name == "nt":
-        command = ["print", "/D", "file:///dev/stdout", "/o", f"output-file={output_pdf_path}", file_path]
-    elif os_name == "posix":
-        command = ["lp", "-d", "file:///dev/stdout", "-o", f"output-file={output_pdf_path}", file_path]
-    else:
-        raise ValueError(f"Unsupported platform: {os_name}")
+    os_name = os.name
+    if not os_name == 'posix':
+        raise ValueError(f'only posix like operation systems are supported for printing a pdf file! You have {os_name=}')
+    
+    warnings.warn("printing a PDF file is not a good option, and might not succeed.")
+
+    command = ["lp", "-d", "file:///dev/stdout", "-o", f"output-file={shlex.quote(po)}", shlex.quote(p)]
 
     subprocess.run(command, check=True)
     
+
 # def dump(obj):
 #     if isinstance(obj, list):
 #         return [dump(o) for o in obj]

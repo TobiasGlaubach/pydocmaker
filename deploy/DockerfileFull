@@ -1,6 +1,7 @@
-# FROM python:3.8-slim-bullseye
 FROM python:3.8
 
+
+RUN apt-get update && apt-get install -y --no-install-recommends pandoc libreoffice texlive-latex-base
 
 ADD ./requirements.txt .requirements.txt
 RUN pip3 install -r .requirements.txt

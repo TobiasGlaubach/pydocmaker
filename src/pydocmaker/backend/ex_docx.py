@@ -1,4 +1,5 @@
 import copy
+import threading
 import traceback
 import io
 
@@ -38,13 +39,19 @@ try:
 except Exception as err:
     from .ex_html import convert as convert_html
 
-
+try:
+    from pydocmaker.backend import libreoffice_api
+except Exception as err:
+    from . import libreoffice_api
 
 
 
 gwin32 = None
 gcomposer = None
 gmailmerge = None
+
+
+
 
 def _make_output(bts, output_path_or_buffer):
     
@@ -102,6 +109,42 @@ def _test_docxw32_installed(verb=0, force_reload=False):
         return _test_docxw32_installed.cache
 
 _test_docxw32_installed.cache = None
+
+# _done = threading.Event()
+# _testing_thread = None
+# def _test_docxw32_installed_threadfun():
+#     try:
+#         _test_docxw32_installed()   # may take up to 5 seconds
+#     finally:
+#         _done.set()
+# # load in the background so the user will not have to wait
+# _testing_thread = threading.Thread(target=_test_docxw32_installed_threadfun, daemon=True)
+# _testing_thread.start()
+
+
+def can_use_w32_word(verb=0, force_reload=False):
+    """test if Microsoft Word is available and win32com library is available
+
+    Args:
+        verb (int, optional): whether or not to give verbose info. Defaults to 0.
+        force_reload (bool, optional): whether or not to force to re-test, if it has been tested before. Defaults to False.
+
+    Returns:
+        bool: True if both are available, False if not
+    """
+
+    return DocxFileW32.is_installed(verb=verb, force_reload=force_reload)
+
+def can_use_libreoffice(force_reload=False):
+    """test if libreoffice is available
+
+    Args:
+        force_reload (bool, optional): whether or not to force to re-test, if it has been tested before. Defaults to False.
+
+    Returns:
+        bool: True if available, False if not
+    """
+    return libreoffice_api.can_use_libreoffice(force_reload=force_reload)
 
 class msoPictureCompress(Enum):
     """Enumeration of picture compression types for MS Office."""
@@ -486,8 +529,8 @@ def red(run):
 def convert_pandoc(doc:List[dict]) -> bytes:
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        html_file_path = os.path.join(temp_dir, 'temp.html')
-        docx_file_path = os.path.join(temp_dir, 'temp.docx')
+        html_file_path = str(Path(os.path.join(temp_dir, 'temp.html')).resolve())
+        docx_file_path = str(Path(os.path.join(temp_dir, 'temp.docx')).resolve())
 
         with open(html_file_path, 'w', encoding='utf-8') as fp:
             fp.write(convert_html(doc))
@@ -526,26 +569,29 @@ def convert(doc:List[dict], template = None, template_params=None, use_w32=False
         warnings.warn(f'Unknown parameters passed: {unknown_params=}')
         
     _pandoc = can_run_pandoc()
-    if _pandoc and not template:
-        return convert_pandoc(doc)
-    if _pandoc and template:
+    if _pandoc:
         bts = None
-        bts_sub = convert_pandoc(doc)
-        tmplt = DocxFile(template)
-        tmplt.append(bts_sub)
-        tmplt.replace_fields(template_params)
-        if DocxFileW32.is_installed() and use_w32:
-            with tempfile.TemporaryDirectory() as td:
-                if not filename: # try to get filename from metadata or parameters
-                    # get metadata from fields
-                    metadata = next((k for k in doc if isinstance(k, dict) and k.get('typ') == 'meta'), {}).get('data', {})
-                    metadata.update(template_params)
-                    filename = metadata.get('filename', metadata.get('FILENAME', metadata.get('Filename', 'tempfile')))
+        basedoc_bts = convert_pandoc(doc)
+        
+        if template:
+            docxfile = DocxFile(template)
+            docxfile.append(basedoc_bts)
+            docxfile.replace_fields(template_params)
+        else:
+            docxfile = DocxFile(basedoc_bts)
 
-                filename, ext = os.path.splitext(os.path.basename(filename))
+        if not filename: # try to get filename from metadata or parameters
+            # get metadata from fields
+            metadata = next((k for k in doc if isinstance(k, dict) and k.get('typ') == 'meta'), {}).get('data', {})
+            metadata.update(template_params)
+            filename = metadata.get('filename', metadata.get('FILENAME', metadata.get('Filename', 'tempfile')))
+
+        filename, ext = os.path.splitext(os.path.basename(filename))
+
+        if use_w32 and DocxFileW32.is_installed():
+            with tempfile.TemporaryDirectory() as td:
                 filepath = os.path.join(td, f'{filename}.docx')
-                
-                tmplt.save(filepath)
+                docxfile.save(filepath)
                 with DocxFileW32(filepath) as docxw32:
                     docxw32.update_fields()
                     if compress_images:
@@ -559,14 +605,23 @@ def convert(doc:List[dict], template = None, template_params=None, use_w32=False
                 if not as_pdf: # read back in
                     with open(filepath, 'rb') as fp:
                         bts = fp.read()
+        elif not use_w32 and as_pdf and libreoffice_api.can_use_libreoffice():
+            with tempfile.TemporaryDirectory() as td:
+                filepath = os.path.join(td, f'{filename}.docx')
+                out = os.path.join(td, f'{filename}.pdf')
+
+                docxfile.save(filepath)
+                libreoffice_api.to_pdf(filepath, out)
+                with open(out, 'rb') as fp:
+                    bts = fp.read()
 
         elif use_w32:
             raise ValueError(f'{use_w32=} but either win32com and Word.Application is not installed! But was {use_w32=} and {DocxFileW32.is_installed(ret_int=True)=}')
         
         elif as_pdf:
-            raise ValueError(f'can only export via docx to pdf if win32com and Word.Application is installed and the input parameter "use_w32" is True. But was {use_w32=} and {DocxFileW32.is_installed()=}')
+            raise ValueError(f'can only export via docx to pdf if either (win32com and Word.Application) OR libreoffice is installed. But was {use_w32=} and {DocxFileW32.is_installed()=} and {libreoffice_api.can_use_libreoffice()=}')
         else:
-            bts = tmplt.save()
+            bts = docxfile.save()
 
         return bts
 
