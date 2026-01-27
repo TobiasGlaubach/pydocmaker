@@ -1,6 +1,10 @@
 # pydocmaker
 
+<div align="center">
+
 ![Icon](icon.png)
+
+</div>
 
 Please find the full documentation at https://pydocmaker.readthedocs.io/en/latest/
 
@@ -148,7 +152,7 @@ sudo apt update
 sudo apt install texlive-full
 ```
 
-On MacOS: 
+On MacOS: @git
 
 ```bash
 brew install --cask mactex
