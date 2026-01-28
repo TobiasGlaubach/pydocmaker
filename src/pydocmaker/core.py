@@ -1710,7 +1710,7 @@ class Doc(UserList):
     
 
 
-    def show(self, engine = None, index=None, chapter=None, files_to_upload=None, template=None, template_params=None, do_escape_template_params=False, **kwargs):
+    def show(self, engine = None, index=None, chapter=None, files_to_upload=None, template=None, template_params=None, do_escape_template_params=False, embed_images=True, **kwargs):
         """Displays the document or a specific part of it in ipython display or via print
 
         Args:
@@ -1721,6 +1721,7 @@ class Doc(UserList):
             template (jinja2 template or string, optional): ONLY VALID WHEN engine='pdf'. See to_pdf method for details. Defaults to None.
             template_params (dict, optional): ONLY VALID WHEN engine='pdf'. See to_pdf method for details. Defaults to None.
             do_escape_template_params (bool, optional): ONLY VALID WHEN engine='pdf'. See to_pdf method for details. Defaults to False.
+            embed_images (bool, optional): ONLY VALID WHEN engine='md' or 'rich'. Whether to embed (show) images within the document, or placeholders. Defaults to True.
 
         Raises:
             KeyError: if the specified engine is not found or not valid
@@ -1756,9 +1757,9 @@ class Doc(UserList):
             if engine in 'html'.split():
                 display(HTML(self.to_html(**kwargs)))
             elif engine.startswith('std') or engine in 'console rich terminal plain'.split():
-                self.print_rich(**kwargs)
+                self.print_rich(embed_images=embed_images, **kwargs)
             elif engine in 'markdown md'.split():
-                display(Markdown(self.to_markdown(**kwargs)))
+                display(Markdown(self.to_markdown(embed_images=embed_images, **kwargs)))
             elif engine in 'tex latex'.split():
                 display(Code(self.to_tex(text_only=True, **kwargs), language='tex'))
             elif engine == 'pdf':
@@ -1776,7 +1777,7 @@ class Doc(UserList):
             if engine in 'html'.split():
                 print(self.to_html(**kwargs))
             elif engine.startswith('std') or engine in 'console rich terminal plain'.split():
-                self.print_rich(**kwargs)
+                self.print_rich(embed_images=embed_images, **kwargs)
             elif engine in 'markdown md'.split():
                 kwargs.pop('embed_images')
                 print(self.to_markdown(embed_images=False, **kwargs))
