@@ -1,6 +1,6 @@
 __version__ = '2.5.5'
 
-from pydocmaker.core import Doc, construct, constr, buildingblocks, print_to_pdf, get_latex_compiler, set_latex_compiler, make_pdf_from_tex, show_pdf
+from pydocmaker.core import Doc, construct, constr, buildingblocks, print_to_pdf, get_latex_compiler, set_latex_compiler, make_pdf_from_tex, show_pdf, is_notebook
 from pydocmaker.util import upload_report_to_redmine, bcolors, txtcolor, colors_dc
 
 from pydocmaker.backend.ex_docx import DocxFile, DocxFileW32, can_use_libreoffice, can_use_w32_word

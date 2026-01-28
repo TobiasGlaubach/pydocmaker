@@ -157,19 +157,17 @@ def is_notebook() -> bool:
         shell = get_ipython().__class__.__name__ # type: ignore
         if shell == 'ZMQInteractiveShell':
             return True   # Jupyter notebook or qtconsole
-        elif shell == 'TerminalInteractiveShell':
-            return False  # Terminal running IPython
-        else:
-            return False  # Other type (?)
     except NameError:
-        try:
-            # Check if running in Google Colab
-            import google.colab # type: ignore
-            return True
-        except ImportError:
-            pass
+        pass
 
-        return False      # Probably standard Python interpreter
+    try:
+        # Check if running in Google Colab
+        import google.colab # type: ignore
+        return True
+    except ImportError:
+        pass
+
+    return False      # Probably standard Python interpreter
 
 
 def show_pdf(pdf_bytes:bytes, width=1000, height=1200):
