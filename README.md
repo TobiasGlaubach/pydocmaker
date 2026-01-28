@@ -1,8 +1,19 @@
 # pydocmaker
 
+<p align="center">
+  <img src="https://img.shields.io/github/v/release/TobiasGlaubach/pydocmaker">
+  <img src="https://img.shields.io/pypi/v/pydocmaker">
+  <!-- <img src="https://img.shields.io/pypi/dm/pydocmaker"> -->
+  <img src="https://img.shields.io/github/license/TobiasGlaubach/pydocmaker">
+  <img src="https://img.shields.io/pypi/pyversions/pydocmaker">
+  <img src="https://img.shields.io/codecov/c/github/TobiasGlaubach/pydocmaker">
+  <img src="https://github.com/TobiasGlaubach/pydocmaker/actions/workflows/main.yml/badge.svg">
+
+</p>
+
 <div align="center">
 
-![Icon](icon.png)
+  ![Icon](icon.png)
 
 </div>
 
