@@ -156,7 +156,7 @@ def config_pdf_engine_scan(force_reload=False, firstonly=False):
     if firstonly and res: return res[0]
     if ex_docx.can_use_libreoffice(force_reload=force_reload): res.append('libreoffice')
     if firstonly and res: return res[0]
-    if can_run_pandoc(force_retest=force_reload): res.append('pandoc')
+    if config_latex_compiler_get() and can_run_pandoc(force_retest=force_reload): res.append('pandoc')
     if firstonly and res: return res[0]
     if firstonly and not res: return ''
     return res
@@ -1250,6 +1250,9 @@ class Doc(UserList):
         if engine is None:
             engine = config_pdf_engine_get()
 
+        if not engine:
+            raise ImportError("No engine to convert to PDF is available. Make sure you either have pdflatex, Microsoft Word, or Libreoffice installed")
+        
         tformat = 'tex' if engine == 'tex' else 'html'
         mytemplate = self.get_template_from_meta(tformat=tformat)
         if template is None and not mytemplate is None:

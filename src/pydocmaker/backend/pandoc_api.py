@@ -169,11 +169,25 @@ def pandoc_to_pdf(input_file, output_pdf):
     output_pdf = Path(output_pdf).resolve()
     cmd = ['pandoc', str(input_file), '-o', str(output_pdf)]
     try:
-        subprocess.run(cmd, check=True)    
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout, stderr = process.communicate()
+
     except Exception as err:
+        if stderr:
+            if hasattr(stderr, 'decode'):
+                stderr = stderr.decode()
+            if hasattr(stdout, 'decode'):
+                stdout = stdout.decode()
+            log.warning(f'{process.returncode=} from {cmd=}.')
+            log.warning(f'stderr follows on next line')
+            log.warning(str(stderr))
+            log.warning(f'stdout follows on next line')
+            log.warning(str(stdout))
+
         if output_pdf.exists():
             log.warning("pandoc conversion returned non zero return code, but the output file exists. please check your file")
             log.warning(err, exc_info=1)
+            
         else:
             raise
 
