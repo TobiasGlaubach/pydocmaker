@@ -7,3 +7,5 @@ jinja2
 
 docxcompose
 docx-mailmerge
+
+rich

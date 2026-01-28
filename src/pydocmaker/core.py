@@ -29,6 +29,7 @@ from .backend.ex_markdown import convert as to_markdown
 from .backend.ex_redmine import convert as to_textile
 from .backend.ex_tex import make_pdf as to_pdf_tex
 from .backend.ex_tex import make_pdf_zip as to_pdf_zip
+from .backend.ex_rich import convert as print_rich
 
 from .backend.ex_tex import auto_escape_latex
 
@@ -45,6 +46,34 @@ gImage = None
 chapter_level = 1 # this is the level of heading to use for chapters which is equivalent to html <h1> to <h5> or whatever
 
 _pdf_engine = 'tex'
+_renderer_default = 'auto'
+
+def config_renderer_default_set(choice:str='auto'):
+    """
+    Sets the PDF engine to be used for generating PDF documents.
+
+    Parameters:
+    choice (str): The desired renderer for showing reports within python. Must be any of 'auto', 'rich', 'md', 'html', 'pdf'.
+                  Default is 'auto'.
+
+    Returns:
+    str: The selected renderer_default.
+
+    Raises:
+    ValueError: If the provided choice is not one of the allowed options.
+    """
+    options = "auto rich md html pdf".split()
+    choice = str(choice).lower()
+    if not choice in options:
+        raise ValueError(f'_renderer_default must be one of {options=} but was {choice=}')
+    
+    global _renderer_default
+    _renderer_default = choice
+    return _renderer_default
+
+def config_renderer_default_get():
+    global _renderer_default
+    return _renderer_default
 
 def config_pdf_engine_set(choice:str='tex'):
     """
@@ -133,6 +162,13 @@ def is_notebook() -> bool:
         else:
             return False  # Other type (?)
     except NameError:
+        try:
+            # Check if running in Google Colab
+            import google.colab # type: ignore
+            return True
+        except ImportError:
+            pass
+
         return False      # Probably standard Python interpreter
 
 
@@ -1443,6 +1479,42 @@ class Doc(UserList):
             
         return upload_report_to_redmine(self, redmine=redmine, project_id=project_id, report_name=report_name, page_title=page_title, force_overwrite=force_overwrite, verb=verb)
     
+    def print_rich(self, path_or_stream=None, title=None, embed_images=True):
+        """
+        Parses the current object using python rich library and output it either on console or to any file / stream.
+
+        Args:
+            path_or_stream: Either a file path (str) to write to, a file-like object
+                           with a write method, or None to output to stdout
+            title: Optional title for the documentation. If not provided, will attempt
+                  to extract from metadata using common title keys. If still None a default title will be used.
+            embed_images: if True this will make the images appear as simplified pixelized pictures on the console, 
+                  if False it will insert a placeholder instead. 
+        Returns:
+            bool: Only in path_or_stream is not None. True if successful, False otherwise
+
+        Example:
+            >>> doc.print_rich("output.rich")
+            >>> doc.print_rich(sys.stdout)
+            >>> doc.print_rich()
+        """
+        if title is None:
+            metadata = self.get_metadata()
+            options = 'title TITLE Title filename FILENAME Filename name NAME Name docname DOCNAME Docname documentname Documentname DOCUMENTNAME'.split()
+            title = next((metadata[k] for k in options if k in metadata), None)
+        
+
+        if isinstance(path_or_stream, str):
+            with open(path_or_stream, "w") as f:
+                print_rich(self.dump(), stream=path_or_stream, embed_images=embed_images)
+            return True
+        elif hasattr(path_or_stream, 'write'):
+            print_rich(self.dump(), stream=path_or_stream, embed_images=embed_images)
+            return True
+        else:
+            print_rich(self.dump(), stream=None, embed_images=embed_images)
+
+
     def to_pdf_print(self, path_or_stream=None):
         """Exports the document to a PDF file by using the systems "print to pdf" function to export from html to pdf.
 
@@ -1638,11 +1710,11 @@ class Doc(UserList):
     
 
 
-    def show(self, engine = 'html', index=None, chapter=None, files_to_upload=None, template=None, template_params=None, do_escape_template_params=False, **kwargs):
+    def show(self, engine = None, index=None, chapter=None, files_to_upload=None, template=None, template_params=None, do_escape_template_params=False, **kwargs):
         """Displays the document or a specific part of it in ipython display or via print
 
         Args:
-            engine (str, optional): The engine to use for displaying. Either "html", "markdown", "md", "tex", "latex", or "pdf" (pdf only works in Ipython!)
+            engine (str, optional): The engine to use for displaying. None to decide based on the currently available console. Else either "html", "markdown", "md", "tex", "latex", or "pdf" (pdf only works in Ipython!)
             index (int, optional): The index of the part to display.
             chapter (str, optional): The name of the chapter to display.
             files_to_upload (dict, optional): ONLY VALID WHEN engine='pdf'. See to_pdf method for details. Defaults to None.
@@ -1657,7 +1729,8 @@ class Doc(UserList):
 
         assert index is None or chapter is None, f'can either give index OR chapter!'
         
-        engine = engine.lower()
+        if engine is None:
+            engine = _renderer_default
 
         
         if engine in ['html', 'pdf', 'tex']:
@@ -1669,16 +1742,23 @@ class Doc(UserList):
             kwargs['do_escape_template_params'] = do_escape_template_params
 
         if index:
-            Doc([self[index]]).show(**kwargs)
+            Doc([self[index]]).show(engine=engine, files_to_upload=files_to_upload, template=template, template_params=template_params, do_escape_template_params=do_escape_template_params, **kwargs)
         elif chapter:
             Doc(self.get_chapter(chapter)).show(**kwargs)
         
         if is_notebook():
+            if engine == 'auto':
+                engine = 'html'
+            
+            engine = engine.lower()
+
             from IPython.display import display, HTML, Markdown, Code
             if engine in 'html'.split():
                 display(HTML(self.to_html(**kwargs)))
+            elif engine.startswith('std') or engine in 'console rich terminal plain'.split():
+                self.print_rich(**kwargs)
             elif engine in 'markdown md'.split():
-                display(Markdown(self.to_markdown()))
+                display(Markdown(self.to_markdown(**kwargs)))
             elif engine in 'tex latex'.split():
                 display(Code(self.to_tex(text_only=True, **kwargs), language='tex'))
             elif engine == 'pdf':
@@ -1689,9 +1769,16 @@ class Doc(UserList):
                 raise KeyError(f'engine must be in: "html", "markdown", "md", "tex", "latex", or "pdf", but was {engine=}')
 
         else:
+            if engine == 'auto':
+                engine = 'rich'
+            
+            engine = engine.lower()
             if engine in 'html'.split():
                 print(self.to_html(**kwargs))
+            elif engine.startswith('std') or engine in 'console rich terminal plain'.split():
+                self.print_rich(**kwargs)
             elif engine in 'markdown md'.split():
+                kwargs.pop('embed_images')
                 print(self.to_markdown(embed_images=False, **kwargs))
             elif engine in 'tex latex'.split():
                 print(self.to_tex(text_only=True, **kwargs))
