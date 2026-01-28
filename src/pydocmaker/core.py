@@ -138,7 +138,7 @@ def config_pdf_engine_test(raise_on_error=True, force_reload=False):
 
 
 
-def config_pdf_engine_scan(force_reload=False):
+def config_pdf_engine_scan(force_reload=False, firstonly=False):
     """
     Configures the PDF engine and tests its availability.
 
@@ -151,13 +151,18 @@ def config_pdf_engine_scan(force_reload=False):
     """
     res = []
     if config_latex_compiler_get(): res.append('tex')
+    if firstonly and res: return res[0]
     if ex_docx.can_use_w32_word(force_reload=force_reload): res.append('word')
+    if firstonly and res: return res[0]
     if ex_docx.can_use_libreoffice(force_reload=force_reload): res.append('libreoffice')
+    if firstonly and res: return res[0]
     if can_run_pandoc(force_retest=force_reload): res.append('pandoc')
+    if firstonly and res: return res[0]
+    if firstonly and not res: return ''
     return res
 
 def config_pdf_engine_testset():
-    return config_pdf_engine_set(config_pdf_engine_scan())
+    return config_pdf_engine_set(config_pdf_engine_scan(firstonly=True))
     
     
 def is_notebook() -> bool:
