@@ -1,30 +1,29 @@
 # pydocmaker
 
+<p align="center">
+  <img src="https://img.shields.io/github/v/release/TobiasGlaubach/pydocmaker">
+  <img src="https://img.shields.io/pypi/v/pydocmaker">
+  <!-- <img src="https://img.shields.io/pypi/dm/pydocmaker"> -->
+  <img src="https://img.shields.io/github/license/TobiasGlaubach/pydocmaker">
+  <img src="https://img.shields.io/pypi/pyversions/pydocmaker">
+  <img src="https://img.shields.io/codecov/c/github/TobiasGlaubach/pydocmaker">
+  <img src="https://github.com/TobiasGlaubach/pydocmaker/actions/workflows/main.yml/badge.svg">
+
+</p>
+
 <div align="center">
 
-![Icon](icon.png)
+  ![Icon](icon.png)
 
 </div>
 
-Please find the full documentation at https://pydocmaker.readthedocs.io/en/latest/
-
-a minimal python document maker to create reports in the following formats:
-
-- `pdf`: PDF
-- `md`: Markdown
-- `html`: HTML
-- `json`: JSON
-- `docx`:: Word docx
-- `textile`: Textile Markup language (with images as attachments)
-- `ipynb`: Jupyter/ IPython Notebooks
-- `tex`: Latex Documents (with external images)
-- `redmine`: Textile Markup language ready for uplaod to Redmine 
+A minimal easy to use python document maker to create reports in `pdf`, `md`, `html`, `docx`, `tex` and more formats. Written in pure python.
 
 
-Written in pure python 
-**NOTE:** some functions will try to call pandoc and fall back if not found.
-**NOTE:** exporting PDFs need a latex compiler such as pdflatex, lualatex, xelatex
+- **NOTE:** some functions will try to call pandoc and fall back if not found.
+- **NOTE:** exporting PDFs need optional dependencies, such as either a latex compiler or Microsoft Word, or Libreoffice.
 
+Full documentation at https://pydocmaker.readthedocs.io/en/latest/
 
 ## Installation
 
@@ -53,39 +52,61 @@ doc.show()
 
 import pydocmaker as pyd
 
-doc = pyd.Doc() # basic doc where we always append to the end
+doc = pyd.Doc() # basic doc. Workd like a list, We always append new content to the end
 doc.add('dummy text') # adds raw text
 
 # this is how to add parts to the document
 doc.add_pre('this will be shown as preformatted') # preformatted
 doc.add_md('This is some *fancy* `markdown` **text**') # markdown
 doc.add_tex(r'\textbf{Hello, LaTeX!}') # latex
+doc.add_table([['John Doe', "30"]], header=['Name', 'Age'], caption='example table') # table
 
 # this is how to add an image from link
-doc.add_image("https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png", caption='', children='', width=0.8)
+doc.add_image("https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png", caption='Github Logo')
 
+# this is how to add matplotlib figures to your report
+import matplotlib.pyplot as plt
+fig = plt.figure()
+plt.plot([1,2,3], [6,5,7])
+doc.add_image(fig, caption='Example figure', width=0.7)
+
+# show will render and show a doc when in an iPython
+# environment such as jupyter or colab, on the terminal 
+# it will fall back to use rich console instead
 doc.show()
 ```
 
-### Showing Documents in iPython
+### "Showing" Documents in iPython/Terminal
 
-the Doc class has a method called show which will detect if it is running in Ipython. If it does it will render the document and show it. 
-The desired rendering format can be set with the `engine` argument. Markdown, HTML, or PDF is possible. 
+the `Doc` class has a method called `show` which will detect if its running in `Ipython`. If it does it will render the document and show it. 
+If not it will fallback to a rich consiole and do its best to show the content on the terminal (on a terminal image support is very limited).
+The desired rendering format can be set with the `engine` argument. `rich`, `markdown`, `HTML`, or `PDF` is possible. 
 
-In Ipython:
+Any environment:
+**NOTE**: when rendering with "rich" console image support is very limited, since images will be printed on the console as pixels (with the size being scaled down to the console width)
+
+```python
+doc.show()
+doc.show('rich')
+doc.show('rich', embed_images=False)
+```
+
+In `Ipython` (such as Jupyter or Colab) any of the following:
 
 ```python
 doc.show('md')
 ```
+
 Or: 
 ```python
 doc.show('html')
 ```
-Or (**NOTE**: some IDEs do not support this and instead open a "save" dialog, but in a browser with jupyter this works): 
+
+Or:
 ```python
 doc.show('pdf')
 ```
-
+**NOTE**: some IDEs do not support the PDF option and instead open a "save" dialog, but in a browser with jupyter this works
 
 ### Exporting:
 
@@ -242,29 +263,3 @@ docx_bts = doc.to_docx("my/path/outfile_w32.docx", template=templatepath, templa
 docx_bts = doc.to_docx("my/path/outfile_w32_comp.pdf", template=templatepath, template_params=metadata, use_w32=True, as_pdf=True, compress_images=True)
 ```
 
-
-
-## Document Parts and Schema for them
-
-The basic building blocks for a document are called `document parts` and are always either of type `dict` or type `str` (A string will automatically parsed as a text dict element). 
-
-Each document part has a `typ` field which states the type of document part and a `children` field, which can be either `string` or `list`. This way hirachical documents can be build if needed. 
-
-The `document-parts` are:
-- `text`: holds text as string (`children`) which will inserted directly as raw text
-- `markdown`: holds text as string (`children`) which will be rendered by markdown markup language before parsing into the documents
-- `image`: holds all needed information to render an image in a report. The image data is saved as a string in base64 encoded format in the `imageblob` field. A `caption` (str) can be given which will be inserted below the image. The filename is given by the `children` field. The relative width can be given by the `width` field (float). 
-- `verbatim`: holds text as string (`children`) which will be inserted as preformatted text into the documents
-- `iter`: a meta `document-part` which holds n sub `document-parts` in the `children` field which will be rendered and inserted into the documents in given order. 
-
-An example of the whole schema is given below.
-
-```json
-{
-  "text":     {"typ": "text", "children": ""},
-  "markdown": {"typ": "markdown", "children": ""},
-  "image":    {"typ": "image", "children": "", "imageblob": "", "caption": "", "width": 0.8},
-  "verbatim": {"typ": "verbatim", "children": ""},
-  "iter":     {"typ": "iter", "children": [] }
-}
-```

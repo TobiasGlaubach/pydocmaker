@@ -28,7 +28,7 @@ class TestCodeSnippets(unittest.TestCase):
         doc.add_tex(r'\textbf{Hello, LaTeX!}') # latex
 
         # this is how to add an image from link
-        doc.add_image("https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png", caption='', children='', width=0.8)
+        doc.add_image("https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png", caption='', children='', width=None)
 
 
     def _test_s3_export(self, method, filename):

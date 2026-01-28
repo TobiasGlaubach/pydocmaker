@@ -16,6 +16,19 @@ import io
 
 from pathlib import Path
 
+
+import logging
+
+# Configure once
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s | %(levelname)-8s | %(filename)-15s:%(lineno)3d] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+log = logging.getLogger(__name__)
+
+
 allow_pandoc = True
 
 _is_pandoc_installed = None
@@ -155,7 +168,28 @@ def pandoc_to_pdf(input_file, output_pdf):
     input_file = Path(input_file).resolve()
     output_pdf = Path(output_pdf).resolve()
     cmd = ['pandoc', str(input_file), '-o', str(output_pdf)]
-    subprocess.run(cmd, check=True)
+    try:
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout, stderr = process.communicate()
+
+    except Exception as err:
+        if stderr:
+            if hasattr(stderr, 'decode'):
+                stderr = stderr.decode()
+            if hasattr(stdout, 'decode'):
+                stdout = stdout.decode()
+            log.warning(f'{process.returncode=} from {cmd=}.')
+            log.warning(f'stderr follows on next line')
+            log.warning(str(stderr))
+            log.warning(f'stdout follows on next line')
+            log.warning(str(stdout))
+
+        if output_pdf.exists():
+            log.warning("pandoc conversion returned non zero return code, but the output file exists. please check your file")
+            log.warning(err, exc_info=1)
+            
+        else:
+            raise
 
     if not output_pdf.exists():
         raise FileNotFoundError(f"File {output_pdf} was not created successfully")
@@ -239,8 +273,11 @@ class PandocFormatter:
         # TODO: handle colors correctly somehow?
         return self.conv(children, 'markdown')
 
-    def digest_image(self, children='', width=0.8, caption="", imageblob=None, **kwargs):               
+    def digest_image(self, children='', width=None, caption="", imageblob=None, **kwargs):               
         
+        if width is None:
+            width = 0.8
+            
         if imageblob is None:
             imageblob = ''
 

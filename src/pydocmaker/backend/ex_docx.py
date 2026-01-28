@@ -95,7 +95,7 @@ def _test_docxw32_installed(verb=0, force_reload=False):
         int: 0 if both are available, 1 if win32com is not available 2 if win32com is available and word is not available.
     """
     if os.name != 'nt':
-        _test_docxw32_installed.cache = 0 # only possible on windows
+        _test_docxw32_installed.cache = 2 # only possible on windows
 
     elif _test_docxw32_installed.cache is None or force_reload:
         global gwin32
@@ -554,7 +554,7 @@ def convert_pandoc(doc:List[dict]) -> bytes:
         
 
 
-def convert(doc:List[dict], template = None, template_params=None, use_w32=False, as_pdf=False, compress_images=False, filename=None, **kwargs) -> bytes:
+def convert(doc:List[dict], template = None, template_params=None, use_w32=False, as_pdf=False, compress_images=False, filename=None, allow_pandoc=True, **kwargs) -> bytes:
     """
     Convert a list of document sections into a DOCX or PDF (via docx) file using a specified template.
 
@@ -566,6 +566,7 @@ def convert(doc:List[dict], template = None, template_params=None, use_w32=False
     - as_pdf (bool, optional): Whether to output the document as a PDF (via docx and win32com). Defaults to False.
     - compress_images (bool, optional): Whether to compress images in the document using win32com. Defaults to False.
     - filename (str, optional): The optional filename to give the document in case saving it as a tempfile is necessary. Default will try to get from metadata and if not found use tempfile.docx.
+    - allow_pandoc (bool, optional): whether or not to allow the usage of pandoc instead of python-docx (usually pandoc creates nicer documents!)
     - **kwargs: only used to check if invalid keyword arguments were passed.
 
     Returns:
@@ -580,8 +581,12 @@ def convert(doc:List[dict], template = None, template_params=None, use_w32=False
     unknown_params = kwargs
     if unknown_params:
         warnings.warn(f'Unknown parameters passed: {unknown_params=}')
-        
-    _pandoc = can_run_pandoc()
+    
+    if allow_pandoc:
+        _pandoc = can_run_pandoc()
+    else:
+        _pandoc = False
+
     if _pandoc:
         bts = None
         basedoc_bts = convert_pandoc(doc)
@@ -716,11 +721,53 @@ class docx_renderer(BaseFormatter):
         return []
 
     def digest_table(self, children=None, **kwargs) -> str:
-        self.handle_error(NotImplementedError(f'exporter of type {type(self)} can not handle tables'))
+        borders = kwargs.get('borders', None)
+        if borders is None:
+            borders = True
+
+        caption = kwargs.get('caption', '')
+        if not caption:
+            caption = ''
+
+        # its really hard to format in docx tables so we just make whatever element into a string
+        def to_str(children=None, **kwargs):
+            if not children:
+                children = kwargs.get('content', '')
+            return str(children).strip()
+        
+        head, mat = self._map_table2mat(children=children, fun=to_str, **kwargs)
+        if mat:        
+            nrows = len(mat)+1 if head else len(mat)
+            table = self.d.add_table(rows=nrows, cols=len(mat[0]))
+            if borders:
+                table.style = 'Table Grid' 
+            
+            j = 0
+            if head:
+                # Header
+                hdr = table.rows[j].cells
+                for i, h in enumerate(head):
+                    hdr[i].text = h
+                j += 1
+
+            # Add rows
+            for row in mat:
+                row_cells = table.rows[j].cells
+                for i, c in enumerate(row): 
+                    row_cells[i].text = c
+                j += 1
+                
+        run = self.add_paragraph(caption)
+        return run
+
+        # self.handle_error(NotImplementedError(f'exporter of type {type(self)} can not handle tables'))
     
     def digest_image(self, children, *args, **kwargs):
 
-        image_width = Inches(max(1, kwargs.get('width', 0.8)*5))
+        width = kwargs.get('width', 0.8)
+        if width is None:
+            width = 0.8
+        image_width = Inches(max(1, width*5))
         image_caption = kwargs.get('caption', '')
         image_blob = kwargs.get('imageblob', '')
 

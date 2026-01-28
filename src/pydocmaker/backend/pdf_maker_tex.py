@@ -37,13 +37,13 @@ def test_latex_compiler(compiler):
 # Define a global variable to store the latex compiler
 _latex_compiler = None
 
-_allowed_compilers = 'pdflatex pandoc lualatex xelatex'.split()
+_allowed_compilers = 'pdflatex lualatex xelatex'.split()
 
-def get_all_installed_latex_compilers():
+def config_latex_compiler_scan():
     return [c for c in _allowed_compilers if test_latex_compiler(c)]
 
 # Define a function to test which latex compiler is installed
-def test_latex_compilers(verb=1):
+def config_latex_compiler_testset(verb=1):
     global _latex_compiler
     if verb:
         log.info('testing available latex compilers')
@@ -52,23 +52,23 @@ def test_latex_compilers(verb=1):
         log.info(f'DONE testing latex compilers: found compiler="{_latex_compiler}"')
 
 
-def set_latex_compiler(new_latex_compiler_str):
+def config_latex_compiler_set(new_latex_compiler_str):
     assert test_latex_compiler(new_latex_compiler_str), f'The given Latex Compiler "{new_latex_compiler_str}" was not found in PATH'
     global _latex_compiler
     _latex_compiler = new_latex_compiler_str
     return _latex_compiler
 
-def get_latex_compiler(verb=0):
+def config_latex_compiler_get(verb=0):
     global _latex_compiler
     if _latex_compiler is None:
         if verb: log.info("getting latex compiler for the first time")
-        test_latex_compilers(verb=verb)
+        config_latex_compiler_testset(verb=verb)
         if verb: log.info(f"found  {_latex_compiler=}")
     ret = _latex_compiler # copy
     return ret
 
 def setup():
-    test_latex_compilers()                    
+    config_latex_compiler_testset()                    
 
 
 
@@ -112,11 +112,15 @@ def _procrun(args, verb=0, ignore_error=False, **kwargs):
         s = f"Command {' '.join(args)} returned non-zero exit status {process.returncode=}"
         if ignore_error:
             if stderr:
+                if hasattr(stderr, 'decode'):
+                    stderr = stderr.decode()
+                if hasattr(stdout, 'decode'):
+                    stdout = stdout.decode()
                 log.warning(f'{process.returncode=} from {args=}.')
                 log.warning(f'stderr follows on next line')
-                log.warning(stderr.decode())
+                log.warning(str(stderr))
                 log.warning(f'stdout follows on next line')
-                log.warning(stdout.decode())
+                log.warning(str(stdout))
             # warnings.warn(s)
         else:
             raise Exception(s)
@@ -184,7 +188,7 @@ def make_pdf_from_tex(input_latex_text, attachments_dc=None, docname='', out_for
 
     if latex_compiler is None:
         
-        latex_compiler = get_latex_compiler()
+        latex_compiler = config_latex_compiler_get()
     else:
         assert test_latex_compiler(latex_compiler), f'The given Latex Compiler "{latex_compiler}" was not found in PATH'
 

@@ -7,3 +7,6 @@ jinja2
 
 docxcompose
 docx-mailmerge
+
+rich
+rich-pixels

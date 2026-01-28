@@ -29,29 +29,60 @@ from .backend.ex_markdown import convert as to_markdown
 from .backend.ex_redmine import convert as to_textile
 from .backend.ex_tex import make_pdf as to_pdf_tex
 from .backend.ex_tex import make_pdf_zip as to_pdf_zip
+from .backend.ex_rich import convert as print_rich
 
 from .backend.ex_tex import auto_escape_latex
 
-from .backend.pdf_maker_tex import make_pdf_from_tex, get_latex_compiler, set_latex_compiler
+from .backend.pdf_maker_tex import make_pdf_from_tex, config_latex_compiler_get, config_latex_compiler_set
 from .backend import ex_docx
 
 from .templating import DocTemplate
 
-from .backend.pandoc_api import can_run_pandoc, pandoc_convert, pandoc_convert_file, pandoc_to_pdf
+from .backend.pandoc_api import can_run_pandoc, pandoc_convert, pandoc_to_pdf
 
 np = None
 gImage = None
 
 chapter_level = 1 # this is the level of heading to use for chapters which is equivalent to html <h1> to <h5> or whatever
 
-_pdf_engine = 'tex'
+_pdf_engine = None
+_renderer_default = 'auto'
+
+def config_renderer_default_set(choice:str='auto'):
+    """
+    Sets the PDF engine to be used for generating PDF documents.
+
+    Parameters:
+    choice (str): The desired renderer for showing reports within python. Must be any of 'auto', 'rich', 'md', 'html', 'pdf'.
+                  Default is 'auto'.
+
+    Returns:
+    str: The selected renderer_default.
+
+    Raises:
+    ValueError: If the provided choice is not one of the allowed options.
+    """
+    options = "auto rich md html pdf".split()
+    choice = str(choice).lower()
+    if not choice in options:
+        raise ValueError(f'_renderer_default must be one of {options=} but was {choice=}')
+    
+    global _renderer_default
+    _renderer_default = choice
+    return _renderer_default
+
+def config_renderer_default_get():
+    global _renderer_default
+    return _renderer_default
+
+
 
 def config_pdf_engine_set(choice:str='tex'):
     """
     Sets the PDF engine to be used for generating PDF documents.
 
     Parameters:
-    choice (str): The desired PDF engine. Must be one of 'tex', 'word', or 'libreoffice'.
+    choice (str): The desired PDF engine. Must be one of 'tex', 'word', 'libreoffice', or 'pandoc'.
                   Default is 'tex'.
 
     Returns:
@@ -69,8 +100,11 @@ def config_pdf_engine_set(choice:str='tex'):
     _pdf_engine = choice
     return _pdf_engine
 
+
 def config_pdf_engine_get():
     global _pdf_engine
+    if _pdf_engine is None:
+        config_pdf_engine_testset()
     return _pdf_engine
 
 
@@ -88,7 +122,7 @@ def config_pdf_engine_test(raise_on_error=True, force_reload=False):
     res = False
     global _pdf_engine
     if _pdf_engine == 'tex':
-        res = get_latex_compiler()
+        res = config_latex_compiler_get()
     elif _pdf_engine == 'word':
         res = ex_docx.can_use_w32_word(force_reload=force_reload)
     elif _pdf_engine == 'libreoffice':
@@ -104,7 +138,7 @@ def config_pdf_engine_test(raise_on_error=True, force_reload=False):
 
 
 
-def config_pdf_engine_scan(force_reload=False):
+def config_pdf_engine_scan(force_reload=False, firstonly=False):
     """
     Configures the PDF engine and tests its availability.
 
@@ -116,24 +150,43 @@ def config_pdf_engine_scan(force_reload=False):
         bool: True if a valid compiler is found, False otherwise.
     """
     res = []
-    if get_latex_compiler(): res.append('tex')
+    if config_latex_compiler_get(): res.append('tex')
+    if firstonly and res: return res[0]
     if ex_docx.can_use_w32_word(force_reload=force_reload): res.append('word')
+    if firstonly and res: return res[0]
     if ex_docx.can_use_libreoffice(force_reload=force_reload): res.append('libreoffice')
-    if can_run_pandoc(force_retest=force_reload): res.append('pandoc')
+    if firstonly and res: return res[0]
+    if config_latex_compiler_get() and can_run_pandoc(force_retest=force_reload): res.append('pandoc')
+    if firstonly and res: return res[0]
+    if firstonly and not res: return ''
     return res
 
+def config_pdf_engine_testset():
+    eng = config_pdf_engine_scan(firstonly=True)
+    if eng:
+        return config_pdf_engine_set(eng)
+    else:
+        global _pdf_engine
+        _pdf_engine = ''
 
+    
+    
 def is_notebook() -> bool:
     try:
         shell = get_ipython().__class__.__name__ # type: ignore
         if shell == 'ZMQInteractiveShell':
             return True   # Jupyter notebook or qtconsole
-        elif shell == 'TerminalInteractiveShell':
-            return False  # Terminal running IPython
-        else:
-            return False  # Other type (?)
     except NameError:
-        return False      # Probably standard Python interpreter
+        pass
+
+    try:
+        # Check if running in Google Colab
+        import google.colab # type: ignore
+        return True
+    except ImportError:
+        pass
+
+    return False      # Probably standard Python interpreter
 
 
 def show_pdf(pdf_bytes:bytes, width=1000, height=1200):
@@ -281,7 +334,7 @@ class constr():
         }
     
     @staticmethod
-    def image(imageblob='', caption='', children='', width=0.8, color='', end=None):
+    def image(imageblob='', caption='', children='', width=None, color='', end=None):
 
         if not children:
             # HACK: need to get format somehow
@@ -299,7 +352,7 @@ class constr():
     
 
     @staticmethod
-    def image_from_link(url, caption='', children='', width=0.8, color='', end=None):
+    def image_from_link(url, caption='', children='', width=None, color='', end=None):
 
         assert url, 'need to give an URL!'
 
@@ -331,7 +384,7 @@ class constr():
 
 
     @staticmethod
-    def image_from_file(path, children='', caption='', width=0.8, color='', end=None):
+    def image_from_file(path, children='', caption='', width=None, color='', end=None):
 
         assert path, 'need to give a path!'
 
@@ -353,12 +406,12 @@ class constr():
         return constr.image(imageblob=imageblob, children=children, caption=caption, width=width, color=color, end=end)
         
 
-    def image_from_fig(caption='', width=0.8, children=None, fig=None, color='', end=None, bbox_inches='tight', **kwargs):
+    def image_from_fig(caption='', width=None, children=None, fig=None, color='', end=None, bbox_inches='tight', **kwargs):
         """convert a matplotlib figure (or the current figure) to a document image dict to later add to a document
 
         Args:
             caption (str, optional): the caption to give to the image. Defaults to ''.
-            width (float, optional): The width for the image to have in the document. Defaults to 0.8.
+            width (float, optional): The width for the image to have in the document None will let the individual formatter determine the width. Defaults to None.
             children (str, optional): A specific name/id to give to the image (will be auto generated if None). Defaults to None.
             fig (matplotlib figure, optional): the figure which to upload (or the current figure if None). Defaults to None.
 
@@ -385,13 +438,13 @@ class constr():
 
 
     @staticmethod
-    def image_from_obj(img, caption = '', width=0.8, children=None, color='', end=None):
+    def image_from_obj(img, caption = '', width=None, children=None, color='', end=None):
         """make a image type dict from given image of type matrix, filelike or PIL image
 
         Args:
             im (np.array): the image as NxMx
             caption (str, optional): the caption to give to the image. Defaults to ''.
-            width (float, optional): The width for the image to have in the document. Defaults to 0.8.
+            width (float, optional): The width for the image to have in the document None will let the individual formatter determine the width. Defaults to None.
             children (str, optional): A specific name/id to give to the image (will be auto generated if None). Defaults to None.
 
         Returns:
@@ -981,13 +1034,13 @@ class Doc(UserList):
         return self
     
 
-    def add_fig(self, fig=None, caption = '', width=0.8, bbox_inches='tight', children=None, index=None, chapter=None, color='', end=None, **kwargs):
+    def add_fig(self, fig=None, caption = '', width=None, bbox_inches='tight', children=None, index=None, chapter=None, color='', end=None, **kwargs):
         """add a pyplot figure type dict from given image input.
         
         Args:
             fig (matplotlib figure, optional): the figure which to upload (or the current figure if None). Defaults to None.
             caption (str, optional): the caption to give to the image. Defaults to ''.
-            width (float, optional): The width for the image to have in the document. Defaults to 0.8.
+            width (float, optional): The width for the image to have in the document None will let the individual formatter determine the width. Defaults to None.
             bbox_inches (str, optional): will give better spacing for matplotlib figures.
             children (str, optional): A specific name/id to give to the image (will be auto generated if None). Defaults to None.
             index (int, optional): The index where to insert the part. If None, appends to the end.
@@ -1000,7 +1053,7 @@ class Doc(UserList):
         return self
     
 
-    def add_image(self, image, caption = '', width=0.8, children=None, index=None, chapter=None, color='', end=None, **kwargs):
+    def add_image(self, image, caption = '', width=None, children=None, index=None, chapter=None, color='', end=None, **kwargs):
         """add an image type dict from given image input.
         image can be of type:
             - pyplot figure
@@ -1012,7 +1065,7 @@ class Doc(UserList):
         Args:
             im (np.array): the image as NxMx
             caption (str, optional): the caption to give to the image. Defaults to ''.
-            width (float, optional): The width for the image to have in the document. Defaults to 0.8.
+            width (float, optional): The width for the image to have in the document None will let the individual formatter determine the width. Defaults to None.
             children (str, optional): A specific name/id to give to the image (will be auto generated if None). Defaults to None.
             index (int, optional): The index where to insert the part. If None, appends to the end.
             chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
@@ -1094,7 +1147,7 @@ class Doc(UserList):
         """
         return self._ret(to_markdown(self.dump(), embed_images=embed_images), path_or_stream)
 
-    def to_docx(self, path_or_stream=None, template:str=None, template_params=None, use_w32=False, as_pdf=False, compress_images=False) -> bytes:
+    def to_docx(self, path_or_stream=None, template:str=None, template_params=None, use_w32=False, as_pdf=False, compress_images=False, allow_pandoc=True) -> bytes:
         """
         Converts the current object to a DOCX file, or a PDF file via DOCX (WARNING some options need win32com and word installed if selected).
 
@@ -1104,7 +1157,7 @@ class Doc(UserList):
             use_w32 (bool, optional): Whether to use win32com for document field updating and any of the following arguments, THIS OPTION NEEDS win32com and word installed. Defaults to False.
             as_pdf (bool, optional): Whether to output the document as a PDF (via docx and win32com). Defaults to False.
             compress_images (bool, optional): Whether to compress images in the document using win32com. Defaults to False.
-
+            allow_pandoc (bool, optional): whether or not to allow the usage of pandoc instead of python-docx (usually pandoc creates nicer documents!)
 
         Returns:
             bytes: The data as bytes, or True if the data was saved successfully to a file or stream.
@@ -1114,7 +1167,7 @@ class Doc(UserList):
 
         """
         filename = os.path.basename(path_or_stream) if isinstance(path_or_stream, (str, Path)) else None
-        return self._ret(to_docx(self.dump(), filename=filename, template=template, template_params=template_params, use_w32=use_w32, as_pdf=as_pdf, compress_images=compress_images), path_or_stream)        
+        return self._ret(to_docx(self.dump(), filename=filename, template=template, template_params=template_params, use_w32=use_w32, as_pdf=as_pdf, compress_images=compress_images, allow_pandoc=allow_pandoc), path_or_stream)        
 
     def to_ipynb(self, path_or_stream=None) -> str:
         """
@@ -1189,7 +1242,7 @@ class Doc(UserList):
         Raises:
             Warning: If the provided file path does not end with '.zip' or '.pdf', a warning is issued and the file is assumed to be in PDF format.
         """
-        global _pdf_engine
+
 
         if files_to_upload is None:
             files_to_upload = {}
@@ -1201,8 +1254,11 @@ class Doc(UserList):
         params = {}
         meta = self.get_meta(default={}).get('data', {})
         if engine is None:
-            engine = _pdf_engine
+            engine = config_pdf_engine_get()
 
+        if not engine:
+            raise ImportError("No engine to convert to PDF is available. Make sure you either have pdflatex, Microsoft Word, or Libreoffice installed")
+        
         tformat = 'tex' if engine == 'tex' else 'html'
         mytemplate = self.get_template_from_meta(tformat=tformat)
         if template is None and not mytemplate is None:
@@ -1443,6 +1499,42 @@ class Doc(UserList):
             
         return upload_report_to_redmine(self, redmine=redmine, project_id=project_id, report_name=report_name, page_title=page_title, force_overwrite=force_overwrite, verb=verb)
     
+    def print_rich(self, path_or_stream=None, title=None, embed_images=True):
+        """
+        Parses the current object using python rich library and output it either on console or to any file / stream.
+
+        Args:
+            path_or_stream: Either a file path (str) to write to, a file-like object
+                           with a write method, or None to output to stdout
+            title: Optional title for the documentation. If not provided, will attempt
+                  to extract from metadata using common title keys. If still None a default title will be used.
+            embed_images: if True this will make the images appear as simplified pixelized pictures on the console, 
+                  if False it will insert a placeholder instead. 
+        Returns:
+            bool: Only in path_or_stream is not None. True if successful, False otherwise
+
+        Example:
+            >>> doc.print_rich("output.rich")
+            >>> doc.print_rich(sys.stdout)
+            >>> doc.print_rich()
+        """
+        if title is None:
+            metadata = self.get_metadata()
+            options = 'title TITLE Title filename FILENAME Filename name NAME Name docname DOCNAME Docname documentname Documentname DOCUMENTNAME'.split()
+            title = next((metadata[k] for k in options if k in metadata), None)
+        
+
+        if isinstance(path_or_stream, str):
+            with open(path_or_stream, "w") as f:
+                print_rich(self.dump(), stream=path_or_stream, embed_images=embed_images)
+            return True
+        elif hasattr(path_or_stream, 'write'):
+            print_rich(self.dump(), stream=path_or_stream, embed_images=embed_images)
+            return True
+        else:
+            print_rich(self.dump(), stream=None, embed_images=embed_images)
+
+
     def to_pdf_print(self, path_or_stream=None):
         """Exports the document to a PDF file by using the systems "print to pdf" function to export from html to pdf.
 
@@ -1638,17 +1730,18 @@ class Doc(UserList):
     
 
 
-    def show(self, engine = 'html', index=None, chapter=None, files_to_upload=None, template=None, template_params=None, do_escape_template_params=False, **kwargs):
+    def show(self, engine = None, index=None, chapter=None, files_to_upload=None, template=None, template_params=None, do_escape_template_params=False, embed_images=True, **kwargs):
         """Displays the document or a specific part of it in ipython display or via print
 
         Args:
-            engine (str, optional): The engine to use for displaying. Either "html", "markdown", "md", "tex", "latex", or "pdf" (pdf only works in Ipython!)
+            engine (str, optional): The engine to use for displaying. None to decide based on the currently available console. Else either "html", "markdown", "md", "tex", "latex", or "pdf" (pdf only works in Ipython!)
             index (int, optional): The index of the part to display.
             chapter (str, optional): The name of the chapter to display.
             files_to_upload (dict, optional): ONLY VALID WHEN engine='pdf'. See to_pdf method for details. Defaults to None.
             template (jinja2 template or string, optional): ONLY VALID WHEN engine='pdf'. See to_pdf method for details. Defaults to None.
             template_params (dict, optional): ONLY VALID WHEN engine='pdf'. See to_pdf method for details. Defaults to None.
             do_escape_template_params (bool, optional): ONLY VALID WHEN engine='pdf'. See to_pdf method for details. Defaults to False.
+            embed_images (bool, optional): ONLY VALID WHEN engine='md' or 'rich'. Whether to embed (show) images within the document, or placeholders. Defaults to True.
 
         Raises:
             KeyError: if the specified engine is not found or not valid
@@ -1657,7 +1750,8 @@ class Doc(UserList):
 
         assert index is None or chapter is None, f'can either give index OR chapter!'
         
-        engine = engine.lower()
+        if engine is None:
+            engine = _renderer_default
 
         
         if engine in ['html', 'pdf', 'tex']:
@@ -1669,16 +1763,23 @@ class Doc(UserList):
             kwargs['do_escape_template_params'] = do_escape_template_params
 
         if index:
-            Doc([self[index]]).show(**kwargs)
+            Doc([self[index]]).show(engine=engine, files_to_upload=files_to_upload, template=template, template_params=template_params, do_escape_template_params=do_escape_template_params, **kwargs)
         elif chapter:
             Doc(self.get_chapter(chapter)).show(**kwargs)
         
         if is_notebook():
+            if engine == 'auto':
+                engine = 'html'
+            
+            engine = engine.lower()
+
             from IPython.display import display, HTML, Markdown, Code
             if engine in 'html'.split():
                 display(HTML(self.to_html(**kwargs)))
+            elif engine.startswith('std') or engine in 'console rich terminal plain'.split():
+                self.print_rich(embed_images=embed_images, **kwargs)
             elif engine in 'markdown md'.split():
-                display(Markdown(self.to_markdown()))
+                display(Markdown(self.to_markdown(embed_images=embed_images, **kwargs)))
             elif engine in 'tex latex'.split():
                 display(Code(self.to_tex(text_only=True, **kwargs), language='tex'))
             elif engine == 'pdf':
@@ -1689,9 +1790,16 @@ class Doc(UserList):
                 raise KeyError(f'engine must be in: "html", "markdown", "md", "tex", "latex", or "pdf", but was {engine=}')
 
         else:
+            if engine == 'auto':
+                engine = 'rich'
+            
+            engine = engine.lower()
             if engine in 'html'.split():
                 print(self.to_html(**kwargs))
+            elif engine.startswith('std') or engine in 'console rich terminal plain'.split():
+                self.print_rich(embed_images=embed_images, **kwargs)
             elif engine in 'markdown md'.split():
+                kwargs.pop('embed_images')
                 print(self.to_markdown(embed_images=False, **kwargs))
             elif engine in 'tex latex'.split():
                 print(self.to_tex(text_only=True, **kwargs))

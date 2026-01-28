@@ -227,6 +227,9 @@ class html_renderer(BaseFormatter):
         width = kwargs.get('width', 0.8)
         caption = kwargs.get('caption', "")
 
+        if width is None:
+            width = 0.8
+            
         if imageblob is None:
             imageblob = ''
 

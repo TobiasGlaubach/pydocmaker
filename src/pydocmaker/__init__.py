@@ -1,11 +1,11 @@
-__version__ = '2.5.4'
+__version__ = '2.5.5'
 
-from pydocmaker.core import Doc, construct, constr, buildingblocks, print_to_pdf, get_latex_compiler, set_latex_compiler, make_pdf_from_tex, show_pdf
+from pydocmaker.core import Doc, construct, constr, buildingblocks, print_to_pdf, make_pdf_from_tex, show_pdf, is_notebook
 from pydocmaker.util import upload_report_to_redmine, bcolors, txtcolor, colors_dc
 
 from pydocmaker.backend.ex_docx import DocxFile, DocxFileW32, can_use_libreoffice, can_use_w32_word
 from pydocmaker.backend.ex_tex import can_run_pandoc
-from pydocmaker.backend.pdf_maker_tex import get_all_installed_latex_compilers, get_latex_compiler
+
 from pydocmaker.backend.pandoc_api import pandoc_convert_file, pandoc_set_allowed
 
 from pydocmaker.templating import DocTemplate, TemplateDirSource, register_new_template_dir, get_registered_template_dirs, get_available_template_ids, test_template_exists, remove_from_template_dir
@@ -13,8 +13,9 @@ from pydocmaker.templating import DocTemplate, TemplateDirSource, register_new_t
 from latex import escape as tex_escape
 
 
-from pydocmaker.backend.libreoffice_api import config_libreoffice_path_get, config_libreoffice_path_set
-from pydocmaker.core import config_pdf_engine_get, config_pdf_engine_set, config_pdf_engine_scan, config_pdf_engine_test
+from pydocmaker.backend.libreoffice_api import config_libreoffice_path_get, config_libreoffice_path_set, config_libreoffice_path_find, config_libreoffice_path_testset
+from pydocmaker.core import config_pdf_engine_get, config_pdf_engine_set, config_pdf_engine_scan, config_pdf_engine_test, config_renderer_default_get, config_renderer_default_set
+from pydocmaker.backend.pdf_maker_tex import config_latex_compiler_scan, config_latex_compiler_get, config_latex_compiler_set, config_latex_compiler_testset
 
 try:
     # tests and caches already if pandoc is installed when import is used, so its faster later when we want to use it (or not)
@@ -180,13 +181,13 @@ def mk_pre(children=None, index=None, chapter=None, color='', end=None, **kwargs
    return Doc().add_pre(children=children, index=index, chapter=chapter, color=color, end=end, **kwargs)[0]
 
 
-def mk_fig(fig=None, caption='', width=0.8, bbox_inches='tight', children=None, color='', end=None, **kwargs):
+def mk_fig(fig=None, caption='', width=None, bbox_inches='tight', children=None, color='', end=None, **kwargs):
     """make an image document part from a pyplot figure type dict from given image input.
     
     Args:
         fig (matplotlib figure, optional): the figure which to upload (or the current figure if None). Defaults to None.
         caption (str, optional): the caption to give to the image. Defaults to ''.
-        width (float, optional): The width for the image to have in the document. Defaults to 0.8.
+        width (float, optional): The width for the image to have in the document None will let the individual formatter determine the width. Defaults to None.
         bbox_inches (str, optional): will give better spacing for matplotlib figures.
         children (str, optional): A specific name/id to give to the image (will be auto generated if None). Defaults to None.
         index (int, optional): The index where to insert the part. If None, appends to the end.
@@ -199,7 +200,7 @@ def mk_fig(fig=None, caption='', width=0.8, bbox_inches='tight', children=None, 
     """
     return Doc().add_fig(fig=fig, caption=caption, width=width, bbox_inches=bbox_inches, children=children, color=color, end=end, **kwargs)[0]
 
-def mk_image(image, caption='', width=0.8, children=None, color='', end=None, **kwargs):
+def mk_image(image, caption='', width=None, children=None, color='', end=None, **kwargs):
     """Make an image type dict from given image input.
     
     The image can be of type:
@@ -212,7 +213,7 @@ def mk_image(image, caption='', width=0.8, children=None, color='', end=None, **
     Args:
         image: The image input, which can be a pyplot figure, a link, a file-like object, a numpy array, or a PIL image.
         caption (str, optional): The caption to give to the image. Defaults to ''.
-        width (float, optional): The width for the image to have in the document. Defaults to 0.8.
+        width (float, optional): The width for the image to have in the document None will let the individual formatter determine the width. Defaults to None.
         children (str, optional): A specific name/id to give to the image (will be auto-generated if None). Defaults to None.
         color (str, optional): Any color which can be rendered by HTML or LaTeX. Empty string for default. Defaults to ''.
         end (str, optional): If you want to insert a different line ending (than the default) for this element, set this argument to any string. None for default.

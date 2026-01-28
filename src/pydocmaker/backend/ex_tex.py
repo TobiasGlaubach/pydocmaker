@@ -364,8 +364,11 @@ class LatexElementFormatter(BaseFormatter):
         return str(tex)
 
     
-    def digest_image(self, children='', width=0.8, caption='', imageblob='', **kwargs) -> str:
+    def digest_image(self, children='', width=None, caption='', imageblob='', **kwargs) -> str:
 
+        if width is None:
+            width = 0.8
+            
         if not isinstance(width, str):
             width = 'width={}\\textwidth'.format(width)
 
