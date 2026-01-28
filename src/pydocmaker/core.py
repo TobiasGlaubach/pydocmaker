@@ -162,7 +162,13 @@ def config_pdf_engine_scan(force_reload=False, firstonly=False):
     return res
 
 def config_pdf_engine_testset():
-    return config_pdf_engine_set(config_pdf_engine_scan(firstonly=True))
+    eng = config_pdf_engine_scan(firstonly=True)
+    if eng:
+        return config_pdf_engine_set(eng)
+    else:
+        global _pdf_engine
+        _pdf_engine = ''
+
     
     
 def is_notebook() -> bool:
