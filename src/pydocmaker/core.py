@@ -281,7 +281,7 @@ class constr():
         }
     
     @staticmethod
-    def image(imageblob='', caption='', children='', width=0.8, color='', end=None):
+    def image(imageblob='', caption='', children='', width=None, color='', end=None):
 
         if not children:
             # HACK: need to get format somehow
@@ -299,7 +299,7 @@ class constr():
     
 
     @staticmethod
-    def image_from_link(url, caption='', children='', width=0.8, color='', end=None):
+    def image_from_link(url, caption='', children='', width=None, color='', end=None):
 
         assert url, 'need to give an URL!'
 
@@ -331,7 +331,7 @@ class constr():
 
 
     @staticmethod
-    def image_from_file(path, children='', caption='', width=0.8, color='', end=None):
+    def image_from_file(path, children='', caption='', width=None, color='', end=None):
 
         assert path, 'need to give a path!'
 
@@ -353,12 +353,12 @@ class constr():
         return constr.image(imageblob=imageblob, children=children, caption=caption, width=width, color=color, end=end)
         
 
-    def image_from_fig(caption='', width=0.8, children=None, fig=None, color='', end=None, bbox_inches='tight', **kwargs):
+    def image_from_fig(caption='', width=None, children=None, fig=None, color='', end=None, bbox_inches='tight', **kwargs):
         """convert a matplotlib figure (or the current figure) to a document image dict to later add to a document
 
         Args:
             caption (str, optional): the caption to give to the image. Defaults to ''.
-            width (float, optional): The width for the image to have in the document. Defaults to 0.8.
+            width (float, optional): The width for the image to have in the document None will let the individual formatter determine the width. Defaults to None.
             children (str, optional): A specific name/id to give to the image (will be auto generated if None). Defaults to None.
             fig (matplotlib figure, optional): the figure which to upload (or the current figure if None). Defaults to None.
 
@@ -385,13 +385,13 @@ class constr():
 
 
     @staticmethod
-    def image_from_obj(img, caption = '', width=0.8, children=None, color='', end=None):
+    def image_from_obj(img, caption = '', width=None, children=None, color='', end=None):
         """make a image type dict from given image of type matrix, filelike or PIL image
 
         Args:
             im (np.array): the image as NxMx
             caption (str, optional): the caption to give to the image. Defaults to ''.
-            width (float, optional): The width for the image to have in the document. Defaults to 0.8.
+            width (float, optional): The width for the image to have in the document None will let the individual formatter determine the width. Defaults to None.
             children (str, optional): A specific name/id to give to the image (will be auto generated if None). Defaults to None.
 
         Returns:
@@ -981,13 +981,13 @@ class Doc(UserList):
         return self
     
 
-    def add_fig(self, fig=None, caption = '', width=0.8, bbox_inches='tight', children=None, index=None, chapter=None, color='', end=None, **kwargs):
+    def add_fig(self, fig=None, caption = '', width=None, bbox_inches='tight', children=None, index=None, chapter=None, color='', end=None, **kwargs):
         """add a pyplot figure type dict from given image input.
         
         Args:
             fig (matplotlib figure, optional): the figure which to upload (or the current figure if None). Defaults to None.
             caption (str, optional): the caption to give to the image. Defaults to ''.
-            width (float, optional): The width for the image to have in the document. Defaults to 0.8.
+            width (float, optional): The width for the image to have in the document None will let the individual formatter determine the width. Defaults to None.
             bbox_inches (str, optional): will give better spacing for matplotlib figures.
             children (str, optional): A specific name/id to give to the image (will be auto generated if None). Defaults to None.
             index (int, optional): The index where to insert the part. If None, appends to the end.
@@ -1000,7 +1000,7 @@ class Doc(UserList):
         return self
     
 
-    def add_image(self, image, caption = '', width=0.8, children=None, index=None, chapter=None, color='', end=None, **kwargs):
+    def add_image(self, image, caption = '', width=None, children=None, index=None, chapter=None, color='', end=None, **kwargs):
         """add an image type dict from given image input.
         image can be of type:
             - pyplot figure
@@ -1012,7 +1012,7 @@ class Doc(UserList):
         Args:
             im (np.array): the image as NxMx
             caption (str, optional): the caption to give to the image. Defaults to ''.
-            width (float, optional): The width for the image to have in the document. Defaults to 0.8.
+            width (float, optional): The width for the image to have in the document None will let the individual formatter determine the width. Defaults to None.
             children (str, optional): A specific name/id to give to the image (will be auto generated if None). Defaults to None.
             index (int, optional): The index where to insert the part. If None, appends to the end.
             chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.

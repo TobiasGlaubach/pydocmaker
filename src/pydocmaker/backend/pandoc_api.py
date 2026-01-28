@@ -239,8 +239,11 @@ class PandocFormatter:
         # TODO: handle colors correctly somehow?
         return self.conv(children, 'markdown')
 
-    def digest_image(self, children='', width=0.8, caption="", imageblob=None, **kwargs):               
+    def digest_image(self, children='', width=None, caption="", imageblob=None, **kwargs):               
         
+        if width is None:
+            width = 0.8
+            
         if imageblob is None:
             imageblob = ''
 

@@ -180,13 +180,13 @@ def mk_pre(children=None, index=None, chapter=None, color='', end=None, **kwargs
    return Doc().add_pre(children=children, index=index, chapter=chapter, color=color, end=end, **kwargs)[0]
 
 
-def mk_fig(fig=None, caption='', width=0.8, bbox_inches='tight', children=None, color='', end=None, **kwargs):
+def mk_fig(fig=None, caption='', width=None, bbox_inches='tight', children=None, color='', end=None, **kwargs):
     """make an image document part from a pyplot figure type dict from given image input.
     
     Args:
         fig (matplotlib figure, optional): the figure which to upload (or the current figure if None). Defaults to None.
         caption (str, optional): the caption to give to the image. Defaults to ''.
-        width (float, optional): The width for the image to have in the document. Defaults to 0.8.
+        width (float, optional): The width for the image to have in the document None will let the individual formatter determine the width. Defaults to None.
         bbox_inches (str, optional): will give better spacing for matplotlib figures.
         children (str, optional): A specific name/id to give to the image (will be auto generated if None). Defaults to None.
         index (int, optional): The index where to insert the part. If None, appends to the end.
@@ -199,7 +199,7 @@ def mk_fig(fig=None, caption='', width=0.8, bbox_inches='tight', children=None, 
     """
     return Doc().add_fig(fig=fig, caption=caption, width=width, bbox_inches=bbox_inches, children=children, color=color, end=end, **kwargs)[0]
 
-def mk_image(image, caption='', width=0.8, children=None, color='', end=None, **kwargs):
+def mk_image(image, caption='', width=None, children=None, color='', end=None, **kwargs):
     """Make an image type dict from given image input.
     
     The image can be of type:
@@ -212,7 +212,7 @@ def mk_image(image, caption='', width=0.8, children=None, color='', end=None, **
     Args:
         image: The image input, which can be a pyplot figure, a link, a file-like object, a numpy array, or a PIL image.
         caption (str, optional): The caption to give to the image. Defaults to ''.
-        width (float, optional): The width for the image to have in the document. Defaults to 0.8.
+        width (float, optional): The width for the image to have in the document None will let the individual formatter determine the width. Defaults to None.
         children (str, optional): A specific name/id to give to the image (will be auto-generated if None). Defaults to None.
         color (str, optional): Any color which can be rendered by HTML or LaTeX. Empty string for default. Defaults to ''.
         end (str, optional): If you want to insert a different line ending (than the default) for this element, set this argument to any string. None for default.

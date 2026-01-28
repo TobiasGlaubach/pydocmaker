@@ -55,7 +55,7 @@ class BaseFormatter(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def digest_image(self, children='', width=0.8, caption='', imageblob='', **kwargs) -> str:
+    def digest_image(self, children='', width=None, caption='', imageblob='', **kwargs) -> str:
         pass
 
     @abc.abstractmethod

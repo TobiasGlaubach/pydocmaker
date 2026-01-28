@@ -195,10 +195,13 @@ class ipynb_renderer(BaseFormatter):
         self.handle_error(NotImplementedError(f'exporter of type {type(self)} can not handle tables'))
     
 
-    def digest_image(self,imageblob=None, children='', width=0.8, caption="", **kwargs):       
+    def digest_image(self,imageblob=None, children='', width=None, caption="", **kwargs):       
         
         if imageblob is None:
             imageblob = ''
+        
+        if width is None:
+            width = 0.8
 
         uid = (id(imageblob) + int(time.time()) + random.randint(1, 100))
         if not children:
