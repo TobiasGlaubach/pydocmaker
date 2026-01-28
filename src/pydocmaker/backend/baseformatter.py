@@ -137,9 +137,12 @@ class BaseFormatter(abc.ABC):
     
 
 
-    def _map_table2mat(self, children=None, **kwargs) -> str:
+    def _map_table2mat(self, children=None, fun=None, **kwargs) -> str:
         if children is None:
             children = [[]]
+
+        if fun is None:
+            fun = self.digest
 
         assert isinstance(children, (list, tuple)), f'children must be of type list! but was {type(children)=} {children=}'
         header = kwargs.get('header', None)
@@ -157,7 +160,7 @@ class BaseFormatter(abc.ABC):
         if n_cols is None:
             n_cols = max(len(header), max([len(row) for row in data]))
         
-        head = [self.digest(el) for el in header]
+        head = [fun(el) for el in header]
         if len(head) < n_cols:
             head += ['']*(n_cols-len(head))
 
@@ -167,7 +170,7 @@ class BaseFormatter(abc.ABC):
 
         for irow, row in enumerate(data):
             for icol, el in enumerate(row):
-                mat[irow][icol] = self.digest(el)
+                mat[irow][icol] = fun(el)
 
         return head, mat
     
