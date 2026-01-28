@@ -16,6 +16,19 @@ import io
 
 from pathlib import Path
 
+
+import logging
+
+# Configure once
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s | %(levelname)-8s | %(filename)-15s:%(lineno)3d] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+log = logging.getLogger(__name__)
+
+
 allow_pandoc = True
 
 _is_pandoc_installed = None
@@ -155,7 +168,14 @@ def pandoc_to_pdf(input_file, output_pdf):
     input_file = Path(input_file).resolve()
     output_pdf = Path(output_pdf).resolve()
     cmd = ['pandoc', str(input_file), '-o', str(output_pdf)]
-    subprocess.run(cmd, check=True)
+    try:
+        subprocess.run(cmd, check=True)    
+    except Exception as err:
+        if output_pdf.exists():
+            log.warning("pandoc conversion returned non zero return code, but the output file exists. please check your file")
+            log.warning(err, exc_info=1)
+        else:
+            raise
 
     if not output_pdf.exists():
         raise FileNotFoundError(f"File {output_pdf} was not created successfully")

@@ -38,7 +38,7 @@ from .backend import ex_docx
 
 from .templating import DocTemplate
 
-from .backend.pandoc_api import can_run_pandoc, pandoc_convert, pandoc_convert_file, pandoc_to_pdf
+from .backend.pandoc_api import can_run_pandoc, pandoc_convert, pandoc_to_pdf
 
 np = None
 gImage = None
