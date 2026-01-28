@@ -33,7 +33,7 @@ from .backend.ex_rich import convert as print_rich
 
 from .backend.ex_tex import auto_escape_latex
 
-from .backend.pdf_maker_tex import make_pdf_from_tex, get_latex_compiler, set_latex_compiler
+from .backend.pdf_maker_tex import make_pdf_from_tex, config_latex_compiler_get, config_latex_compiler_set
 from .backend import ex_docx
 
 from .templating import DocTemplate
@@ -117,7 +117,7 @@ def config_pdf_engine_test(raise_on_error=True, force_reload=False):
     res = False
     global _pdf_engine
     if _pdf_engine == 'tex':
-        res = get_latex_compiler()
+        res = config_latex_compiler_get()
     elif _pdf_engine == 'word':
         res = ex_docx.can_use_w32_word(force_reload=force_reload)
     elif _pdf_engine == 'libreoffice':
@@ -145,7 +145,7 @@ def config_pdf_engine_scan(force_reload=False):
         bool: True if a valid compiler is found, False otherwise.
     """
     res = []
-    if get_latex_compiler(): res.append('tex')
+    if config_latex_compiler_get(): res.append('tex')
     if ex_docx.can_use_w32_word(force_reload=force_reload): res.append('word')
     if ex_docx.can_use_libreoffice(force_reload=force_reload): res.append('libreoffice')
     if can_run_pandoc(force_retest=force_reload): res.append('pandoc')
