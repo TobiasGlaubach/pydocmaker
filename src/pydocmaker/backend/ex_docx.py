@@ -721,7 +721,46 @@ class docx_renderer(BaseFormatter):
         return []
 
     def digest_table(self, children=None, **kwargs) -> str:
-        self.handle_error(NotImplementedError(f'exporter of type {type(self)} can not handle tables'))
+        borders = kwargs.get('borders', None)
+        if borders is None:
+            borders = True
+
+        caption = kwargs.get('caption', '')
+        if not caption:
+            caption = ''
+
+        # its really hard to format in docx tables so we just make whatever element into a string
+        def to_str(children=None, **kwargs):
+            if not children:
+                children = kwargs.get('content', '')
+            return str(children).strip()
+        
+        head, mat = self._map_table2mat(children=children, fun=to_str, **kwargs)
+        if mat:        
+            nrows = len(mat)+1 if head else len(mat)
+            table = self.d.add_table(rows=nrows, cols=len(mat[0]))
+            if borders:
+                table.style = 'Table Grid' 
+            
+            j = 0
+            if head:
+                # Header
+                hdr = table.rows[j].cells
+                for i, h in enumerate(head):
+                    hdr[i].text = h
+                j += 1
+
+            # Add rows
+            for row in mat:
+                row_cells = table.rows[j].cells
+                for i, c in enumerate(row): 
+                    row_cells[i].text = c
+                j += 1
+                
+        run = self.add_paragraph(caption)
+        return run
+
+        # self.handle_error(NotImplementedError(f'exporter of type {type(self)} can not handle tables'))
     
     def digest_image(self, children, *args, **kwargs):
 
