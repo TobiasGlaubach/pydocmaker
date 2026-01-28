@@ -7,12 +7,9 @@ import shlex
 
 allow_libreoffice = True
 
-_is_libreoffice_installed = None
-
 _done = threading.Event()
 _testing_thread = None
-
-_libreoffice_path = "libreoffice"
+_libreoffice_path = None
 
 PATH_OPTIONS= [
     "C:\Program Files\LibreOffice\program\soffice.exe",
@@ -37,16 +34,18 @@ def config_libreoffice_path_get():
     Returns:
         str|None: the currently set path for the libreoffice executeable or None, if it has not been resolved yet.
     """
-    s = _libreoffice_path
-    return s
-
-
-def _test_is_libreoffice_installed():
     global _libreoffice_path
+    if _libreoffice_path is None:
+        config_libreoffice_path_testset()
+    return _libreoffice_path
+
+def config_libreoffice_path_testset():
+    return config_libreoffice_path_set(config_libreoffice_path_find())
+
+def config_libreoffice_path_find():
 
     if os.name == 'nt':  # Check if the OS is Windows
-        _libreoffice_path = next((p for p in PATH_OPTIONS if os.path.exists(p)), None)
-        return not _libreoffice_path is None
+        return next((p for p in PATH_OPTIONS if os.path.exists(p)), '')
 
     for option in ["libreoffice", "soffice"]:
         if shutil.which(option):
@@ -59,19 +58,17 @@ def _test_is_libreoffice_installed():
                     timeout=5,
                     check=True,
                 )
-                _libreoffice_path = option
-                return True
+                return option
             except Exception:
                 continue
-    return False
+    return ''
 
 
 def _test_is_libreoffice_installed_threadfun():
-    global _available
     try:
-        _available = _test_is_libreoffice_installed()   # may take up to 5 seconds
+        config_libreoffice_path_testset()   # may take up to 5 seconds
     except Exception:
-        _available = False
+        pass
     finally:
         _done.set()
 
@@ -84,14 +81,14 @@ def can_use_libreoffice(force_reload=False):
     if not allow_libreoffice:
         return False
     
-    global _is_libreoffice_installed, _testing_thread
+    global _testing_thread, _done
     if _testing_thread and _testing_thread.is_alive():
         _done.wait()
 
-    if _is_libreoffice_installed is None or force_reload:
-         _is_libreoffice_installed = _test_is_libreoffice_installed()
-    r = _is_libreoffice_installed # copy
-    return r
+    if force_reload:
+        return True if config_libreoffice_path_testset() else False
+    else:
+        return True if config_libreoffice_path_get() else False
 
 
 
@@ -100,9 +97,9 @@ def to_pdf(input_file, output_pdf):
     input_file = Path(input_file).resolve()
     output_pdf = Path(output_pdf).resolve()
     if _libreoffice_path is None:
-        _test_is_libreoffice_installed()
+        config_libreoffice_path_find()
 
-    if _libreoffice_path is None:
+    if not can_use_libreoffice():
         raise ValueError("No Libreoffice installation found on the system! You can hack this, by calling config_libreoffice_path_set(your_path) before using this function")
     cmd = [
             _libreoffice_path,

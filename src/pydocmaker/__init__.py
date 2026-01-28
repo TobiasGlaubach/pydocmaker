@@ -1,11 +1,11 @@
 __version__ = '2.5.5'
 
-from pydocmaker.core import Doc, construct, constr, buildingblocks, print_to_pdf, config_latex_compiler_get, config_latex_compiler_set, make_pdf_from_tex, show_pdf, is_notebook
+from pydocmaker.core import Doc, construct, constr, buildingblocks, print_to_pdf, make_pdf_from_tex, show_pdf, is_notebook
 from pydocmaker.util import upload_report_to_redmine, bcolors, txtcolor, colors_dc
 
 from pydocmaker.backend.ex_docx import DocxFile, DocxFileW32, can_use_libreoffice, can_use_w32_word
 from pydocmaker.backend.ex_tex import can_run_pandoc
-from pydocmaker.backend.pdf_maker_tex import config_latex_compiler_scan, config_latex_compiler_get, config_latex_compiler_set, config_latex_compiler_testset
+
 from pydocmaker.backend.pandoc_api import pandoc_convert_file, pandoc_set_allowed
 
 from pydocmaker.templating import DocTemplate, TemplateDirSource, register_new_template_dir, get_registered_template_dirs, get_available_template_ids, test_template_exists, remove_from_template_dir
@@ -13,8 +13,9 @@ from pydocmaker.templating import DocTemplate, TemplateDirSource, register_new_t
 from latex import escape as tex_escape
 
 
-from pydocmaker.backend.libreoffice_api import config_libreoffice_path_get, config_libreoffice_path_set
+from pydocmaker.backend.libreoffice_api import config_libreoffice_path_get, config_libreoffice_path_set, config_libreoffice_path_find, config_libreoffice_path_testset
 from pydocmaker.core import config_pdf_engine_get, config_pdf_engine_set, config_pdf_engine_scan, config_pdf_engine_test, config_renderer_default_get, config_renderer_default_set
+from pydocmaker.backend.pdf_maker_tex import config_latex_compiler_scan, config_latex_compiler_get, config_latex_compiler_set, config_latex_compiler_testset
 
 try:
     # tests and caches already if pandoc is installed when import is used, so its faster later when we want to use it (or not)
