@@ -764,7 +764,10 @@ class docx_renderer(BaseFormatter):
     
     def digest_image(self, children, *args, **kwargs):
 
-        image_width = Inches(max(1, kwargs.get('width', 0.8)*5))
+        width = kwargs.get('width', 0.8)
+        if width is None:
+            width = 0.8
+        image_width = Inches(max(1, width*5))
         image_caption = kwargs.get('caption', '')
         image_blob = kwargs.get('imageblob', '')
 
