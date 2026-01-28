@@ -45,7 +45,7 @@ gImage = None
 
 chapter_level = 1 # this is the level of heading to use for chapters which is equivalent to html <h1> to <h5> or whatever
 
-_pdf_engine = 'tex'
+_pdf_engine = None
 _renderer_default = 'auto'
 
 def config_renderer_default_set(choice:str='auto'):
@@ -100,6 +100,8 @@ def config_pdf_engine_set(choice:str='tex'):
 
 def config_pdf_engine_get():
     global _pdf_engine
+    if _pdf_engine is None:
+        config_pdf_engine_testset()
     return _pdf_engine
 
 
@@ -151,7 +153,10 @@ def config_pdf_engine_scan(force_reload=False):
     if can_run_pandoc(force_retest=force_reload): res.append('pandoc')
     return res
 
-
+def config_pdf_engine_testset():
+    return config_latex_compiler_set(config_pdf_engine_scan())
+    
+    
 def is_notebook() -> bool:
     try:
         shell = get_ipython().__class__.__name__ # type: ignore
