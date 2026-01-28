@@ -75,12 +75,14 @@ def config_renderer_default_get():
     global _renderer_default
     return _renderer_default
 
+
+
 def config_pdf_engine_set(choice:str='tex'):
     """
     Sets the PDF engine to be used for generating PDF documents.
 
     Parameters:
-    choice (str): The desired PDF engine. Must be one of 'tex', 'word', or 'libreoffice'.
+    choice (str): The desired PDF engine. Must be one of 'tex', 'word', 'libreoffice', or 'pandoc'.
                   Default is 'tex'.
 
     Returns:
@@ -97,6 +99,7 @@ def config_pdf_engine_set(choice:str='tex'):
     global _pdf_engine
     _pdf_engine = choice
     return _pdf_engine
+
 
 def config_pdf_engine_get():
     global _pdf_engine
@@ -147,14 +150,14 @@ def config_pdf_engine_scan(force_reload=False):
         bool: True if a valid compiler is found, False otherwise.
     """
     res = []
-    if config_latex_compiler_get() and config_latex_compiler_get() != 'pandoc': res.append('tex')
+    if config_latex_compiler_get(): res.append('tex')
     if ex_docx.can_use_w32_word(force_reload=force_reload): res.append('word')
     if ex_docx.can_use_libreoffice(force_reload=force_reload): res.append('libreoffice')
     if can_run_pandoc(force_retest=force_reload): res.append('pandoc')
     return res
 
 def config_pdf_engine_testset():
-    return config_latex_compiler_set(config_pdf_engine_scan())
+    return config_pdf_engine_set(config_pdf_engine_scan())
     
     
 def is_notebook() -> bool:
