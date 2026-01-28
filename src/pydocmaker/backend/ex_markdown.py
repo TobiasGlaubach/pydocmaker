@@ -16,6 +16,7 @@ class DocumentMarkdownFormatter(BaseFormatter):
 
     def __init__(self, embed_images=True) -> None:
         self.embed_images = embed_images
+        self.cnt_img = 0
 
     def digest_latex(self, children: str, **kwargs):
         return self.digest_verbatim(children=children, **kwargs)
@@ -70,22 +71,28 @@ class DocumentMarkdownFormatter(BaseFormatter):
             lines.append('')
         
         lines.append('')
+        
+        self.cnt_img += 1
 
         # HACK: handle non PNG type properly!
         if imageblob.startswith('data:image/png;base64,'):
-            i = imageblob
+            s = imageblob
         else:
-            i = 'data:image/png;base64,' + str(imageblob)
+            s = 'data:image/png;base64,' + str(imageblob)
 
         if self.embed_images:
-            lines.append(f'![{description}]({i})')
+            lines.append(f'![{description}]({s})')
         else:
-            i = i[:35] + f'... (n={len(i)-35} more chars hidden))' if len(i) > 35 else i
-            lines.append(f'#[{description}]({i}')
+            if len(s) > 60:
+                sshort = f'{s[:30]}...{s[-30:]}'
+            else:
+                sshort = s
+            lines += ['---', f'PLACEHOLDER FOR IMAGE:', f'- name: {description}', f'- base64 size: {len(s)}', f'- content: {sshort}']
+
         lines.append('')
 
         if caption:
-            lines.append(f'*caption:* {filename}')
+            lines.append(f'**Image {self.cnt_img}:** {filename}')
             lines.append('')
 
         return '\n'.join(lines)
