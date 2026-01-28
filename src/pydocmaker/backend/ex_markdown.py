@@ -87,7 +87,7 @@ class DocumentMarkdownFormatter(BaseFormatter):
                 sshort = f'{s[:30]}...{s[-30:]}'
             else:
                 sshort = s
-            lines += ['---', f'PLACEHOLDER FOR IMAGE:', f'- name: {description}', f'- base64 size: {len(s)}', f'- content: {sshort}']
+            lines += ['---', f'PLACEHOLDER FOR IMAGE:', f'- name: {description}', f'- base64 size: {len(s)}', f'- content: {sshort}', '---']
 
         lines.append('')
 
