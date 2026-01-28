@@ -1130,7 +1130,7 @@ class Doc(UserList):
         """
         return self._ret(to_markdown(self.dump(), embed_images=embed_images), path_or_stream)
 
-    def to_docx(self, path_or_stream=None, template:str=None, template_params=None, use_w32=False, as_pdf=False, compress_images=False) -> bytes:
+    def to_docx(self, path_or_stream=None, template:str=None, template_params=None, use_w32=False, as_pdf=False, compress_images=False, allow_pandoc=True) -> bytes:
         """
         Converts the current object to a DOCX file, or a PDF file via DOCX (WARNING some options need win32com and word installed if selected).
 
@@ -1140,7 +1140,7 @@ class Doc(UserList):
             use_w32 (bool, optional): Whether to use win32com for document field updating and any of the following arguments, THIS OPTION NEEDS win32com and word installed. Defaults to False.
             as_pdf (bool, optional): Whether to output the document as a PDF (via docx and win32com). Defaults to False.
             compress_images (bool, optional): Whether to compress images in the document using win32com. Defaults to False.
-
+            allow_pandoc (bool, optional): whether or not to allow the usage of pandoc instead of python-docx (usually pandoc creates nicer documents!)
 
         Returns:
             bytes: The data as bytes, or True if the data was saved successfully to a file or stream.
@@ -1150,7 +1150,7 @@ class Doc(UserList):
 
         """
         filename = os.path.basename(path_or_stream) if isinstance(path_or_stream, (str, Path)) else None
-        return self._ret(to_docx(self.dump(), filename=filename, template=template, template_params=template_params, use_w32=use_w32, as_pdf=as_pdf, compress_images=compress_images), path_or_stream)        
+        return self._ret(to_docx(self.dump(), filename=filename, template=template, template_params=template_params, use_w32=use_w32, as_pdf=as_pdf, compress_images=compress_images, allow_pandoc=allow_pandoc), path_or_stream)        
 
     def to_ipynb(self, path_or_stream=None) -> str:
         """

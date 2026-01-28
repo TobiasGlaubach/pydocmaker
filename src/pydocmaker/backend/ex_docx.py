@@ -554,7 +554,7 @@ def convert_pandoc(doc:List[dict]) -> bytes:
         
 
 
-def convert(doc:List[dict], template = None, template_params=None, use_w32=False, as_pdf=False, compress_images=False, filename=None, **kwargs) -> bytes:
+def convert(doc:List[dict], template = None, template_params=None, use_w32=False, as_pdf=False, compress_images=False, filename=None, allow_pandoc=True, **kwargs) -> bytes:
     """
     Convert a list of document sections into a DOCX or PDF (via docx) file using a specified template.
 
@@ -566,6 +566,7 @@ def convert(doc:List[dict], template = None, template_params=None, use_w32=False
     - as_pdf (bool, optional): Whether to output the document as a PDF (via docx and win32com). Defaults to False.
     - compress_images (bool, optional): Whether to compress images in the document using win32com. Defaults to False.
     - filename (str, optional): The optional filename to give the document in case saving it as a tempfile is necessary. Default will try to get from metadata and if not found use tempfile.docx.
+    - allow_pandoc (bool, optional): whether or not to allow the usage of pandoc instead of python-docx (usually pandoc creates nicer documents!)
     - **kwargs: only used to check if invalid keyword arguments were passed.
 
     Returns:
@@ -580,8 +581,12 @@ def convert(doc:List[dict], template = None, template_params=None, use_w32=False
     unknown_params = kwargs
     if unknown_params:
         warnings.warn(f'Unknown parameters passed: {unknown_params=}')
-        
-    _pandoc = can_run_pandoc()
+    
+    if allow_pandoc:
+        _pandoc = can_run_pandoc()
+    else:
+        _pandoc = False
+
     if _pandoc:
         bts = None
         basedoc_bts = convert_pandoc(doc)
