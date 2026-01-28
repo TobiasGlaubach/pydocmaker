@@ -95,7 +95,7 @@ def _test_docxw32_installed(verb=0, force_reload=False):
         int: 0 if both are available, 1 if win32com is not available 2 if win32com is available and word is not available.
     """
     if os.name != 'nt':
-        _test_docxw32_installed.cache = 0 # only possible on windows
+        _test_docxw32_installed.cache = 2 # only possible on windows
 
     elif _test_docxw32_installed.cache is None or force_reload:
         global gwin32
