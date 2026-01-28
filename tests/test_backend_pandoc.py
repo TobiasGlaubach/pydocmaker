@@ -54,215 +54,215 @@ class TestConvert(unittest.TestCase):
         self.assertIn(pandoc_api.test_is_pandoc_installed(), [True, False])
 
 
-class TestPandocFormatterHtml(unittest.TestCase):
+# class TestPandocFormatterHtml(unittest.TestCase):
 
-    @unittest.skip(f"Skipping all tests in this class since The {PandocFormatter} is not used and not maintained and should therefore not be tested!")
-    def setUp(self):
-        self.formatter = PandocFormatter('html')
+#     @unittest.skip(f"Skipping all tests in this class since The {PandocFormatter} is not used and not maintained and should therefore not be tested!")
+#     def setUp(self):
+#         self.formatter = PandocFormatter('html')
 
-        print(pyd.__version__)
-        warnings.warn(f"The  {PandocFormatter} is not used and not maintained and should therefore not be tested!")
+#         print(pyd.__version__)
+#         warnings.warn(f"The  {PandocFormatter} is not used and not maintained and should therefore not be tested!")
 
-    def test_digest_markdown(self):
-        result = self.formatter.digest_markdown(children='# Test')
-        self.assertIsInstance(result, str)
-        self.assertTrue(result)
-        self.assertTrue(result.startswith('<'), result[:10] + '...')
+#     def test_digest_markdown(self):
+#         result = self.formatter.digest_markdown(children='# Test')
+#         self.assertIsInstance(result, str)
+#         self.assertTrue(result)
+#         self.assertTrue(result.startswith('<'), result[:10] + '...')
 
         
 
-    def test_digest_image(self):
-        result = self.formatter.digest_image(children='test_image.png', imageblob='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAFCAYAAACNbyblAAAAHElEQVQI12P4//8/w38GIAXDIBKE0DHxgljNBAAO9TXL0Y4OHwAAAABJRU5ErkJggg==')
-        imageblob = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAFCAYAAACNbyblAAAAHElEQVQI12P4//8/w38GIAXDIBKE0DHxgljNBAAO9TXL0Y4OHwAAAABJRU5ErkJggg=='
-        image_data = base64.b64decode(imageblob.split(',')[1])
+#     def test_digest_image(self):
+#         result = self.formatter.digest_image(children='test_image.png', imageblob='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAFCAYAAACNbyblAAAAHElEQVQI12P4//8/w38GIAXDIBKE0DHxgljNBAAO9TXL0Y4OHwAAAABJRU5ErkJggg==')
+#         imageblob = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAFCAYAAACNbyblAAAAHElEQVQI12P4//8/w38GIAXDIBKE0DHxgljNBAAO9TXL0Y4OHwAAAABJRU5ErkJggg=='
+#         image_data = base64.b64decode(imageblob.split(',')[1])
 
-        with tempfile.NamedTemporaryFile(delete=True, suffix='.png') as temp_file:
-            temp_file.write(image_data)
-            temp_file_path = temp_file.name
+#         with tempfile.NamedTemporaryFile(delete=True, suffix='.png') as temp_file:
+#             temp_file.write(image_data)
+#             temp_file_path = temp_file.name
 
-            result = self.formatter.digest_image(children='test_image.png', imageblob=temp_file_path)
+#             result = self.formatter.digest_image(children='test_image.png', imageblob=temp_file_path)
 
-            self.assertIsInstance(result, str)
-            self.assertTrue(result)
-            self.assertTrue(result.startswith('<'), result[:10] + '...')
-            self.assertIn(temp_file.name, result)
-            # self.assertIn(imageblob, result)
+#             self.assertIsInstance(result, str)
+#             self.assertTrue(result)
+#             self.assertTrue(result.startswith('<'), result[:10] + '...')
+#             self.assertIn(temp_file.name, result)
+#             # self.assertIn(imageblob, result)
 
-    def test_digest_verbatim(self):
-        result = self.formatter.digest_verbatim(children='print("Hello, World!")')
-        self.assertIsInstance(result, str)
-        self.assertTrue(result)
-        self.assertTrue(result.startswith('<'), result[:10] + '...')
-        self.assertIn('Hello', result)
-        self.assertIn('World', result)
+#     def test_digest_verbatim(self):
+#         result = self.formatter.digest_verbatim(children='print("Hello, World!")')
+#         self.assertIsInstance(result, str)
+#         self.assertTrue(result)
+#         self.assertTrue(result.startswith('<'), result[:10] + '...')
+#         self.assertIn('Hello', result)
+#         self.assertIn('World', result)
 
-    def test_digest_iterator(self):
-        result = self.formatter.digest_iterator([{'typ': 'text', 'children': 'Test1'}, {'typ': 'text', 'children': 'Test2'}])
-        self.assertIsInstance(result, str)
-        self.assertTrue(result)
+#     def test_digest_iterator(self):
+#         result = self.formatter.digest_iterator([{'typ': 'text', 'children': 'Test1'}, {'typ': 'text', 'children': 'Test2'}])
+#         self.assertIsInstance(result, str)
+#         self.assertTrue(result)
 
-        self.assertIn('Test1', result)
-        self.assertIn('Test2', result)
+#         self.assertIn('Test1', result)
+#         self.assertIn('Test2', result)
 
-    def test_digest_str(self):
-        result = self.formatter.digest_str('Test')
-        self.assertIsInstance(result, str)
-        self.assertTrue(result)
-        self.assertEqual('Test', result)
+#     def test_digest_str(self):
+#         result = self.formatter.digest_str('Test')
+#         self.assertIsInstance(result, str)
+#         self.assertTrue(result)
+#         self.assertEqual('Test', result)
 
-    def test_digest_text(self):
-        result = self.formatter.digest_text(children='Test', color='red')
-        self.assertIsInstance(result, str)
-        self.assertTrue(result)
-        self.assertIn('<div style="color:red;">', result)
-        self.assertIn('Test', result)
-
-
-    def test_digest_line(self):
-        result = self.formatter.digest_line(children='Test', color='red')
-        self.assertIsInstance(result, str)
-        self.assertTrue(result)
-        self.assertIn('<div style="color:red;">', result)
-        self.assertTrue(result.endswith('\n'))
-
-    def test_digest_latex(self):
-        result = self.formatter.digest_latex(children='\\textit{Test}')
-        self.assertIsInstance(result, str)
-        self.assertTrue(result)
-        self.assertTrue(result.startswith('<'), result[:10] + '...')
-        self.assertIn('<em>Test</em>', result)
-
-    def test_digest(self):
-        result = self.formatter.digest({'typ': 'text', 'children': 'Test'})
-        self.assertIsInstance(result, str)
-        self.assertTrue(result)
-        self.assertEqual('Test', result)
-
-    def test_format(self):
-        result = self.formatter.format([{'typ': 'text', 'children': 'Test1'}, {'typ': 'text', 'children': 'Test2'}])
-        self.assertIsInstance(result, str)
-        self.assertTrue(result)
-        self.assertIn('Test1', result)
-        self.assertIn('Test2', result)
+#     def test_digest_text(self):
+#         result = self.formatter.digest_text(children='Test', color='red')
+#         self.assertIsInstance(result, str)
+#         self.assertTrue(result)
+#         self.assertIn('<div style="color:red;">', result)
+#         self.assertIn('Test', result)
 
 
-class TestPandocFormatterMarkdown(unittest.TestCase):
+#     def test_digest_line(self):
+#         result = self.formatter.digest_line(children='Test', color='red')
+#         self.assertIsInstance(result, str)
+#         self.assertTrue(result)
+#         self.assertIn('<div style="color:red;">', result)
+#         self.assertTrue(result.endswith('\n'))
 
-    @unittest.skip(f"Skipping all tests in this class since The {PandocFormatter} is not used and not maintained and should therefore not be tested!")
-    def setUp(self):
-        pass
+#     def test_digest_latex(self):
+#         result = self.formatter.digest_latex(children='\\textit{Test}')
+#         self.assertIsInstance(result, str)
+#         self.assertTrue(result)
+#         self.assertTrue(result.startswith('<'), result[:10] + '...')
+#         self.assertIn('<em>Test</em>', result)
 
-    def test_digest_markdown(self):
-        formatter = PandocFormatter('markdown')
-        result = formatter.digest_markdown(children='# Test')
-        self.assertIsInstance(result, str)
-        self.assertTrue(result)
+#     def test_digest(self):
+#         result = self.formatter.digest({'typ': 'text', 'children': 'Test'})
+#         self.assertIsInstance(result, str)
+#         self.assertTrue(result)
+#         self.assertEqual('Test', result)
 
-        self.assertIn('# Test', result)
+#     def test_format(self):
+#         result = self.formatter.format([{'typ': 'text', 'children': 'Test1'}, {'typ': 'text', 'children': 'Test2'}])
+#         self.assertIsInstance(result, str)
+#         self.assertTrue(result)
+#         self.assertIn('Test1', result)
+#         self.assertIn('Test2', result)
 
-    def test_digest_image(self):
-        formatter = PandocFormatter('markdown')
-        blob = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAIAQMAAAD+wSzIAAAABlBMVEX///+/v7+jQ3Y5AAAADklEQVQI12P4AIX8EAgALgAD/aNpbtEAAAAASUVORK5CYII'
-        result = formatter.digest_image(children='test_image.png', imageblob=blob)
+
+# class TestPandocFormatterMarkdown(unittest.TestCase):
+
+#     @unittest.skip(f"Skipping all tests in this class since The {PandocFormatter} is not used and not maintained and should therefore not be tested!")
+#     def setUp(self):
+#         pass
+
+#     def test_digest_markdown(self):
+#         formatter = PandocFormatter('markdown')
+#         result = formatter.digest_markdown(children='# Test')
+#         self.assertIsInstance(result, str)
+#         self.assertTrue(result)
+
+#         self.assertIn('# Test', result)
+
+#     def test_digest_image(self):
+#         formatter = PandocFormatter('markdown')
+#         blob = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAIAQMAAAD+wSzIAAAABlBMVEX///+/v7+jQ3Y5AAAADklEQVQI12P4AIX8EAgALgAD/aNpbtEAAAAASUVORK5CYII'
+#         result = formatter.digest_image(children='test_image.png', imageblob=blob)
         
-        self.assertIsInstance(result, str)
-        self.assertTrue(result)
-        self.assertIn('data:image/png;base64', result)
-        self.assertIn(blob, result)
+#         self.assertIsInstance(result, str)
+#         self.assertTrue(result)
+#         self.assertIn('data:image/png;base64', result)
+#         self.assertIn(blob, result)
 
-    def test_digest_verbatim(self):
-        formatter = PandocFormatter('markdown')
-        result = formatter.digest_verbatim(children='test_verbatim_text')
-        self.assertIsInstance(result, str)
-        self.assertTrue(result)
+#     def test_digest_verbatim(self):
+#         formatter = PandocFormatter('markdown')
+#         result = formatter.digest_verbatim(children='test_verbatim_text')
+#         self.assertIsInstance(result, str)
+#         self.assertTrue(result)
 
-    def test_digest_iterator(self):
-        formatter = PandocFormatter('markdown')
-        result = formatter.digest_iterator([{'typ': 'text', 'children': 'test1'}, {'typ': 'text', 'children': 'test2'}])
-        self.assertIsInstance(result, str)
-        self.assertTrue(result)
-        self.assertIn('test1\n\ntest2', result)
+#     def test_digest_iterator(self):
+#         formatter = PandocFormatter('markdown')
+#         result = formatter.digest_iterator([{'typ': 'text', 'children': 'test1'}, {'typ': 'text', 'children': 'test2'}])
+#         self.assertIsInstance(result, str)
+#         self.assertTrue(result)
+#         self.assertIn('test1\n\ntest2', result)
 
-    def test_digest_str(self):
-        formatter = PandocFormatter('markdown')
-        result = formatter.digest_str('test_string')
-        self.assertIsInstance(result, str)
-        self.assertIn('test_string', result)
+#     def test_digest_str(self):
+#         formatter = PandocFormatter('markdown')
+#         result = formatter.digest_str('test_string')
+#         self.assertIsInstance(result, str)
+#         self.assertIn('test_string', result)
 
-    def test_digest_text(self):
-        formatter = PandocFormatter('markdown')
-        result = formatter.digest_text(children='test_text', color='red')
-        self.assertIsInstance(result, str)
-        self.assertTrue(result)
-        self.assertIn('test_text', result)
+#     def test_digest_text(self):
+#         formatter = PandocFormatter('markdown')
+#         result = formatter.digest_text(children='test_text', color='red')
+#         self.assertIsInstance(result, str)
+#         self.assertTrue(result)
+#         self.assertIn('test_text', result)
 
-    def test_digest_latex(self):
-        formatter = PandocFormatter('markdown')
-        result = formatter.digest_latex(children='test_latex')
-        self.assertIn('test_latex', result)
+#     def test_digest_latex(self):
+#         formatter = PandocFormatter('markdown')
+#         result = formatter.digest_latex(children='test_latex')
+#         self.assertIn('test_latex', result)
 
-    def test_format(self):
-        formatter = PandocFormatter('markdown')
-        result = formatter.format([{'typ': 'text', 'children': 'test1'}, {'typ': 'text', 'children': 'test2'}])
-        self.assertIn('test1\n\ntest2', result)
+#     def test_format(self):
+#         formatter = PandocFormatter('markdown')
+#         result = formatter.format([{'typ': 'text', 'children': 'test1'}, {'typ': 'text', 'children': 'test2'}])
+#         self.assertIn('test1\n\ntest2', result)
 
 
-class TestPandocFormatterLatex(unittest.TestCase):
-    @unittest.skip(f"Skipping all tests in this class since The {PandocFormatter} is not used and not maintained and should therefore not be tested!")
-    def setUp(self):
-        pass
+# class TestPandocFormatterLatex(unittest.TestCase):
+#     @unittest.skip(f"Skipping all tests in this class since The {PandocFormatter} is not used and not maintained and should therefore not be tested!")
+#     def setUp(self):
+#         pass
 
-    def test_digest_markdown(self):
-        formatter = PandocFormatter('latex')
-        result = formatter.digest_markdown(children='# Test')
-        self.assertIn('\\section{Test}', result)
+#     def test_digest_markdown(self):
+#         formatter = PandocFormatter('latex')
+#         result = formatter.digest_markdown(children='# Test')
+#         self.assertIn('\\section{Test}', result)
     
-    # BUG: it seems pandoc is unable to make this work. Needs proper debugging
-    def test_digest_image(self):
-        formatter = PandocFormatter('latex')
-        blob = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAIAQMAAAD+wSzIAAAABlBMVEX///+/v7+jQ3Y5AAAADklEQVQI12P4AIX8EAgALgAD/aNpbtEAAAAASUVORK5CYII'
-        result = formatter.digest_image(children='test_image.png', imageblob=blob)
-        self.assertIn('test_image.png', result)
+#     # BUG: it seems pandoc is unable to make this work. Needs proper debugging
+#     def test_digest_image(self):
+#         formatter = PandocFormatter('latex')
+#         blob = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAIAQMAAAD+wSzIAAAABlBMVEX///+/v7+jQ3Y5AAAADklEQVQI12P4AIX8EAgALgAD/aNpbtEAAAAASUVORK5CYII'
+#         result = formatter.digest_image(children='test_image.png', imageblob=blob)
+#         self.assertIn('test_image.png', result)
 
-    def test_digest_verbatim(self):
-        formatter = PandocFormatter('latex')
-        result = formatter.digest_verbatim(children='testVerbatimText')
-        self.assertIn('\\begin{verbatim}', result)
-        self.assertIn('testVerbatimText', result)
-        self.assertIn('\\end{verbatim}', result)
+#     def test_digest_verbatim(self):
+#         formatter = PandocFormatter('latex')
+#         result = formatter.digest_verbatim(children='testVerbatimText')
+#         self.assertIn('\\begin{verbatim}', result)
+#         self.assertIn('testVerbatimText', result)
+#         self.assertIn('\\end{verbatim}', result)
 
-    def test_digest_iterator(self):
-        formatter = PandocFormatter('latex')
-        result = formatter.digest_iterator([{'typ': 'text', 'children': 'test1'}, {'typ': 'text', 'children': 'test2'}])
-        self.assertIn('test1\n\ntest2', result)
+#     def test_digest_iterator(self):
+#         formatter = PandocFormatter('latex')
+#         result = formatter.digest_iterator([{'typ': 'text', 'children': 'test1'}, {'typ': 'text', 'children': 'test2'}])
+#         self.assertIn('test1\n\ntest2', result)
 
-    def test_digest_str(self):
-        formatter = PandocFormatter('latex')
-        result = formatter.digest_str('teststring')
-        self.assertIn('teststring', result)
+#     def test_digest_str(self):
+#         formatter = PandocFormatter('latex')
+#         result = formatter.digest_str('teststring')
+#         self.assertIn('teststring', result)
 
-    @unittest.skip("Pandoc seems to be ignoring the color definition.")
-    def test_digest_text(self):
-        formatter = PandocFormatter('latex')
-        result = formatter.digest_text(children='testtext', color='red')
-        self.assertIn('\\textcolor{red}{testtext}', result)
+#     @unittest.skip("Pandoc seems to be ignoring the color definition.")
+#     def test_digest_text(self):
+#         formatter = PandocFormatter('latex')
+#         result = formatter.digest_text(children='testtext', color='red')
+#         self.assertIn('\\textcolor{red}{testtext}', result)
 
-    def test_digest_latex(self):
-        formatter = PandocFormatter('latex')
-        result = formatter.digest_latex(children='testlatex')
-        self.assertEqual('testlatex', result)
+#     def test_digest_latex(self):
+#         formatter = PandocFormatter('latex')
+#         result = formatter.digest_latex(children='testlatex')
+#         self.assertEqual('testlatex', result)
 
-    def test_format(self):
-        formatter = PandocFormatter('latex')
-        result = formatter.format([{'typ': 'text', 'children': 'test1'}, {'typ': 'text', 'children': 'test2'}])
-        self.assertEqual('test1\n\ntest2', result)
+#     def test_format(self):
+#         formatter = PandocFormatter('latex')
+#         result = formatter.format([{'typ': 'text', 'children': 'test1'}, {'typ': 'text', 'children': 'test2'}])
+#         self.assertEqual('test1\n\ntest2', result)
 
 
 
 
 if __name__ == '__main__':
     unittest.main()
-    # print('\n'.join(os.environ['PATH'].split(';')))
+    print('\n'.join(os.environ['PATH'].split(';')))
 
 
 
