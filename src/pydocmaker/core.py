@@ -145,7 +145,7 @@ def config_pdf_engine_scan(force_reload=False):
         bool: True if a valid compiler is found, False otherwise.
     """
     res = []
-    if config_latex_compiler_get(): res.append('tex')
+    if config_latex_compiler_get() and config_latex_compiler_get() != 'pandoc': res.append('tex')
     if ex_docx.can_use_w32_word(force_reload=force_reload): res.append('word')
     if ex_docx.can_use_libreoffice(force_reload=force_reload): res.append('libreoffice')
     if can_run_pandoc(force_retest=force_reload): res.append('pandoc')
@@ -1223,7 +1223,7 @@ class Doc(UserList):
         Raises:
             Warning: If the provided file path does not end with '.zip' or '.pdf', a warning is issued and the file is assumed to be in PDF format.
         """
-        global _pdf_engine
+
 
         if files_to_upload is None:
             files_to_upload = {}
@@ -1235,7 +1235,7 @@ class Doc(UserList):
         params = {}
         meta = self.get_meta(default={}).get('data', {})
         if engine is None:
-            engine = _pdf_engine
+            engine = config_pdf_engine_get()
 
         tformat = 'tex' if engine == 'tex' else 'html'
         mytemplate = self.get_template_from_meta(tformat=tformat)

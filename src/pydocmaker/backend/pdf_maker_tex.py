@@ -37,7 +37,7 @@ def test_latex_compiler(compiler):
 # Define a global variable to store the latex compiler
 _latex_compiler = None
 
-_allowed_compilers = 'pdflatex pandoc lualatex xelatex'.split()
+_allowed_compilers = 'pdflatex lualatex xelatex'.split()
 
 def config_latex_compiler_scan():
     return [c for c in _allowed_compilers if test_latex_compiler(c)]
