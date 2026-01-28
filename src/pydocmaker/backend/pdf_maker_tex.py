@@ -112,11 +112,15 @@ def _procrun(args, verb=0, ignore_error=False, **kwargs):
         s = f"Command {' '.join(args)} returned non-zero exit status {process.returncode=}"
         if ignore_error:
             if stderr:
+                if hasattr(stderr, 'decode'):
+                    stderr = stderr.decode()
+                if hasattr(stdout, 'decode'):
+                    stdout = stdout.decode()
                 log.warning(f'{process.returncode=} from {args=}.')
                 log.warning(f'stderr follows on next line')
-                log.warning(stderr.decode())
+                log.warning(str(stderr))
                 log.warning(f'stdout follows on next line')
-                log.warning(stdout.decode())
+                log.warning(str(stdout))
             # warnings.warn(s)
         else:
             raise Exception(s)
