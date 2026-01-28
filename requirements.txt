@@ -9,3 +9,4 @@ docxcompose
 docx-mailmerge
 
 rich
+rich-pixels
