@@ -48,6 +48,7 @@ Links
    installation
    tldr
    examples
+   datamodel
 ..    high_level
 
 
