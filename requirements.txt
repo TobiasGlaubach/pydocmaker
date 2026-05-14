@@ -4,7 +4,7 @@ jinja2
 # below this point all packages are optional and only needed for extra features
 
 pillow # only needed for rich backend, but not strictly required
-
+requests # only needed for pulling and pusing to urls, but not strictly required
 
 typst # heavyly recommended for pdf output, but not strictly required
 

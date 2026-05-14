@@ -3,6 +3,9 @@ cd into my folder
 # OLD python setup.py sdist
 
 # NEW:
+pip install build, twine
+
+
 python -m build
 
 twine upload .\dist\*
