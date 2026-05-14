@@ -1,5 +1,4 @@
 import sys, json
-sys.path.insert(0, r'C:\Users\tglaubach\repos\pydocmaker\src')
 
 import pydocmaker as pyd
 
