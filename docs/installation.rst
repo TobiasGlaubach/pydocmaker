@@ -9,6 +9,14 @@ Install via:
 
    pip install pydocmaker
 
+**NOTE**: This will actually install the package will all subpackages, most of which are not needed, but kept for compatibility reasons. 
+If you want to install only the core package, you can do so via manually downloading the source , commenting out all the optional 
+dependencies in requirements.txt, and installing via:
+
+.. code-block:: bash
+
+   pip install -e .
+
 
 
 Install Optional Requirements

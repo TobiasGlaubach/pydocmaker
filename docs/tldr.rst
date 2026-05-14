@@ -4,7 +4,9 @@ TL;DR; Example
 This is a very small example if you're lazy ;-)
 
 .. code-block:: python
-
+    
+    import pydocmaker as pyd
+    
     doc = pyd.Doc() # basic doc where we always append to the end
     doc.add('dummy text') # adds raw text
 
@@ -19,3 +21,23 @@ This is a very small example if you're lazy ;-)
     doc.add_image("https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png", caption='', children='', width=0.8)
 
     doc.show()
+
+
+
+Configuring Options:
+====================
+
+All configurable options for this package are in ``pydocmaker.options``. They are always callable 
+functions with "*_get", "*_set", "*_scan" etc. 
+
+.. code-block:: python
+
+    import pydocmaker as pyd
+
+    pyd.options.pandoc_allowed_set(False)
+    print(pyd.options.pandoc_allowed_get())
+
+    pyd.options.pdf_engine_set('typst') # default
+    print(pyd.options.pdf_engine_get())
+
+

@@ -8,6 +8,7 @@ import time
 import random
 import string
 from enum import Enum
+import re
 
 class bcolors(Enum):
     HEADER = '\033[95m'
@@ -214,3 +215,28 @@ def upload_report_to_redmine(doc, redmine, project_id, report_name=None, page_ti
         page.save()
 
         return page.url if page else ''
+
+
+
+
+def filename2identifier(filename):
+    """Converts a filename to a valid identifier by:
+    1. Stripping the file extension
+    2. Replacing any non-alphanumeric character with an underscore
+    3. Ensuring it doesn't start with a digit
+    """
+    name = filename.rsplit('.', 1)[0]
+    identifier = re.sub(r'[^a-zA-Z0-9_]', '_', name)
+    if identifier[0].isdigit():
+        identifier = '_' + identifier
+        
+    return identifier
+
+class _raise_missing:
+    def __init__(self, *args, **kwargs):
+        raise ImportError('latex package not found. This needs the full pydocmaker installation. Please install pydocmaker with "pip install pydocmaker[full]" to use this function.')
+    
+    @classmethod
+    def __getattr__(self, name):
+        raise ImportError('latex package not found. This needs the full pydocmaker installation. Please install pydocmaker with "pip install pydocmaker[full]" to use this function.')
+    

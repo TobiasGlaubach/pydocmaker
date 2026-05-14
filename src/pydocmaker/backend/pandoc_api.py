@@ -88,6 +88,13 @@ def pandoc_set_allowed(is_allowed):
     allow_pandoc = True if is_allowed else False
     return allow_pandoc
 
+def pandoc_get_allowed():
+    """Get whether or not pandoc is allowed to be used as a valid conversion option"""
+    return allow_pandoc
+
+config_pandoc_allowed_set = pandoc_set_allowed
+config_pandoc_allowed_get = pandoc_get_allowed
+
 def pandoc_merge_files(inp_files, out_file):
     """
     Convert a file using pandoc.
@@ -339,7 +346,6 @@ class PandocFormatter:
         if color:
             c = f'color:{color};'
             txt = f'<div style="{c}">{children}</div>'
-            print(txt)
             return self.conv(txt, 'html')
         else:
             return children

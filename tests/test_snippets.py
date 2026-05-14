@@ -42,7 +42,7 @@ class TestCodeSnippets(unittest.TestCase):
     def test_s3_export_html(self):
         self._test_s3_export('html', 'temp_outfile.html')
 
-    @unittest.skipUnless(os.name == 'nt' or os.environ.get('PYDOCMAKER_TESTFULL'), "Skipping since test requires optional dependencies")
+    #@unittest.skipUnless(os.name == 'nt' or os.environ.get('PYDOCMAKER_TESTFULL'), "Skipping since test requires optional dependencies")
     def test_s3_export_pdf(self):
         self._test_s3_export('pdf', 'temp_outfile.pdf')
 

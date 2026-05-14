@@ -19,7 +19,7 @@ from io import BytesIO
 import warnings
 
 import zipfile
-import latex
+
 from jinja2 import Template
 
 from typing import List
@@ -46,7 +46,12 @@ try:
     from pydocmaker.backend.pandoc_api import can_run_pandoc, pandoc_convert
 except Exception as err:
     from .pandoc_api import can_run_pandoc, pandoc_convert
-    
+
+try:
+    import latex
+except ImportError:
+    latex = None
+
 
 md = markdown.Markdown()
 latex_mdx = mdx_latex.LaTeXExtension()
@@ -107,6 +112,8 @@ RD[{{ i }}] & {{ value }} \\
 
 
 def escape(s):
+    if latex is None:
+        raise ImportError("The 'latex' package is required for escaping LaTeX special characters. Please install it using 'pip install latex'.")
     if isinstance(s, dict):
         return {k:latex.escape(v) for k, v in s.items()}
     elif isinstance(s, str):

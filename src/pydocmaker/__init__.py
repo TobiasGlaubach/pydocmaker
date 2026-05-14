@@ -1,20 +1,25 @@
-__version__ = '2.5.5'
+__version__ = '2.6.0'
 
 from pydocmaker.core import Doc, construct, constr, buildingblocks, print_to_pdf, make_pdf_from_tex, show_pdf, is_notebook
-from pydocmaker.util import upload_report_to_redmine, bcolors, txtcolor, colors_dc
+from pydocmaker.util import upload_report_to_redmine, bcolors, txtcolor, colors_dc, _raise_missing
 
 from pydocmaker.backend.ex_docx import DocxFile, DocxFileW32, can_use_libreoffice, can_use_w32_word
 from pydocmaker.backend.ex_tex import can_run_pandoc
 
 from pydocmaker.backend.pandoc_api import pandoc_convert_file, pandoc_set_allowed
+from pydocmaker.backend.pandoc_api import config_pandoc_allowed_set, config_pandoc_allowed_get
+
 
 from pydocmaker.templating import DocTemplate, TemplateDirSource, register_new_template_dir, get_registered_template_dirs, get_available_template_ids, test_template_exists, remove_from_template_dir
 
-from latex import escape as tex_escape
+try:
+    from latex import escape as tex_escape
+except ImportError:
+    tex_escape = _raise_missing
 
 
 from pydocmaker.backend.libreoffice_api import config_libreoffice_path_get, config_libreoffice_path_set, config_libreoffice_path_find, config_libreoffice_path_testset
-from pydocmaker.core import config_pdf_engine_get, config_pdf_engine_set, config_pdf_engine_scan, config_pdf_engine_test, config_renderer_default_get, config_renderer_default_set
+from pydocmaker.core import config_pdf_engine_get, config_pdf_engine_set, config_pdf_engine_scan, config_pdf_engine_test, config_renderer_default_get, config_renderer_default_set, test_typst_installed, compile_with_typst
 from pydocmaker.backend.pdf_maker_tex import config_latex_compiler_scan, config_latex_compiler_get, config_latex_compiler_set, config_latex_compiler_testset
 
 try:
@@ -22,6 +27,8 @@ try:
     can_run_pandoc() 
 except Exception as err:
     pass
+
+
 
 
 def info_optionals(force_retest=False):
@@ -48,8 +55,37 @@ def info_optionals(force_retest=False):
         'pdf_engines_available': config_pdf_engine_scan(force_reload=False),
         'pdf_engine': config_pdf_engine_get(),
         'libreoffice_path': config_libreoffice_path_get(),
-        
+        'typst_installed': test_typst_installed()
     }
+
+
+class options:
+    """A class to hold configuration options for pydocmaker. 
+    This is just a convenient wrapper around the individual config functions in the backend modules. 
+    Each attribute is a callable that points to the corresponding config function in the backend modules. 
+    For example, options.latex_compiler_get() will call the config_latex_compiler_get() function in the pdf_maker_tex module.
+    """
+
+    latex_compiler_scan = config_latex_compiler_scan
+    latex_compiler_get = config_latex_compiler_get
+    latex_compiler_set = config_latex_compiler_set
+    latex_compiler_test = config_latex_compiler_testset
+    libreoffice_path_find = config_libreoffice_path_find
+    libreoffice_path_get = config_libreoffice_path_get
+    libreoffice_path_set = config_libreoffice_path_set
+    pdf_engine_get = config_pdf_engine_get
+    pdf_engine_set = config_pdf_engine_set
+    pdf_engine_scan = config_pdf_engine_scan
+    pdf_engine_test = config_pdf_engine_test
+    renderer_default_get = config_renderer_default_get
+    renderer_default_set = config_renderer_default_set
+    pandoc_allowed_set = config_pandoc_allowed_set
+    pandoc_allowed_get = config_pandoc_allowed_get
+    typst_installed = test_typst_installed
+
+    get_info_on_optional_components = info_optionals
+
+
 
 def pandoc_set_enabled():
     """short for pandoc_set_allowed(True), which will allow pandoc to be used as a valid conversion option"""
@@ -223,5 +259,3 @@ def mk_image(image, caption='', width=None, children=None, color='', end=None, *
         dict: A dictionary representing the image with the specified attributes.
     """
     return Doc().add_image(image, caption, width, children, color, end, **kwargs)[0]
-
-

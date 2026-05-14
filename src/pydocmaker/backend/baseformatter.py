@@ -68,6 +68,9 @@ class BaseFormatter(abc.ABC):
 
     def digest(self, children, **kwargs) -> str:
         try:
+
+            if not isinstance(children, (str, dict, list)) and hasattr(children, 'dump'):
+                children = children.dump()
             
             if not children:
                 ret = ''

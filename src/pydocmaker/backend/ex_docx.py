@@ -7,9 +7,6 @@ import base64
 from typing import List
 import warnings
 
-import docx
-from docx.shared import Inches, Pt, RGBColor
-from docx import Document
 
 import tempfile
 import os
@@ -17,8 +14,6 @@ import os
 from pathlib import Path
 import zipfile, os, sys
 from io import BytesIO
-
-import markdown
 
 try:
     from pydocmaker.backend.baseformatter import BaseFormatter
@@ -43,6 +38,13 @@ try:
     from pydocmaker.backend import libreoffice_api
 except Exception as err:
     from . import libreoffice_api
+    
+try:
+    import docx
+    from docx.shared import Inches, Pt, RGBColor
+    from docx import Document
+except ImportError:
+    Document = None
 
 import logging
 
@@ -651,7 +653,9 @@ def convert(doc:List[dict], template = None, template_params=None, use_w32=False
 
 class docx_renderer(BaseFormatter):
     def __init__(self, template_path:str=None, make_blue=False) -> None:
-        self.d = docx.Document(template_path)
+        if Document is None:
+             raise ImportError("python-docx is not installed. Please install it to use the docx backend.")
+        self.d = Document(template_path)
         self.make_blue = make_blue
 
     def add_paragraph(self, newtext, *args, **kwargs):

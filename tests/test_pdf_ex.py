@@ -48,3 +48,20 @@ class TestMakePdfs(unittest.TestCase):
         
         self.assertTrue(bts.startswith(b'%PDF'), str(bts)[:20])
     
+
+
+    def test_pdf_typst(self):
+        templatepath = None
+        metadata = None
+        doc = pyd.Doc.get_example()
+        bts = doc.to_pdf(engine='typst', template=templatepath, template_params=metadata, verb=0)
+        self.assertTrue(bts)
+        self.assertIsInstance(bts, bytes)
+        self.assertTrue(bts.startswith(b'%PDF'), str(bts)[:20])
+
+        doc = pyd.Doc.get_example()
+        bts = doc.to_pdf(engine='typst', template=templatepath, template_params=metadata, verb=0)
+        self.assertTrue(bts)
+        self.assertIsInstance(bts, bytes)
+        
+        self.assertTrue(bts.startswith(b'%PDF'), str(bts)[:20])

@@ -1,0 +1,53 @@
+[{
+    "typ": "meta",
+    "children": "object",
+    "data": "object"
+},{
+    "typ": "markdown",
+    "children": "string",
+    "color": "string",
+    "end": "string"
+},{
+    "typ": "text",
+    "children": "string",
+    "color": "string",
+    "end": "string"
+},{
+    "typ": "line",
+    "children": "string",
+    "color": "string",
+    "end": "string"
+},{
+    "typ": "latex",
+    "children": "string",
+    "color": "string",
+    "end": "string"
+},{
+    "typ": "verbatim",
+    "children": "string",
+    "color": "string",
+    "end": "string"
+},{
+    "typ": "iter",
+    "children": "array",
+    "color": "string",
+    "end": "string"
+},{
+    "typ": "table",
+    "children": "array",
+    "n_cols": "number",
+    "n_rows": "number",
+    "borders": "boolean",
+    "header": "array",
+    "caption": "string",
+    "color": "string",
+    "end": "string"
+},{
+    "typ": "image",
+    "children": "string",
+    "imageblob": "string",
+    "caption": "string",
+    "width": "number",
+    "color": "string",
+    "end": "string"
+}]

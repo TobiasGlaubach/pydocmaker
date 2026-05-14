@@ -12,11 +12,8 @@ import uuid
 import os
 import base64
 import warnings
-import markdown
 from typing import List
 
-from jinja2 import Template
-import rich.box
 
 try:
     from pydocmaker.backend.baseformatter import BaseFormatter, _handle_template
@@ -29,21 +26,25 @@ try:
 except Exception as err:
     from .pandoc_api import can_run_pandoc, pandoc_convert
 
+try:
+    from pydocmaker.util import _raise_missing
+except Exception as err:
+    from ..util import _raise_missing
+    
+try:
+    from rich import box
+    from rich.console import Console, Group
+    from rich.text import Text
+    from rich.panel import Panel
+    from rich.markdown import Markdown
+    from rich.table import Table
+    from rich.align import Align
 
-import rich
-import rich_pixels
+except ImportError:
+    Console = None
 
-from rich.console import Console, Group
-from rich.text import Text
-from rich.panel import Panel
-from rich.markdown import Markdown
-from rich.table import Table
-from rich.align import Align
 
-from rich_pixels import Pixels
-from PIL import Image
-from rich.theme import Theme
-from rich.style import Style
+
 
 # # Define colors that are dark enough to be seen on white
 # light_bg_theme = Theme({
@@ -71,6 +72,9 @@ CONSOLE_WIDTH_MAX = 200
 
 
 def convert(doc:List[dict], stream=None, title:str=None, embed_images=True, **kwargs):
+    if Console is None:
+        raise ImportError('rich library is not installed. Please install it to use the rich backend.')
+        
     if title is None:
         title = f'{datetime.datetime.now().strftime("%Y-%m-%d %H%M")} my-pydoc'
     unknown_params = kwargs
@@ -136,8 +140,10 @@ class rich_renderer(BaseFormatter):
         else:
             s = 'rich text backend can not parse latex and no pandoc is available. Falling back to show as verbatim'
             warnings.warn(s)
-            return self.digest_text(children='Warning! ' + s, color='purple') + self.digest_verbatim(**kwargs)    
-
+            a = self.digest_text(children=f'Warning! {s}', color='purple') 
+            b = self.digest_verbatim(**kwargs)    
+            return Group(a, b)
+        
     
     def digest_markdown(self, **kwargs):
         label = kwargs.get('label', None)
@@ -153,7 +159,7 @@ class rich_renderer(BaseFormatter):
 
     def digest_iterator(self, **kwargs):
         content = kwargs.get('children', kwargs.get('content'))
-        return Group(([self.digest(c) for c in content]))
+        return Group(*[self.digest(c) for c in content])
 
     def digest_verbatim(self, **kwargs):
         label = kwargs.get('label', None)
@@ -165,6 +171,8 @@ class rich_renderer(BaseFormatter):
     
         
     def digest_image(self, **kwargs):
+        
+
         imageblob = kwargs.get('imageblob', None)
         children = kwargs.get('children', '')
         width = kwargs.get('width', None)
@@ -188,6 +196,9 @@ class rich_renderer(BaseFormatter):
             label = f'Figure {self.cnt_img}'
 
         if imageblob and self.embed_images:
+            from PIL import Image
+            from rich_pixels import Pixels
+
             if isinstance(imageblob, str):
                 if ';base64, ' in imageblob:
                     imageblob = imageblob.replace(';base64, ', ';base64,')
@@ -248,7 +259,7 @@ class rich_renderer(BaseFormatter):
         
         table = Table(title=caption, 
                       show_header = True if head else False, 
-                      box=rich.box.HEAVY_HEAD if borders else None)
+                      box=box.HEAVY_HEAD if borders else None)
 
         for h in head:
             table.add_column(h)
