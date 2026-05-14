@@ -21,7 +21,7 @@ A minimal easy to use python document maker to create reports in `pdf`, `md`, `h
 
 
 - **NOTE:** some functions will try to call pandoc and fall back if not found.
-- **NOTE:** exporting PDFs need optional dependencies, such as either a latex compiler or Microsoft Word, or Libreoffice.
+- **NOTE:** exporting PDFs by default works using "typst". All other engines need optional dependencies, such as either a latex compiler or Microsoft Word, or Libreoffice.
 
 Full documentation at https://pydocmaker.readthedocs.io/en/latest/
 
@@ -123,7 +123,7 @@ Or alternatively:
 
 ```python
 doc.to_html('path/to/my_file.html') # will write a HTML file
-doc.to_pdf('path/to/my_file.pdf') # will write a PDF file
+doc.to_pdf('path/to/my_file.pdf') # will write a PDF file via typst
 doc.to_pdf('path/to/my_file.zip') # will write the whole latex project dir as a pdf file
 doc.to_markdown('path/to/my_file.md') # will write a Markdown file
 doc.to_docx('path/to/my_file.docx') # will write a docx file
@@ -132,6 +132,24 @@ doc.to_tex('path/to/my_file.tex.zip') # will pack all tex files and write them t
 doc.to_ipynb('path/to/my_file.ipynb') # will write a ipynb file
 
 doc.to_json('path/to/doc.json') # saves the document
+```
+
+
+### Configuring Options:
+
+All configurable options for this package are in `pydocmaker.options`. They are always callable 
+functions with "*_get", "*_set", "*_scan" etc. 
+
+```python
+
+import pydocmaker as pyd
+
+pyd.options.pandoc_allowed_set(False)
+print(pyd.options.pandoc_allowed_get())
+
+pyd.options.pdf_engine_set('typst') # default
+print(pyd.options.pdf_engine_get())
+
 ```
 
 
