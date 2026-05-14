@@ -1,12 +1,22 @@
 markdown
-python-docx
-requests
-
-latex
 jinja2
 
+# below this point all packages are optional and only needed for extra features
+
+pillow # only needed for rich backend, but not strictly required
+
+
+typst # heavyly recommended for pdf output, but not strictly required
+
+# thats all needed if you want to work with docx
+python-docx
 docxcompose
 docx-mailmerge
 
+# nice console showing
 rich
 rich-pixels
+
+
+# legacy LaTeX support. Works, but slow and cumbersome
+latex
