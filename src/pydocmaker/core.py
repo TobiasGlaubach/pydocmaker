@@ -9,7 +9,7 @@ import time
 from typing import Any, Dict, List, BinaryIO, TextIO, Tuple, Union
 import warnings
 import zipfile
-import requests
+
 import base64
 import copy
 
@@ -30,7 +30,7 @@ from .backend.ex_redmine import convert as to_textile
 from .backend.ex_tex import make_pdf as to_pdf_tex
 from .backend.ex_tex import make_pdf_zip as to_pdf_zip
 from .backend.ex_rich import convert as print_rich
-
+from .backend.ex_typst import convert as to_typst, compile_with_typst as to_pdf_typst, test_typst_installed, compile_with_typst
 from .backend.ex_tex import auto_escape_latex
 
 from .backend.pdf_maker_tex import make_pdf_from_tex, config_latex_compiler_get, config_latex_compiler_set
@@ -47,6 +47,18 @@ chapter_level = 1 # this is the level of heading to use for chapters which is eq
 
 _pdf_engine = None
 _renderer_default = 'auto'
+
+import logging
+
+# Configure once
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s | %(levelname)-8s | %(filename)-15s:%(lineno)3d] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+log = logging.getLogger(__name__)
+
 
 def config_renderer_default_set(choice:str='auto'):
     """
@@ -77,13 +89,13 @@ def config_renderer_default_get():
 
 
 
-def config_pdf_engine_set(choice:str='tex'):
+def config_pdf_engine_set(choice:str='typst'):
     """
     Sets the PDF engine to be used for generating PDF documents.
 
     Parameters:
-    choice (str): The desired PDF engine. Must be one of 'tex', 'word', 'libreoffice', or 'pandoc'.
-                  Default is 'tex'.
+    choice (str): The desired PDF engine. Must be one of 'tex', 'word', 'libreoffice', 'typst', or 'pandoc'.
+                  Default is 'typst'.
 
     Returns:
     str: The selected PDF engine.
@@ -91,7 +103,7 @@ def config_pdf_engine_set(choice:str='tex'):
     Raises:
     ValueError: If the provided choice is not one of the allowed options.
     """
-    options = "tex word libreoffice pandoc".split()
+    options = "tex word libreoffice typst pandoc".split()
     choice = str(choice).lower()
     if not choice in options:
         raise ValueError(f'PDF engine must be one of {options=} but was {choice=}')
@@ -121,7 +133,9 @@ def config_pdf_engine_test(raise_on_error=True, force_reload=False):
     """
     res = False
     global _pdf_engine
-    if _pdf_engine == 'tex':
+    if _pdf_engine == 'typst':
+        res = test_typst_installed()
+    elif _pdf_engine == 'tex':
         res = config_latex_compiler_get()
     elif _pdf_engine == 'word':
         res = ex_docx.can_use_w32_word(force_reload=force_reload)
@@ -150,6 +164,8 @@ def config_pdf_engine_scan(force_reload=False, firstonly=False):
         bool: True if a valid compiler is found, False otherwise.
     """
     res = []
+    if test_typst_installed(): res.append('typst')
+    if firstonly and res: return res[0]
     if config_latex_compiler_get(): res.append('tex')
     if firstonly and res: return res[0]
     if ex_docx.can_use_w32_word(force_reload=force_reload): res.append('word')
@@ -353,7 +369,7 @@ class constr():
 
     @staticmethod
     def image_from_link(url, caption='', children='', width=None, color='', end=None):
-
+        import requests
         assert url, 'need to give an URL!'
 
         response = requests.get(url)
@@ -505,8 +521,8 @@ class Doc(UserList):
     """a collection of document parts to make a document (can be used like a list)"""
 
     DEFAULT_ADD_STRING_TYPE = 'markdown'
-    EXPORT_ENGINES = ['md', 'html', 'json', 'docx', 'textile', 'ipynb', 'tex', 'redmine', 'pdf']
-    EXPORT_ENGINES_EXTENSIONS = {'md': '.md', 'html':'.html', 'json':'.json', 'docx': '.docx', 'textile': '.textile.zip', 'ipynb': '.ipynb', 'tex': '.tex.zip', 'pdf': '.pdf'}
+    EXPORT_ENGINES = ['md', 'html', 'typst', 'json', 'docx', 'textile', 'ipynb', 'tex', 'redmine', 'pdf']
+    EXPORT_ENGINES_EXTENSIONS = {'md': '.md', 'html':'.html', 'typst': '.typ', 'json':'.json', 'docx': '.docx', 'textile': '.textile.zip', 'ipynb': '.ipynb', 'tex': '.tex.zip', 'pdf': '.pdf'}
 
     @staticmethod
     def load_json(path):
@@ -674,13 +690,23 @@ class Doc(UserList):
         """
         meta = self.get_meta({}).get("data", {})
         template_id = meta.get("template_id", None)
+
+        attachments = meta.get("files_to_upload", {})
+        attachments.update(meta.get("attachments", {}))
+        attachments = {k:base64.b64decode(v) if isinstance(v, str) else v for k, v in attachments.items()}
+    
         if template_id is None:
-            return None    
+            template_str = meta.get("template", None)
+            if template_str:
+                return DocTemplate(template_str, attachments=attachments)
+            else:
+                return None    
+        
+
         try:
             template = DocTemplate.from_tid(template_id, tformat, template_dir)
             template.params = {k:v for k, v in meta.items() if k in template.params}
-            attachments = meta.get("files_to_upload", {})
-            attachments = {k:base64.b64decode(v) if isinstance(v, str) else v for k, v in attachments.items()}
+
             template.attachments.update(attachments)
             return template
         except KeyError as err:
@@ -1210,6 +1236,34 @@ class Doc(UserList):
 
         return self._ret(to_html(self.dump(), template=template, template_params=template_params), path_or_stream)
 
+    def to_typst(self, path_or_stream=None, template=None, template_params=None) -> str:
+        """
+        Converts the current object to a Typst file.
+
+        Args:
+            path_or_stream (str or io.IOBase, optional): The path to save the file to, or a file-like object to write the data to. If not provided, the data will be returned as string.
+            template (str, optional): A string containing the LaTeX code for the document template. Either a Jinja2 Latex template, or a string
+                If not provided, a default template will be used.
+            template_params (dict, optional): A dictionary containing the parameters for the document template which will be parsed to the "render" method of Jinja2
+
+        Returns:
+            str: The data as string, or True if the data was saved successfully to a file or stream.
+        """
+        params = {}
+        meta = self.get_meta(default={}).get('data', {})
+        mytemplate = self.get_template_from_meta(tformat='typst')
+        if template is None and not mytemplate is None:
+            template = mytemplate.template
+        if not mytemplate is None:
+            params_from_meta = mytemplate.params
+        else:
+            params_from_meta = {k:v for k, v in meta.items() if not k in ["template_id", "files_to_upload", "additional_files"]}
+        params.update(params_from_meta)
+
+        if template_params:
+            params.update(template_params)
+
+        return self._ret(to_typst(self.dump(), template=template, template_params=template_params), path_or_stream)
         
 
     def to_pdf(self, path_or_stream=None, docname='', files_to_upload=None, base_dir=None, engine=None, latex_compiler=None, n_times_make=None, verb=0, ignore_error=True, template=None, template_params=None, do_escape_template_params='auto', **kwargs) -> Union[str, bytes, bool]:
@@ -1225,10 +1279,10 @@ class Doc(UserList):
             files_to_upload (optional): A list of files to be uploaded with the document.
             base_dir (str, optional): The directory to use as the base directory for the temporary directory.
                 Defaults to the system's default temporary directory.
-            engine (str, optional): the pdf engine to use (either "tex", "word", or "libreoffice"). If None, the currently configured default engine will be used.
+            engine (str, optional): the pdf engine to use (either "typst", "tex", "word", or "libreoffice"). If None, the currently configured engine will be queried via config_pdf_engine_get().
             latex_compiler (str, optional): Only used if engine resolves to "tex". The LaTeX compiler to use. Either 'pdflatex', 'lualatex', 'xelatex', or 'pandoc'.
                 If not specified, the function will try to use 'pandoc', 'pdflatex', 'lualatex', or 'xelatex' in that order.
-            n_times_make (int, optional): The number of times to run the LaTeX compiler. Defaults to 1 for pandoc and 3 for all others.
+            n_times_make (int, optional): Only used if engine resolves to "tex". The number of times to run the LaTeX compiler. Defaults to 1 for pandoc and 3 for all others.
             verb (int, optional): The verbosity level (0, 1, 2). If greater than 0, the function will print more and more debug information. Defaults to 0.
             ignore_error (bool, optional): Whether to ignore errors during the LaTeX compilation. Defaults to True.
             template (str, optional): A string containing the LaTeX code for the document template. Either a Jinja2 Latex template, or a string
@@ -1258,20 +1312,24 @@ class Doc(UserList):
 
         if not engine:
             raise ImportError("No engine to convert to PDF is available. Make sure you either have pdflatex, Microsoft Word, or Libreoffice installed")
-        
-        tformat = 'tex' if engine == 'tex' else 'html'
+
+        if verb:
+            log.info(f'using engine "{engine}" to convert to pdf')
+
+        tformat = 'tex' if engine == 'tex' else ('typst' if engine == 'typst' else 'html')
+
         mytemplate = self.get_template_from_meta(tformat=tformat)
         if template is None and not mytemplate is None:
             template = mytemplate.template
         if not mytemplate is None:
             if verb:
-                print(f'found template "{mytemplate.template_id}"')
+                log.info(f'found template "{mytemplate.template_id}"')
             params_from_meta = mytemplate.params
             if verb:
-                print(f'found params: "{params_from_meta.keys()=}"')
+                log.info(f'found params: "{params_from_meta.keys()=}"')
             files_to_upload = {**mytemplate.attachments, **files_to_upload}
             if verb:
-                print(f'found attachments: "{files_to_upload.keys()=}"')
+                log.info(f'found attachments: "{files_to_upload.keys()=}"')
         else:
             params_from_meta = {k:v for k, v in meta.items() if not k in ["template_id", "files_to_upload", "additional_files"]}
         params.update(params_from_meta)
@@ -1279,8 +1337,20 @@ class Doc(UserList):
         if template_params:
             params.update(template_params)
 
+        if engine == 'typst':
+            def _to_pdf_typst(*ar, **kw):
+                s = self.to_typst(*ar, template=template, template_params=params, **kw)
+                if ignore_error and verb:
+                    on_warning = 'warn' 
+                elif ignore_error and not verb:
+                    on_warning = 'ignore'
+                elif verb:
+                    on_warning = 'log'
 
-        if engine == 'tex':
+                return to_pdf_typst(s, verb=verb, on_warning=on_warning)
+
+            fun = _to_pdf_typst
+        elif engine == 'tex':
             
             if do_escape_template_params == 'auto':
                 params = auto_escape_latex(params)
@@ -1352,6 +1422,8 @@ class Doc(UserList):
                         bts = fp.read()
                 return bts
             fun = to_pdf_pandoc
+
+
         else:
             raise ValueError("unknown engine, Engine must be one of 'tex', 'word', 'libreoffice'")
         
@@ -1359,7 +1431,7 @@ class Doc(UserList):
         r = self._ret(fun(self.dump(), **kwargs), path_or_stream)
 
         if isinstance(path_or_stream, (str, os.PathLike)) and verb:
-            print(f'Saved to path_or_stream="{path_or_stream}" with function "{fun.__name__}"')
+            log.info(f'Saved to path_or_stream="{path_or_stream}" with function "{fun.__name__}"')
 
         return r
     
@@ -1538,6 +1610,14 @@ class Doc(UserList):
     def to_pdf_print(self, path_or_stream=None):
         """Exports the document to a PDF file by using the systems "print to pdf" function to export from html to pdf.
 
+        WARNING: This function only works on posix like operating systems and requires a PDF printer to be installed 
+        and set as default printer. It will not work on windows or macos since they do not have a command line 
+        interface for printing to PDF. Use with caution and make sure to test it on your system before using it in production!
+
+        WARNING II: The resulting PDF file will not be of the same quality as a PDF file generated by a proper PDF engine like 
+        pdflatex, typst, or word. It is recommended to use this function only as a last resort if no other PDF engine is 
+        available and you need a quick and dirty PDF file.
+
         Args:
             output_pdf_path (str, optional): The path to save the PDF file to. If not provided, a temporary file will be used.
             
@@ -1668,6 +1748,8 @@ class Doc(UserList):
             return self.to_json(path_or_stream=path_or_stream, **kwargs)
         elif engine in ['html']:
             return self.to_html(path_or_stream=path_or_stream, **kwargs)
+        elif engine in ['typst', 'typ', 'TYPST', 'TYP']:
+            return self.to_typst(path_or_stream=path_or_stream, **kwargs)
         elif engine in ['pdf']:
             return self.to_pdf(path_or_stream=path_or_stream, **kwargs)
         elif engine in ['tex', 'latex']:
@@ -1717,6 +1799,8 @@ class Doc(UserList):
             "force_overwrite": force_overwrite,
             "page_title": page_title
         }
+
+        import requests
 
         requests_kwargs = {} if not requests_kwargs else None
         r = requests.post(url, json=upload, **requests_kwargs)
@@ -1780,6 +1864,8 @@ class Doc(UserList):
                 self.print_rich(embed_images=embed_images, **kwargs)
             elif engine in 'markdown md'.split():
                 display(Markdown(self.to_markdown(embed_images=embed_images, **kwargs)))
+            elif engine in 'typst'.split():
+                display(Code(self.to_typst(**kwargs), language='typst'))
             elif engine in 'tex latex'.split():
                 display(Code(self.to_tex(text_only=True, **kwargs), language='tex'))
             elif engine == 'pdf':
@@ -1787,7 +1873,7 @@ class Doc(UserList):
                 pdf_bytes = self.to_pdf(verb=verb, **kwargs)
                 show_pdf(pdf_bytes)
             else:
-                raise KeyError(f'engine must be in: "html", "markdown", "md", "tex", "latex", or "pdf", but was {engine=}')
+                raise KeyError(f'engine must be in: "html", "markdown", "md", "typst", "tex", "latex", or "pdf", but was {engine=}')
 
         else:
             if engine == 'auto':
@@ -1801,10 +1887,12 @@ class Doc(UserList):
             elif engine in 'markdown md'.split():
                 kwargs.pop('embed_images')
                 print(self.to_markdown(embed_images=False, **kwargs))
+            elif engine in 'typst'.split():
+                print(self.to_typst(**kwargs))
             elif engine in 'tex latex'.split():
                 print(self.to_tex(text_only=True, **kwargs))
             else:
-                raise KeyError(f'engine must be in: "html", "markdown", "md", "tex", or "latex", but was {engine=}')
+                raise KeyError(f'engine must be in: "html", "markdown", "md", "typst", "tex", or "latex", but was {engine=}')
             
     def __repr__(self, *args, **kwargs):
         chaps = self.get_chapters()
@@ -1930,6 +2018,15 @@ def load(doc:List[dict]):
 def print_to_pdf(file_path, output_pdf_path):
     """Prints a file to a PDF file using the appropriate platform-specific command using subprocess
 
+    WARNING: This function only works on posix like operating systems and requires a PDF printer to be installed 
+    and set as default printer. It will not work on windows or macos since they do not have a command line 
+    interface for printing to PDF. Use with caution and make sure to test it on your system before using it in production!
+
+    WARNING II: The resulting PDF file will not be of the same quality as a PDF file generated by a proper PDF engine like 
+    pdflatex, typst, or word. It is recommended to use this function only as a last resort if no other PDF engine is 
+    available and you need a quick and dirty PDF file.
+
+    
     Args:
         file_path (str): The path to the file to print.
         output_pdf_path (str): The path to the output PDF file.
