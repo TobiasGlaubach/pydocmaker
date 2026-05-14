@@ -346,7 +346,6 @@ class PandocFormatter:
         if color:
             c = f'color:{color};'
             txt = f'<div style="{c}">{children}</div>'
-            print(txt)
             return self.conv(txt, 'html')
         else:
             return children
