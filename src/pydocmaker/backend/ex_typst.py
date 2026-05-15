@@ -213,59 +213,74 @@ def to_typst_string(text):
     return f'"{safe_text}"'
 
 def compile_with_typst(typst_code: Union[str, List[dict]], output: str = None, verb=1, on_warning='warn', format=None, **kwargs):
-    import typst
+    try:
+            
+        import typst
 
-    if not isinstance(typst_code, str):
-        typst_code = convert(typst_code)
+        if not isinstance(typst_code, str):
+            typst_code = convert(typst_code)
 
-    typst_code = typst_code.encode('utf-8')
-    
-    format = format or ''
+        typst_code = typst_code.encode('utf-8')
+        
+        format = format or ''
 
-    ext = None
-    if output and '.' in output:
-        ext = output.rsplit('.', 1)[-1].lower()
-    elif format:
-        ext = format.lower()
-    else:
-        ext = 'pdf'
-    
-    if on_warning is None:
-        on_warning = 'ignore'
+        ext = None
+        if output and '.' in output:
+            ext = output.rsplit('.', 1)[-1].lower()
+        elif format:
+            ext = format.lower()
+        else:
+            ext = 'pdf'
+        
+        if on_warning is None:
+            on_warning = 'ignore'
 
-    kw = {
-        'input': typst_code,
-        'output': output,
-        'format': ext,
-        **kwargs
-    }
-    if verb:
-        logging.info(f'Compiling typst document to {output} format {ext} with typst compiler...')
-        res, warns = typst.compile_with_warnings(**kw)
+        kw = {
+            'input': typst_code,
+            'output': output,
+            'format': ext,
+            **kwargs
+        }
+        if verb:
+            logging.info(f'Compiling typst document to {output} format {ext} with typst compiler...')
+            res, warns = typst.compile_with_warnings(**kw)
 
-        if warns:
-            s = f'Typst compilation finished with warnings.'
-            for i, warn in enumerate(warns, 1):
-                s += f'\n\nWARNING {i}: {warn.message}\nDiagnostic: {warn.diagnostic}'
-                if warn.hints:
-                    s += '\nHints:\n' + '\n'.join(warn.hints)
-                if warn.trace:
-                    s += '\nTrace:\n' + '\n'.join(warn.trace)
+            if warns:
+                s = f'Typst compilation finished with warnings.'
+                for i, warn in enumerate(warns, 1):
+                    s += f'\n\nWARNING {i}: {warn.message}\nDiagnostic: {warn.diagnostic}'
+                    if warn.hints:
+                        s += '\nHints:\n' + '\n'.join(warn.hints)
+                    if warn.trace:
+                        s += '\nTrace:\n' + '\n'.join(warn.trace)
 
-            if on_warning == 'warn':
-                warnings.warn(s)
-            elif on_warning == 'raise':
-                raise RuntimeError(s)
-            elif on_warning == 'log' or on_warning == 'logging':
-                log.warning(s)
-            elif on_warning == 'print':
-                print(s)
-            else:
+                if on_warning == 'warn':
+                    warnings.warn(s)
+                elif on_warning == 'raise':
+                    raise RuntimeError(s)
+                elif on_warning == 'log' or on_warning == 'logging':
+                    log.warning(s)
+                elif on_warning == 'print':
+                    print(s)
+                else:
 
-                logging.info(f'Compiling typst document... success')
-    
-    else:
-        res = typst.compile(**kw)
+                    logging.info(f'Compiling typst document... success')
+        
+        else:
+            res = typst.compile(**kw)
+    except ImportError as err:
+        log.error(f'Typst is not installed: {err}', exc_info=1)
+        raise
+
+    except typst.TypstError as err:
+        sshort = f'Typst failed with error:\n- ERROR: {err.message}\n- Diagnostic:\n{err.diagnostic}'
+        s = sshort
+        if err.hints:
+            s += '\nHints:\n' + '\n'.join(err.hints)
+        if err.trace:
+            s += '\nTrace:\n' + '\n'.join(err.trace)
+        log.error(s, exc_info=1)
+        raise 
 
     return res
 
