@@ -5,7 +5,7 @@
 \usepackage{listings}
 
 {% if title %}\title {{ title }}{% endif %}
-{% if author %}\author {{ author }}{% endif %}
+{% if author %}\author {{ default("Automatically Generated via pydocmaker") }}{% endif %}
 {% if date %}\date {{ date }}{% endif %}
 
 {% if applicables or references or acronyms %}
