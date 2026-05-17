@@ -76,14 +76,16 @@ __default_template = """
   authors: (
 {% for author in authors %}
     (
-      name        : "{{ author }}",
+      name        : [{{ author }}],
     ),
 {% endfor %}
   ),
 {% elif author %}
+  authors: (
     (
-      name        : "{{ author }}",
+      name        : [{{ author }}],
     ),
+  ),
 {% endif %}
 
   keywords : ("Typst", "Template", "Report", "pydocmaker"),
@@ -103,6 +105,17 @@ __default_template = """
 #let date= datetime.today()
 
 {% if applicables or references or acronyms %}
+
+
+// #let terms = ({{ terms | join(', ') }})
+
+// #let pattern = "\\b(" + terms.join("|") + ")\\b"
+
+// #show regex(pattern): it => {
+  // Use lower() to ensure "Servo" and "servo" both point to <servo>
+  // link(label(lower(it.text)))[#it]
+// }
+
 == References
 {% endif %}
 
@@ -110,19 +123,13 @@ __default_template = """
 
 === List of Acronyms
 
-#let acronyms = (
-{% for key, value in acronyms.items() %}
-   "{{ key }}": "{{ value }}"
-{% endfor %}
-)
-
 #table(
   columns: (2cm, 1fr),
   stroke: none,
-  ..acronyms.pairs().map(((id, desc)) => (
-    [*#id*] + label(id),
-    desc
-  )).flatten()
+{% for key, value in acronyms.items() %}
+   ["{{ key }}:" <{{key}}>], [{{ value }}]
+{% endfor %}
+  )
 )
 
 {% endif %}
@@ -132,19 +139,13 @@ __default_template = """
 
 === Applicable Documents
 
-#let applicables = (
-{% for key, value in applicables.items() %}
-   "{{ key }}": "{{ value }}"
-{% endfor %}
-)
-
 #table(
   columns: (2cm, 1fr),
   stroke: none,
-  ..applicables.pairs().map(((id, desc)) => (
-    [*#id*] + label(id),
-    desc
-  )).flatten()
+{% for key, value in applicables.items() %}
+   ["{{ key }}:" <{{key}}>], [{{ value }}]
+{% endfor %}
+  )
 )
 
 {% endif %}
@@ -153,19 +154,14 @@ __default_template = """
 === Reference Documents
 
 
-#let references = (
-{% for key, value in references.items() %}
-   "{{ key }}": "{{ value }}"
-{% endfor %}
-)
-
 #table(
   columns: (2cm, 1fr),
   stroke: none,
-  ..references.pairs().map(((id, desc)) => (
-    [*#id*] + label(id),
-    desc
-  )).flatten()
+{% for key, value in references.items() %}
+   ["{{ key }}:" <{{key}}>], [{{ value }}]
+{% endfor %}
+    
+  )
 )
 {% endif %}
 
@@ -308,10 +304,29 @@ def convert(doc:List[dict], template = None, template_params=None, **kwargs):
 
 
     kw = copy.deepcopy(template_params)
-    if "librarries" in kw:
+    if "libraries" in kw:
         kw['libraries'].extend(formatter.libraries)
     else:
         kw['libraries'] = [x for x in formatter.libraries]
+    
+    terms = list(template_params.get('applicables', {})) + list(template_params.get('references', {})) + list(template_params.get('acronyms', {}))
+
+    if terms:
+        if "terms" in kw:
+            kw['terms'].extend(terms)
+        else:
+            kw['terms'] = terms
+    
+    if 'terms' in kw:
+        # ensure all terms are properly escaped etc. for typst
+        kw['terms'] = [json.dumps(term) for term in set(kw['terms'])]
+    
+    if 'authors' in kw:
+        # ensure all authors are properly escaped etc. for typst
+        kw['authors'] = [json.dumps(author) for author in kw['authors']]
+
+    if 'author' in kw:
+        kw['author'] = json.dumps(kw['author'])
 
     assert not ('body' in kw), f'the "body" keyword is an invalid keyword for templates as it is reserved for the document body.'
     kw['body'] = body
@@ -322,7 +337,13 @@ def convert(doc:List[dict], template = None, template_params=None, **kwargs):
     # if 'references' in kw:
     #     kw['references'] = {i:v for i, v in enumerate(kw['references'].values(), 1)} 
 
-    doc_typst = template_obj.render(**kw)
+    try:
+        doc_typst = template_obj.render(**kw)
+    except Exception as err:
+        s = f'Error while rendering the typst template: {err}'
+        log.error(s)
+        log.error(traceback.format_exc())
+        raise 
 
     return doc_typst
 
