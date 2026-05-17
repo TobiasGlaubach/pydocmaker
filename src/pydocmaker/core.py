@@ -1305,6 +1305,10 @@ class Doc(UserList):
         if additional_files:
             files_to_upload.update(additional_files)
 
+        attachments = kwargs.pop('attachments', {})
+        if attachments:
+            files_to_upload.update(attachments)
+
         params = {}
         meta = self.get_meta(default={}).get('data', {})
         if engine is None:
