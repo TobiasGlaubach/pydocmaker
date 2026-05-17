@@ -2,8 +2,9 @@
 import os
 import json
 from typing import List
+from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader, ChoiceLoader
+from jinja2 import Environment, FileSystemLoader, ChoiceLoader, meta
 
 
 default_template_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
@@ -130,6 +131,21 @@ class TemplateDirSource():
         loaders = [FileSystemLoader(template_dir) for template_dir in self.template_dirs]
         self.env = Environment(loader=ChoiceLoader(loaders))
             
+
+    def find_undeclared_variables(self, template):
+        """Find undeclared variables in a template.
+
+        Args:
+            template (str): The template to analyze.
+
+        Returns:
+            set: A set of undeclared variable names used in the template.
+        """
+        ast = self.env.parse(template)
+        return meta.find_undeclared_variables(ast)
+    
+
+    
     def get_params(self, templates=None) -> dict:
         """
         Returns a dictionary of (default) parameters for the specified templates.
@@ -335,7 +351,7 @@ class DocTemplate():
         self.template = template
         self.params = params if not params is None else {}
         self.attachments = attachments if not attachments is None else {}
-        self.env = env
+        self.env = env or Environment()
         self.template_id = template_id
 
     def __str__(self):
@@ -344,6 +360,17 @@ class DocTemplate():
     def __repr__(self):
         return self.__str__()
 
+    def find_undeclared_variables(self):
+        """Find undeclared variables in the template.
+
+        Returns:
+            set: A set of undeclared variable names used in the template.
+        """
+        if self.env is None:
+            raise ValueError("Environment is not set. Cannot find undeclared variables.")
+        ast = self.env.parse(self.template)
+        return meta.find_undeclared_variables(ast)
+    
     def render(self, **kwargs):
         """Render the Jinja2 template with given parameters.
 
