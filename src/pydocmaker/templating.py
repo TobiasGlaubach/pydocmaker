@@ -325,6 +325,9 @@ class DocTemplate():
         templates, params, attachments_all = t.get_all()
         # global assets and template specific assets
         attch = {**attachments_all[''], **attachments_all[template_id]} 
+        if template_id not in params:
+            params[template_id] = {k:None for k in t.find_undeclared_variables(templates[template_id])}
+
         template, params = templates[template_id], params[template_id]
         return DocTemplate(template, params, attch, t.env, template_id)
 
@@ -368,7 +371,33 @@ class DocTemplate():
         """
         if self.env is None:
             raise ValueError("Environment is not set. Cannot find undeclared variables.")
-        ast = self.env.parse(self.template)
+        
+        # 1. Safely extract the raw string source from the Template object
+        source_str = None
+        
+        if hasattr(self.template, 'source') and self.template.source is not None:
+            # Template was loaded directly from a string source
+            source_str = self.template.source
+        elif hasattr(self.template, 'filename') and self.template.filename is not None:
+            # Template was loaded from a file; read its raw string representation
+            with open(self.template.filename, "r", encoding="utf-8") as f:
+                source_str = f.read()
+        elif hasattr(self.template, 'name') and self.template.name is not None:
+            # Fail-safe: ask the environment loader directly for the source
+            try:
+                source_str, _, _ = self.env.loader.get_source(self.env, self.template.name)
+            except Exception:
+                pass
+
+        # If it was already a raw string passed to your class, use it directly
+        if source_str is None and isinstance(self.template, str):
+            source_str = self.template
+
+        if source_str is None:
+            raise ValueError("Could not extract raw source text from the provided template.")
+
+        # 2. Parse the raw text string into an Abstract Syntax Tree (AST)
+        ast = self.env.parse(source_str)
         return meta.find_undeclared_variables(ast)
     
     def render(self, **kwargs):

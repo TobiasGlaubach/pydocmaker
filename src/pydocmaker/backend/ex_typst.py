@@ -13,6 +13,10 @@ try:
 except Exception as err:
     from .. import util
 
+try:
+    from pydocmaker import templating
+except Exception as err:
+    from .. import templating
 
     
 try:
@@ -38,110 +42,15 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-__paper_template = """
-
-
-#show link: set text(fill: blue, weight: 700)
-#show link: underline
-//#show table.cell.where(y: 0): set text(weight: "bold")
-
-// code blocks
-#let code-border = luma(0)
-// #show raw: set text(font: (fonts.mono), fallback: true)
-#show raw.where(block: false): set text(weight: "semibold")
-#show raw.where(block: true): set text(size: 0.8em)
-#show raw.where(block: true): it => {
-    block(
-        width:100%,
-        inset: 10pt,
-        radius: 4pt,
-        stroke: 0.1pt + code-border,
-        it,
-    )
-}
-
-#set figure(numbering: "1")
-#set figure.caption(separator: " - ") // With a nice separator
-#set math.equation(numbering: "(1)", supplement: "Eq.")
-
-
-#set document(title: [ {{ title }} ])
-#let conf(
-  authors: (),
-  abstract: [],
-  doc,
-) = {
-  // Set and show rules from before.
-  ...
-
-  place(
-    top + center,
-    float: true,
-    scope: "parent",
-    clearance: 2em,
-    {
-      title()
-
-      let count = authors.len()
-      let ncols = calc.min(count, 3)
-      grid(
-        columns: (1fr,) * ncols,
-        row-gutter: 24pt,
-        ..authors.map(author => [
-          #author.name \
-          #author.affiliation \
-          #link("mailto:" + author.email)
-        ]),
-      )
-
-      par(justify: false)[
-        *Abstract* \
-        #abstract
-      ]
-
-    }
-  )
-
-  doc
-}
-
-#set document(title: [
-  A Fluid Dynamic Model for
-  Glacier Flow
-])
-
-#show: conf.with(
-  authors: (
-    (
-      name: "Theresa Tungsten",
-      affiliation: "Artos Institute",
-      email: "tung@artos.edu",
-    ),
-    (
-      name: "Eugene Deklan",
-      affiliation: "Honduras State",
-      email: "e.deklan@hstate.hn",
-    ),
-  ),
-  abstract: lorem(80),
-)
-
-"""
-
 __default_template = """
-#import "@preview/based:0.2.0": base64
 
-#set page(paper: "a4")
-#set heading(numbering: "1.")
-
+#set page("a4")
 
 #show link: set text(fill: blue, weight: 700)
 #show link: underline
-//#show table.cell.where(y: 0): set text(weight: "bold")
 
 // code blocks
 #let code-border = luma(0)
-// #show raw: set text(font: (fonts.mono), fallback: true)
 #show raw.where(block: false): set text(weight: "semibold")
 #show raw.where(block: true): set text(size: 0.8em)
 #show raw.where(block: true): it => {
@@ -158,180 +67,10 @@ __default_template = """
 #set figure.caption(separator: " - ") // With a nice separator
 #set math.equation(numbering: "(1)", supplement: "Eq.")
 
-//-------------------------------------
-// Metadata of the document
-//
-#let doc= (
-{% if title %}
-  title    : [*{{ title }}*],
-{% endif %}
-  
-
-{% if authors %}
-  authors: (
-{% for author in authors %}
-    (
-      name        : [{{ author }}],
-    ),
-{% endfor %}
-  ),
-{% elif author %}
-  authors: (
-    (
-      name        : [{{ author }}],
-    ),
-  ),
-{% endif %}
-
-  keywords : ("Typst", "Template", "Report", "pydocmaker"),
-  version  : "v0.1.0",
-)
-
-//-------------------------------------
-// Settings
-//
-{% if date %}
-#let date= "{{ date }}"
-{% else %}
-#let date= datetime.today()
-{% endif %}
-
-#let logo_b64 = "{{ logo_b64 }}"
-
-#set page(
-// Increase the top margin so the body text starts lower down
-  margin: (top: 6.5cm, bottom: 2.5cm, left: 2.5cm, right: 2.5cm),
-  
-  // This defines the size of the header box, preventing it from clipping the top
-  header-ascent: 3.5cm,
-
-  header: context {
-  let current = counter(page).get().first()
-  let total = counter(page).final().first()
-  
-  // 1. Give the header content a tiny bit of top clearance if needed
-  v(5pt)
-  
-  // 2. The main grid. Notice 'align: bottom' added right here!
-  grid(
-    columns: (auto, 1fr, auto), // Changed middle column to 1fr so it spaces out nicely
-    align: bottom,              // Forces all 3 columns to align perfectly at their baselines
-    gutter: 10pt,               // Keeps the columns from bumping into each other
-
-    
-    // COLUMN 1: INSTITUTION & TITLE
-    [
-      #table(
-        columns: (100%),
-        stroke: none,
-        inset: 0pt, // Keeps formatting tight
-        {% if institution %}[*{{ institution }}*],{% endif %}
-        {% if title %}[#text(size: 0.8em)[{{ title }}]],{% endif %}
-        {% if project %}[#text(size: 0.8em)[{{ project }}]],{% endif %}
-      )
-    ],
-    [],
-    // COLUMN 2: METADATA
-    [
-      #text(size: 0.8em)[
-        #grid(
-          columns: (auto, auto),
-          gutter: 3pt,
-          {% if doc_no %}[Doc \#:], [{{ doc_no }}],{% endif %}
-          {% if revision %}[Rev.:], [{{ revision }}],{% endif %}
-          {% if status %}[Status:], [{{ status }}],{% endif %}
-          [Date:], [#date.display()],
-          [Page:], [#current / #total],
-        )
-      ]
-    ],
-  )
-
-  // 3. Spacing between your bottom-aligned grid and the divider line
-  v(5pt) 
-  line(length: 100%, stroke: 0.4pt)
-},
-  {% if footer_str_left or footer_str_right %}
-  footer: context {
-    line(length: 100%, stroke: 0.4pt)
-    grid(
-      columns: (1fr, 1fr),
-      [{{ footer_str_left | default('') }}],
-      align(right)[{{ footer_str_right | default('') }}]
-    )
-  }
-  {% endif %}
-)
-
-{% if title %}
-= {{ title }}
-{% endif %}
-  
-
-
-
-
-{% if applicables or references or acronyms %}
-
-
-// #let terms = ({{ terms | join(', ') }})
-
-// #let pattern = "\\b(" + terms.join("|") + ")\\b"
-
-// #show regex(pattern): it => {
-  // Use lower() to ensure "Servo" and "servo" both point to <servo>
-  // link(label(lower(it.text)))[#it]
-// }
-
-== References
-{% endif %}
-
-{% if acronyms %}
-
-=== List of Acronyms
-
-#table(
-  columns: (auto, 1fr),
-  stroke: none,
-{% for key, value in acronyms.items() %}
-   [*{{ key }}:* <{{key}}>], [{{ value }}],
-{% endfor %}
-)
-
-{% endif %}
-
-
-{% if applicables %}
-
-=== Applicable Documents
-
-#table(
-  columns: (auto, 1fr),
-  stroke: none,
-{% for (key, value) in applicables.items() %}
-   [*AD{{ loop.index }}:* <{{key}}>], [{{ value }}],
-{% endfor %}
-)
-
-{% endif %}
-
-{% if references %}
-=== Reference Documents
-
-
-#table(
-  columns: (auto, 1fr),
-  stroke: none,
-{% for (key, value) in references.items() %}
-   [*RD{{ loop.index }}:* <{{key}}>], [{{ value }}],
-{% endfor %}
-    
-)
-{% endif %}
-
-{{ body }}
+{{ body}}
 
 """
+
 
 
 _table_template = """
@@ -465,13 +204,15 @@ def convert(doc:List[dict], template = None, template_params=None, **kwargs):
 
     template_obj, attachments = _handle_template(template, __default_template)
     
+    dt = templating.DocTemplate(template_obj)
+    expected_variables = dt.find_undeclared_variables()
 
 
     kw = copy.deepcopy(template_params)
     libraries = kw.pop("libraries", [])
     libraries.extend(formatter.libraries)
 
-    if not 'logo_b64' in kw:
+    if not 'logo_b64' in kw and 'logo_b64' in expected_variables:
         kw['logo_b64'] = b64_data.logo_b64    
 
     terms = list(template_params.get('applicables', {})) + list(template_params.get('references', {})) + list(template_params.get('acronyms', {}))
@@ -485,13 +226,7 @@ def convert(doc:List[dict], template = None, template_params=None, **kwargs):
     if 'terms' in kw:
         # ensure all terms are properly escaped etc. for typst
         kw['terms'] = [json.dumps(term) for term in set(kw['terms'])]
-    
-    if 'authors' in kw:
-        # ensure all authors are properly escaped etc. for typst
-        kw['authors'] = [json.dumps(author) for author in kw['authors']]
 
-    if 'author' in kw:
-        kw['author'] = json.dumps(kw['author'])
 
     assert not ('body' in kw), f'the "body" keyword is an invalid keyword for templates as it is reserved for the document body.'
     
@@ -509,6 +244,10 @@ def convert(doc:List[dict], template = None, template_params=None, **kwargs):
 
     try:
         doc_typst = template_obj.render(**kw)
+        # {{ body }} was not part of the template... just append it to the end
+        if not 'body' in expected_variables:
+            doc_typst += '\n\n' + b
+
     except Exception as err:
         s = f'Error while rendering the typst template: {err}'
         log.error(s)
@@ -588,7 +327,11 @@ class DocumentTypstFormatter(BaseFormatter):
         n_rows = len(mat)
         to_row = lambda row: ', '.join([f'[{s}]' for s in row])
 
-        header = f"table.header({to_row(head)})," if head else ''
+        if head:
+          head = [f'#strong[{s}]' for s in head]
+          header = f"table.header({to_row(head)}),"
+        else:
+          header = ''
         rows = ',\n'.join([to_row(row) for row in mat])
 
         self.cnt_tables += 1

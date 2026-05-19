@@ -1,12 +1,11 @@
 import abc
 import traceback
 import os
-
-
+from typing import Tuple
 
 from jinja2 import Template
 
-def _handle_template(template, default_template):
+def _handle_template(template, default_template) -> Tuple[Template, dict]:
     if template is None:
         template = default_template
 

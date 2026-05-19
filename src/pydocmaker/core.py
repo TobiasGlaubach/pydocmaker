@@ -1264,7 +1264,7 @@ class Doc(UserList):
         """
         params = {}
         meta = self.get_meta(default={}).get('data', {})
-        mytemplate = self.get_template_from_meta(tformat='typst')
+        mytemplate = self.get_template_from_meta(tformat='typ')
         if template is None and not mytemplate is None:
             template = mytemplate.template
         if not mytemplate is None:
@@ -1333,7 +1333,7 @@ class Doc(UserList):
         if verb:
             log.info(f'using engine "{engine}" to convert to pdf')
 
-        tformat = 'tex' if engine == 'tex' else ('typst' if engine == 'typst' else 'html')
+        tformat = 'tex' if engine == 'tex' else ('typ' if engine == 'typst' else 'html')
 
         mytemplate = self.get_template_from_meta(tformat=tformat)
         if template is None and not mytemplate is None:
