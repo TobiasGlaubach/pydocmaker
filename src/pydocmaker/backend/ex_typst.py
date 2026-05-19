@@ -76,14 +76,16 @@ __default_template = """
   authors: (
 {% for author in authors %}
     (
-      name        : "{{ author }}",
+      name        : [{{ author }}],
     ),
 {% endfor %}
   ),
 {% elif author %}
+  authors: (
     (
-      name        : "{{ author }}",
+      name        : [{{ author }}],
     ),
+  ),
 {% endif %}
 
   keywords : ("Typst", "Template", "Report", "pydocmaker"),
@@ -103,6 +105,17 @@ __default_template = """
 #let date= datetime.today()
 
 {% if applicables or references or acronyms %}
+
+
+// #let terms = ({{ terms | join(', ') }})
+
+// #let pattern = "\\b(" + terms.join("|") + ")\\b"
+
+// #show regex(pattern): it => {
+  // Use lower() to ensure "Servo" and "servo" both point to <servo>
+  // link(label(lower(it.text)))[#it]
+// }
+
 == References
 {% endif %}
 
@@ -110,19 +123,13 @@ __default_template = """
 
 === List of Acronyms
 
-#let acronyms = (
-{% for key, value in acronyms.items() %}
-   "{{ key }}": "{{ value }}"
-{% endfor %}
-)
-
 #table(
   columns: (2cm, 1fr),
   stroke: none,
-  ..acronyms.pairs().map(((id, desc)) => (
-    [*#id*] + label(id),
-    desc
-  )).flatten()
+{% for key, value in acronyms.items() %}
+   ["{{ key }}:" <{{key}}>], [{{ value }}]
+{% endfor %}
+  )
 )
 
 {% endif %}
@@ -132,19 +139,13 @@ __default_template = """
 
 === Applicable Documents
 
-#let applicables = (
-{% for key, value in applicables.items() %}
-   "{{ key }}": "{{ value }}"
-{% endfor %}
-)
-
 #table(
   columns: (2cm, 1fr),
   stroke: none,
-  ..applicables.pairs().map(((id, desc)) => (
-    [*#id*] + label(id),
-    desc
-  )).flatten()
+{% for key, value in applicables.items() %}
+   ["{{ key }}:" <{{key}}>], [{{ value }}]
+{% endfor %}
+  )
 )
 
 {% endif %}
@@ -153,19 +154,14 @@ __default_template = """
 === Reference Documents
 
 
-#let references = (
-{% for key, value in references.items() %}
-   "{{ key }}": "{{ value }}"
-{% endfor %}
-)
-
 #table(
   columns: (2cm, 1fr),
   stroke: none,
-  ..references.pairs().map(((id, desc)) => (
-    [*#id*] + label(id),
-    desc
-  )).flatten()
+{% for key, value in references.items() %}
+   ["{{ key }}:" <{{key}}>], [{{ value }}]
+{% endfor %}
+    
+  )
 )
 {% endif %}
 
@@ -213,59 +209,74 @@ def to_typst_string(text):
     return f'"{safe_text}"'
 
 def compile_with_typst(typst_code: Union[str, List[dict]], output: str = None, verb=1, on_warning='warn', format=None, **kwargs):
-    import typst
+    try:
+            
+        import typst
 
-    if not isinstance(typst_code, str):
-        typst_code = convert(typst_code)
+        if not isinstance(typst_code, str):
+            typst_code = convert(typst_code)
 
-    typst_code = typst_code.encode('utf-8')
-    
-    format = format or ''
+        typst_code = typst_code.encode('utf-8')
+        
+        format = format or ''
 
-    ext = None
-    if output and '.' in output:
-        ext = output.rsplit('.', 1)[-1].lower()
-    elif format:
-        ext = format.lower()
-    else:
-        ext = 'pdf'
-    
-    if on_warning is None:
-        on_warning = 'ignore'
+        ext = None
+        if output and '.' in output:
+            ext = output.rsplit('.', 1)[-1].lower()
+        elif format:
+            ext = format.lower()
+        else:
+            ext = 'pdf'
+        
+        if on_warning is None:
+            on_warning = 'ignore'
 
-    kw = {
-        'input': typst_code,
-        'output': output,
-        'format': ext,
-        **kwargs
-    }
-    if verb:
-        logging.info(f'Compiling typst document to {output} format {ext} with typst compiler...')
-        res, warns = typst.compile_with_warnings(**kw)
+        kw = {
+            'input': typst_code,
+            'output': output,
+            'format': ext,
+            **kwargs
+        }
+        if verb:
+            logging.info(f'Compiling typst document to {output} format {ext} with typst compiler...')
+            res, warns = typst.compile_with_warnings(**kw)
 
-        if warns:
-            s = f'Typst compilation finished with warnings.'
-            for i, warn in enumerate(warns, 1):
-                s += f'\n\nWARNING {i}: {warn.message}\nDiagnostic: {warn.diagnostic}'
-                if warn.hints:
-                    s += '\nHints:\n' + '\n'.join(warn.hints)
-                if warn.trace:
-                    s += '\nTrace:\n' + '\n'.join(warn.trace)
+            if warns:
+                s = f'Typst compilation finished with warnings.'
+                for i, warn in enumerate(warns, 1):
+                    s += f'\n\nWARNING {i}: {warn.message}\nDiagnostic: {warn.diagnostic}'
+                    if warn.hints:
+                        s += '\nHints:\n' + '\n'.join(warn.hints)
+                    if warn.trace:
+                        s += '\nTrace:\n' + '\n'.join(warn.trace)
 
-            if on_warning == 'warn':
-                warnings.warn(s)
-            elif on_warning == 'raise':
-                raise RuntimeError(s)
-            elif on_warning == 'log' or on_warning == 'logging':
-                log.warning(s)
-            elif on_warning == 'print':
-                print(s)
-            else:
+                if on_warning == 'warn':
+                    warnings.warn(s)
+                elif on_warning == 'raise':
+                    raise RuntimeError(s)
+                elif on_warning == 'log' or on_warning == 'logging':
+                    log.warning(s)
+                elif on_warning == 'print':
+                    print(s)
+                else:
 
-                logging.info(f'Compiling typst document... success')
-    
-    else:
-        res = typst.compile(**kw)
+                    logging.info(f'Compiling typst document... success')
+        
+        else:
+            res = typst.compile(**kw)
+    except ImportError as err:
+        log.error(f'Typst is not installed: {err}', exc_info=1)
+        raise
+
+    except typst.TypstError as err:
+        sshort = f'Typst failed with error:\n- ERROR: {err.message}\n- Diagnostic:\n{err.diagnostic}'
+        s = sshort
+        if err.hints:
+            s += '\nHints:\n' + '\n'.join(err.hints)
+        if err.trace:
+            s += '\nTrace:\n' + '\n'.join(err.trace)
+        log.error(s, exc_info=1)
+        raise 
 
     return res
 
@@ -293,10 +304,29 @@ def convert(doc:List[dict], template = None, template_params=None, **kwargs):
 
 
     kw = copy.deepcopy(template_params)
-    if "librarries" in kw:
+    if "libraries" in kw:
         kw['libraries'].extend(formatter.libraries)
     else:
         kw['libraries'] = [x for x in formatter.libraries]
+    
+    terms = list(template_params.get('applicables', {})) + list(template_params.get('references', {})) + list(template_params.get('acronyms', {}))
+
+    if terms:
+        if "terms" in kw:
+            kw['terms'].extend(terms)
+        else:
+            kw['terms'] = terms
+    
+    if 'terms' in kw:
+        # ensure all terms are properly escaped etc. for typst
+        kw['terms'] = [json.dumps(term) for term in set(kw['terms'])]
+    
+    if 'authors' in kw:
+        # ensure all authors are properly escaped etc. for typst
+        kw['authors'] = [json.dumps(author) for author in kw['authors']]
+
+    if 'author' in kw:
+        kw['author'] = json.dumps(kw['author'])
 
     assert not ('body' in kw), f'the "body" keyword is an invalid keyword for templates as it is reserved for the document body.'
     kw['body'] = body
@@ -307,7 +337,13 @@ def convert(doc:List[dict], template = None, template_params=None, **kwargs):
     # if 'references' in kw:
     #     kw['references'] = {i:v for i, v in enumerate(kw['references'].values(), 1)} 
 
-    doc_typst = template_obj.render(**kw)
+    try:
+        doc_typst = template_obj.render(**kw)
+    except Exception as err:
+        s = f'Error while rendering the typst template: {err}'
+        log.error(s)
+        log.error(traceback.format_exc())
+        raise 
 
     return doc_typst
 

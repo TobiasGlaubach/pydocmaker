@@ -1,4 +1,4 @@
-__version__ = '2.6.2'
+__version__ = '2.6.3'
 
 from pydocmaker.core import Doc, construct, constr, buildingblocks, print_to_pdf, make_pdf_from_tex, show_pdf, is_notebook
 from pydocmaker.util import upload_report_to_redmine, bcolors, txtcolor, colors_dc, _raise_missing
@@ -11,6 +11,7 @@ from pydocmaker.backend.pandoc_api import config_pandoc_allowed_set, config_pand
 
 
 from pydocmaker.templating import DocTemplate, TemplateDirSource, register_new_template_dir, get_registered_template_dirs, get_available_template_ids, test_template_exists, remove_from_template_dir
+
 
 try:
     from latex import escape as tex_escape
@@ -107,7 +108,7 @@ def load(path):
     """Load a JSON file and return a Doc object.
 
     Args:
-        path (str or file-like object): The path to the JSON file or a file-like object.
+        path (str or file-like object): The path to the JSON file, a http(s) link, or a file-like object.
 
     Returns:
         Doc: A Doc object initialized with the loaded JSON data.

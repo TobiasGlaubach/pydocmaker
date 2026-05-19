@@ -17,11 +17,11 @@
 
 </div>
 
-A minimal easy to use python document maker to create reports in `pdf`, `md`, `html`, `docx`, `tex` and more formats. Written in pure python.
+A minimal easy to use python document maker to create reports in `pdf`, `md`, `typst`, `html`, `docx`, `tex` and more formats. Written purely in python, but optional features use external non python libraries such as `typst` or pandoc (if installed). Nearly no code written by AI (some test cases, and some documentation was written by AI tools)
 
 
 - **NOTE:** some functions will try to call pandoc and fall back if not found.
-- **NOTE:** exporting PDFs by default works using "typst". All other engines need optional dependencies, such as either a latex compiler or Microsoft Word, or Libreoffice.
+- **NOTE:** exporting PDFs by default works using `typst`. All other engines need optional dependencies, such as either a latex compiler or Microsoft Word, or Libreoffice.
 
 Full documentation at https://pydocmaker.readthedocs.io/en/latest/
 

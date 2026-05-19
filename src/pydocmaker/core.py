@@ -540,6 +540,19 @@ class Doc(UserList):
         """
         if hasattr(path, 'read'): # test file pointer
             lst = json.load(path)
+        if isinstance(path, str) and path.startswith("http"): # test url
+            import requests
+            r = requests.get(path)
+            r.raise_for_status()
+            # JSON returned directly or json content as file
+            try:
+                lst = r.json()
+            except ValueError:
+                try:
+                    lst = json.loads(r.text)
+                except json.JSONDecodeError:
+                    raise ValueError("Response is not valid JSON")
+
         else:
             with open(path, 'r') as fp:
                 lst = json.load(fp)
@@ -1304,6 +1317,10 @@ class Doc(UserList):
         additional_files = kwargs.pop('additional_files', {})
         if additional_files:
             files_to_upload.update(additional_files)
+
+        attachments = kwargs.pop('attachments', {})
+        if attachments:
+            files_to_upload.update(attachments)
 
         params = {}
         meta = self.get_meta(default={}).get('data', {})
