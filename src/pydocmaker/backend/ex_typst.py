@@ -14,6 +14,13 @@ except Exception as err:
     from .. import util
 
 
+    
+try:
+    from pydocmaker import b64_data
+except Exception as err:
+    from .. import b64_data
+
+
 try:
     from pydocmaker.backend.pandoc_api import can_run_pandoc, pandoc_convert, pandoc_convert_file
 except Exception as err:
@@ -31,18 +38,106 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
+__paper_template = """
 
-__default_template = """
-#set page(paper: "a4")
-#set heading(numbering: "1.")
-
-{% for library in libraries %}
-{{ library }}
-{% endfor %}
 
 #show link: set text(fill: blue, weight: 700)
 #show link: underline
-#show table.cell.where(y: 0): set text(weight: "bold")
+//#show table.cell.where(y: 0): set text(weight: "bold")
+
+// code blocks
+#let code-border = luma(0)
+// #show raw: set text(font: (fonts.mono), fallback: true)
+#show raw.where(block: false): set text(weight: "semibold")
+#show raw.where(block: true): set text(size: 0.8em)
+#show raw.where(block: true): it => {
+    block(
+        width:100%,
+        inset: 10pt,
+        radius: 4pt,
+        stroke: 0.1pt + code-border,
+        it,
+    )
+}
+
+#set figure(numbering: "1")
+#set figure.caption(separator: " - ") // With a nice separator
+#set math.equation(numbering: "(1)", supplement: "Eq.")
+
+
+#set document(title: [ {{ title }} ])
+#let conf(
+  authors: (),
+  abstract: [],
+  doc,
+) = {
+  // Set and show rules from before.
+  ...
+
+  place(
+    top + center,
+    float: true,
+    scope: "parent",
+    clearance: 2em,
+    {
+      title()
+
+      let count = authors.len()
+      let ncols = calc.min(count, 3)
+      grid(
+        columns: (1fr,) * ncols,
+        row-gutter: 24pt,
+        ..authors.map(author => [
+          #author.name \
+          #author.affiliation \
+          #link("mailto:" + author.email)
+        ]),
+      )
+
+      par(justify: false)[
+        *Abstract* \
+        #abstract
+      ]
+
+    }
+  )
+
+  doc
+}
+
+#set document(title: [
+  A Fluid Dynamic Model for
+  Glacier Flow
+])
+
+#show: conf.with(
+  authors: (
+    (
+      name: "Theresa Tungsten",
+      affiliation: "Artos Institute",
+      email: "tung@artos.edu",
+    ),
+    (
+      name: "Eugene Deklan",
+      affiliation: "Honduras State",
+      email: "e.deklan@hstate.hn",
+    ),
+  ),
+  abstract: lorem(80),
+)
+
+"""
+
+__default_template = """
+#import "@preview/based:0.2.0": base64
+
+#set page(paper: "a4")
+#set heading(numbering: "1.")
+
+
+#show link: set text(fill: blue, weight: 700)
+#show link: underline
+//#show table.cell.where(y: 0): set text(weight: "bold")
 
 // code blocks
 #let code-border = luma(0)
@@ -95,6 +190,78 @@ __default_template = """
 //-------------------------------------
 // Settings
 //
+{% if date %}
+#let date= "{{ date }}"
+{% else %}
+#let date= datetime.today()
+{% endif %}
+
+#let logo_b64 = "{{ logo_b64 }}"
+
+#set page(
+// Increase the top margin so the body text starts lower down
+  margin: (top: 6.5cm, bottom: 2.5cm, left: 2.5cm, right: 2.5cm),
+  
+  // This defines the size of the header box, preventing it from clipping the top
+  header-ascent: 3.5cm,
+
+  header: context {
+  let current = counter(page).get().first()
+  let total = counter(page).final().first()
+  
+  // 1. Give the header content a tiny bit of top clearance if needed
+  v(5pt)
+  
+  // 2. The main grid. Notice 'align: bottom' added right here!
+  grid(
+    columns: (auto, 1fr, auto), // Changed middle column to 1fr so it spaces out nicely
+    align: bottom,              // Forces all 3 columns to align perfectly at their baselines
+    gutter: 10pt,               // Keeps the columns from bumping into each other
+
+    
+    // COLUMN 1: INSTITUTION & TITLE
+    [
+      #table(
+        columns: (100%),
+        stroke: none,
+        inset: 0pt, // Keeps formatting tight
+        {% if institution %}[*{{ institution }}*],{% endif %}
+        {% if title %}[#text(size: 0.8em)[{{ title }}]],{% endif %}
+        {% if project %}[#text(size: 0.8em)[{{ project }}]],{% endif %}
+      )
+    ],
+    [],
+    // COLUMN 2: METADATA
+    [
+      #text(size: 0.8em)[
+        #grid(
+          columns: (auto, auto),
+          gutter: 3pt,
+          {% if doc_no %}[Doc \#:], [{{ doc_no }}],{% endif %}
+          {% if revision %}[Rev.:], [{{ revision }}],{% endif %}
+          {% if status %}[Status:], [{{ status }}],{% endif %}
+          [Date:], [#date.display()],
+          [Page:], [#current / #total],
+        )
+      ]
+    ],
+  )
+
+  // 3. Spacing between your bottom-aligned grid and the divider line
+  v(5pt) 
+  line(length: 100%, stroke: 0.4pt)
+},
+  {% if footer_str_left or footer_str_right %}
+  footer: context {
+    line(length: 100%, stroke: 0.4pt)
+    grid(
+      columns: (1fr, 1fr),
+      [{{ footer_str_left | default('') }}],
+      align(right)[{{ footer_str_right | default('') }}]
+    )
+  }
+  {% endif %}
+)
 
 {% if title %}
 = {{ title }}
@@ -102,7 +269,7 @@ __default_template = """
   
 
 
-#let date= datetime.today()
+
 
 {% if applicables or references or acronyms %}
 
@@ -124,12 +291,11 @@ __default_template = """
 === List of Acronyms
 
 #table(
-  columns: (2cm, 1fr),
+  columns: (auto, 1fr),
   stroke: none,
 {% for key, value in acronyms.items() %}
-   ["{{ key }}:" <{{key}}>], [{{ value }}]
+   [*{{ key }}:* <{{key}}>], [{{ value }}],
 {% endfor %}
-  )
 )
 
 {% endif %}
@@ -140,12 +306,11 @@ __default_template = """
 === Applicable Documents
 
 #table(
-  columns: (2cm, 1fr),
+  columns: (auto, 1fr),
   stroke: none,
-{% for key, value in applicables.items() %}
-   ["{{ key }}:" <{{key}}>], [{{ value }}]
+{% for (key, value) in applicables.items() %}
+   [*AD{{ loop.index }}:* <{{key}}>], [{{ value }}],
 {% endfor %}
-  )
 )
 
 {% endif %}
@@ -155,13 +320,12 @@ __default_template = """
 
 
 #table(
-  columns: (2cm, 1fr),
+  columns: (auto, 1fr),
   stroke: none,
-{% for key, value in references.items() %}
-   ["{{ key }}:" <{{key}}>], [{{ value }}]
+{% for (key, value) in references.items() %}
+   [*RD{{ loop.index }}:* <{{key}}>], [{{ value }}],
 {% endfor %}
     
-  )
 )
 {% endif %}
 
@@ -304,11 +468,12 @@ def convert(doc:List[dict], template = None, template_params=None, **kwargs):
 
 
     kw = copy.deepcopy(template_params)
-    if "libraries" in kw:
-        kw['libraries'].extend(formatter.libraries)
-    else:
-        kw['libraries'] = [x for x in formatter.libraries]
-    
+    libraries = kw.pop("libraries", [])
+    libraries.extend(formatter.libraries)
+
+    if not 'logo_b64' in kw:
+        kw['logo_b64'] = b64_data.logo_b64    
+
     terms = list(template_params.get('applicables', {})) + list(template_params.get('references', {})) + list(template_params.get('acronyms', {}))
 
     if terms:
@@ -329,7 +494,12 @@ def convert(doc:List[dict], template = None, template_params=None, **kwargs):
         kw['author'] = json.dumps(kw['author'])
 
     assert not ('body' in kw), f'the "body" keyword is an invalid keyword for templates as it is reserved for the document body.'
-    kw['body'] = body
+    
+    if libraries:
+        b = ('\n'.join(libraries) + '\n\n' + body)
+    else:
+        b = body
+    kw['body'] = b
     
     # typst can handle named references, so we can directly pass the dict to the template
     # if 'applicables' in kw:

@@ -239,4 +239,3 @@ class _raise_missing:
     @classmethod
     def __getattr__(self, name):
         raise ImportError('latex package not found. This needs the full pydocmaker installation. Please install pydocmaker with "pip install pydocmaker[full]" to use this function.')
-    
