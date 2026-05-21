@@ -156,7 +156,8 @@ def convert(doc:List[dict], with_attachments=True, files_to_upload=None, templat
 
     body = '\n'.join(s) if isinstance(s, list) else s
 
-    template_obj, attachments = _handle_template(template, __default_template)
+    template_obj, attachments, template_str = _handle_template(template, __default_template)
+    
     if template == '':
         s = 'It seems you have provided an empty template to use.'
         s += '\nThis will most likely fail, since LaTeX actually needs imports etc. to work.'

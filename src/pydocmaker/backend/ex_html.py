@@ -114,7 +114,7 @@ def convert(doc:List[dict], template = None, template_params=None, **kwargs):
     tmp = list(doc.values()) if isinstance(doc, dict) else doc
     body = html_renderer().format(tmp)
 
-    template_obj, attachments = _handle_template(template, __default_template)
+    template_obj, attachments, template_str = _handle_template(template, __default_template)
     
     kw = copy.deepcopy(template_params)
 

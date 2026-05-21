@@ -1,7 +1,10 @@
+import os
+from pathlib import Path
 import base64, time, io, copy, json, traceback, hashlib, markdown, re
 import warnings
 from typing import List, Union
 import json
+import tempfile
 
 try:
     from pydocmaker.backend.baseformatter import BaseFormatter, _handle_template
@@ -111,37 +114,32 @@ def to_typst_string(text):
     safe_text = text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
     return f'"{safe_text}"'
 
-def compile_with_typst(typst_code: Union[str, List[dict]], output: str = None, verb=1, on_warning='warn', format=None, **kwargs):
+
+def _compile(verb, on_warning, **kw):
+    inp = kw.get('input', None)
+    if isinstance(inp, dict):
+        # check if we have any binary content
+        if [k for k, v in inp.items() if k != 'main.typ' and not isinstance(v, (str, Path))]:
+            logging.info(f'found attachments that need to be passed as files compiling typst in temporary dictionary...')
+            with tempfile.TemporaryDirectory() as tempdir:
+                p = Path(tempdir)
+
+                newinp = {}
+                for k, v in inp.items():
+                    fp = (p / k)
+                    with open(fp, 'wb') as f:
+                        f.write(v) if isinstance(v, bytes) else f.write(v.encode('utf-8'))
+                    newinp[k] = fp
+                
+                kw['input'] = {'main.typ': newinp['main.typ']}
+                kw.pop('root') # remove root as we are now in tempdir # NOTE: this could be a bit problematic if we have unknown files in base_dir
+                return _compile(verb, on_warning, root=str(tempdir), **kw)
+
+
+    import typst
     try:
-            
-        import typst
-
-        if not isinstance(typst_code, str):
-            typst_code = convert(typst_code)
-
-        typst_code = typst_code.encode('utf-8')
-        
-        format = format or ''
-
-        ext = None
-        if output and '.' in output:
-            ext = output.rsplit('.', 1)[-1].lower()
-        elif format:
-            ext = format.lower()
-        else:
-            ext = 'pdf'
-        
-        if on_warning is None:
-            on_warning = 'ignore'
-
-        kw = {
-            'input': typst_code,
-            'output': output,
-            'format': ext,
-            **kwargs
-        }
         if verb:
-            logging.info(f'Compiling typst document to {output} format {ext} with typst compiler...')
+            logging.info(f'Compiling typst document to {kw.get("output", "N/A")} format {kw.get("format", "N/A")} with typst compiler...')
             res, warns = typst.compile_with_warnings(**kw)
 
             if warns:
@@ -180,15 +178,69 @@ def compile_with_typst(typst_code: Union[str, List[dict]], output: str = None, v
             s += '\nTrace:\n' + '\n'.join(err.trace)
         log.error(s, exc_info=1)
         raise 
-
+    
     return res
+
+def compile_with_typst(typst_code: Union[str, List[dict]], output: str = None, verb=1, on_warning='warn', format=None, attachments=None, **kwargs):
+
+    if not isinstance(typst_code, str):
+        typst_code = convert(typst_code)
+
+    # Keep typst_code as string; typst.compile expects str values in files dict
+    
+    format = format or ''
+
+    ext = None
+    if output and '.' in output:
+        ext = output.rsplit('.', 1)[-1].lower()
+    elif format:
+        ext = format.lower()
+    else:
+        ext = 'pdf'
+    
+    if on_warning is None:
+        on_warning = 'ignore'
+
+    if attachments is None:
+        attachments = {}
+
+    files_to_upload = kwargs.pop('files_to_upload', {})
+
+    if files_to_upload:
+        attachments.update(files_to_upload)
+
+    for k in attachments:
+        if isinstance(attachments[k], str) and os.path.exists(attachments[k]):
+            attachments[k] = Path(attachments[k])
+        elif isinstance(attachments[k], Path) and attachments[k].exists():
+            pass
+        # Keep strings as strings (typst will handle them as text files)
+        # Keep bytes as bytes (typst will handle them as binary files)
+    
+    if attachments:
+        files = {
+            "main.typ": typst_code,
+            **attachments,
+        }
+    else:
+        files = typst_code
+
+
+    kw = {
+        'input': files,
+        'output': output,
+        'format': ext,
+        **kwargs
+    }
+        
+    return _compile(verb, on_warning, **kw)
 
 # def _typstraw():
 #     import typst
 #     compiler = typst.Compiler()
 #     compiler.compile(input="hello.typ", format="png", ppi=144.0)
 
-def convert(doc:List[dict], template = None, template_params=None, **kwargs):
+def convert(doc:List[dict], template = None, template_params=None, ret_attachments=False, **kwargs):
 
     if not template_params:
         template_params = {}
@@ -202,18 +254,26 @@ def convert(doc:List[dict], template = None, template_params=None, **kwargs):
     tmp = list(doc.values()) if isinstance(doc, dict) else doc
     body = formatter.digest(tmp)
 
-    template_obj, attachments = _handle_template(template, __default_template)
+    template_obj, attachments, template_str = _handle_template(template, __default_template)
     
-    dt = templating.DocTemplate(template_obj)
-    expected_variables = dt.find_undeclared_variables()
+    try:
+        dt = templating.DocTemplate(template_str)
+        expected_variables = dt.find_undeclared_variables()
+    except Exception as err:
+        log.warning(f'failed to extract expected_variables from template: {err} will continue without expected_variables')
+        expected_variables = set()
 
 
     kw = copy.deepcopy(template_params)
     libraries = kw.pop("libraries", [])
     libraries.extend(formatter.libraries)
 
-    if not 'logo_b64' in kw and 'logo_b64' in expected_variables:
-        kw['logo_b64'] = b64_data.logo_b64    
+    if not 'logo_b64_pydocmaker' in kw and (not expected_variables or 'logo_b64_pydocmaker' in expected_variables):
+        kw['logo_b64_pydocmaker'] = b64_data.logo_b64_pydocmaker    
+
+    if not 'version' in kw and (not expected_variables or 'version' in expected_variables):
+        if 'revision' in kw and not 'revision' in expected_variables:
+            kw["version"] = f'Revision {kw["revision"]}'
 
     terms = list(template_params.get('applicables', {})) + list(template_params.get('references', {})) + list(template_params.get('acronyms', {}))
 
@@ -245,7 +305,7 @@ def convert(doc:List[dict], template = None, template_params=None, **kwargs):
     try:
         doc_typst = template_obj.render(**kw)
         # {{ body }} was not part of the template... just append it to the end
-        if not 'body' in expected_variables:
+        if not b in doc_typst:
             doc_typst += '\n\n' + b
 
     except Exception as err:
@@ -253,8 +313,11 @@ def convert(doc:List[dict], template = None, template_params=None, **kwargs):
         log.error(s)
         log.error(traceback.format_exc())
         raise 
-
-    return doc_typst
+    
+    if ret_attachments:
+        return doc_typst, attachments
+    else:
+        return doc_typst
 
 
 

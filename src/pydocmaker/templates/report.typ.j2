@@ -1,6 +1,7 @@
 #import "@preview/based:0.2.0": base64
 
-
+// copied and modified from https://github.com/roland-KA/basic-report-typst-template/tree/main
+// THANKS!
 
 // ===== Functions for TITLE PAGE and COMPACT TITLE ===============
 
@@ -11,7 +12,6 @@
   doc-category,
   doc-title,
   author,
-  affiliation,
   logo,
   heading-font,             // the heading-font is also used for all text on the titlepage
   heading-color,            // heading-color applies as well for the title
@@ -51,23 +51,52 @@
   // ----- Info Block ------------------------
   set par(leading: 1em)  
   let v = "Version: \"{{ version | default("N/A") }}\" \n"
+  let author-prefix = ""
+  if author != none {author-prefix = "Author:"}
+
+
+
+  let powered_by_link = link("https://pypi.org/project/pydocmaker/")[pydocmaker]
+  let watermark = ""
+  let a = ""
+  if author != none {
+    let a = lower(author.trim())
+  }
+  
+  if a == "automatically generated" or a == "pydocmaker" {
+    watermark = [This document was generated with ] + powered_by_link
+  }
+
+
   place(
     bottom + left,
     text(
       font: heading-font, weight: "regular", size: info-size, fill: black,
       grid(
         columns: (auto, auto),
-        align: (left, left),
-        gutter: 0.5em,
+        align: (right, left),
+        gutter: 2.5em,
         row-gutter: 0.5em,
-        {% if version %}[Version:], [{{ version | default("N/A") }}], {% endif %}
-        [Date:], [{% if date %} {{ date }} {% else %} #datetime.today().display(datetime-fmt) {% endif %}],
-        [Author:], [#author],
-        grid.cell(colspan: 2)[#affiliation],
+        [#author-prefix], [#author],
+        {% if titlepage_info_dict %}
+        {% for key, value in titlepage_info_dict.items() %}
+        [{{ key }}], [{{ value }}],
+        {% endfor %}
+        {% endif %}
+        {% if titlepage_info_dict and not "date" in titlepage_info_dict %}
+        {% if date %}
+        [Date:], [{{ date }}],
+        {% elif not hide_date %}
+        [Date:], [#datetime.today().display(datetime-fmt)],
+        {% endif %}
+        {% endif %}
+        {% if not hide_pydocmaker %}
+        [], [],
+        grid.cell(colspan: 2)[#watermark],
+        {% endif %}
       )
     )
   )
-
 }
 
 // ===== COMPACT TITLE: `compact-title` ====================
@@ -76,7 +105,6 @@
   doc-category,
   doc-title,
   author,
-  affiliation,
   logo,
   heading-font,             // the heading-font is also used for all text on the titlepage
   heading-color,            // heading-color applies as well for the title
@@ -100,7 +128,7 @@
                 doc-title) + "\n\n") +
         text(font: heading-font, size: label-size,
           author + "\n" + 
-          affiliation + ", " + 
+          {% if affiliation %} "{{ affiliation }}, " + {% endif %}
           datetime.today().display(datetime-fmt)
         )  
       ),
@@ -113,7 +141,6 @@
   doc-category: none,
   doc-title: none,
   author: none,
-  affiliation: none,
   logo: none,
   language: "en",
   show-outline: true,
@@ -127,7 +154,12 @@
 
   // ----- Global Parameters ------------------------
 
-  set document(title: doc-title, author: author)
+  set document(title: doc-title)
+  
+  if author != none {
+    set document(author: author)
+  }
+
   set text(lang: language)
 
   let body-size = 11pt
@@ -143,13 +175,12 @@
 
   // ----- Title Page ------------------------
 
-  if (not compact-mode) {
+  if (not compact-mode and doc-title != none and doc-title != "") {
     counter(page).update(0)                     // so TOC after titlepage begins with page no 1 (roman)
     titlepage(
       doc-category,
       doc-title,
       author,
-      affiliation,
       logo,
       heading-font,
       heading-color,
@@ -175,71 +206,52 @@
     first-line-indent: 0em,
   )
 
-  // Page Grid:
-  // Horizontal 1.5cm-grid = 14u: 3u left margin, 9u text, 2u right margin
-  //     Idea: one-sided document; if printed on paper, the pages are often bound or stapled
-  //     on the left side; so more space needed on the left. On-screen it doesn't matter.
-  // Vertical 1.5cm-grid ≈ 20u: 2u top margin, 14u text, 2u botttom margin
-  //     header with height ≈ 0.6cm is visually part of text block --> top margin = 3cm + 0.6cm
+
   set page(
     paper: "a4",
     margin: (top: 2.5cm, left: 2.0cm, right: 2.5cm, bottom: 2.0cm),
-    // the header shows the main chapter heading on the left and the page number on the right
-    header: context {
-      if compact-mode and (counter(page).get().first() == 1) {
-        none
-      } else {
+
+    {% if header_str_left or header_str_right %}
+    header: {
+        grid(
+            columns: (auto, auto),
+            align: (left, right),
+            row-gutter: 0.5em,
+            text(font: heading-font, size: label-size,[{{ header_str_left | default("") }}]),
+            text(font: heading-font, size: label-size,[{{ header_str_right | default("") }}]),          
+            grid.cell(colspan: 2, line(length: 100%, stroke: 0.5pt)),
+        )
+    }
+    header-ascent: 1.5em,
+    {% endif %}
+
+
+    footer: context {
         let total = counter(page).final().at(0)
         grid(
-          columns: (1fr, 1fr),
-          align: (left, right),
+          columns: (auto, 1fr, auto ),
+          align: (left, center, right),
           row-gutter: 0.5em,
-          text(font: heading-font, size: label-size,
-            context {
-              document.title
-              [{{ version | default('') }}]
-            },),
+          grid.cell(colspan: 3, line(length: 100%, stroke: 0.5pt)),
+          text(font: heading-font, size: label-size,[{{ footer_str_left | default("") }}]),
+          
           text(font: heading-font, size: label-size, 
             number-type: "lining",
-            context {if in-outline.get() {
-                let current = counter(page).display("1")
-                [Page #current of #total]
+            {if in-outline.get() {
+                let current = counter(page).display("i")
+                [Page #current]
               } else {
                 let current = counter(page).display("1")
                 [Page #current of #total]
               }
             }
           ),
-          grid.cell(colspan: 2, line(length: 100%, stroke: 0.5pt)),
-        )
-      }
-    },
-    header-ascent: 1.5em
+          text(font: heading-font, size: label-size,[{{ footer_str_right | default("") }}]),
+        )   
+    }
   )
 
   
-  // ----- Headings & Numbering Schemes ------------------------
-
-  set heading(numbering: "1.")
-  show heading: set text(font: heading-font, fill: heading-color)
-  show heading: set par(justify: false)
-
-
-  // show heading.where(level: 1): it => {
-  //   v(3.8 * body-size, weak: true) + text(it) + v(0.2 * body-size)
-  // }
-  // show heading.where(level: 2): it => {
-  //   v(0.8 * body-size) + text(it) + v(0.2 * body-size)
-  // }
-  // show heading.where(level: 3): it => {
-  //   v(0.8 * body-size) + text(it) + v(0.2 * body-size)
-  // }
-
-  set figure(numbering: "1")
-  show figure.caption: it => {
-    set text(font: heading-font, size: label-size)
-    block(it)
-  }
 
   // ----- Table of Contents ------------------------
 
@@ -286,6 +298,36 @@
       target: figure.where(kind: table),
     )
 
+{% macro render_kvtable(mydict, prefix=None) %}
+table(
+  columns: (auto, 1fr),
+  stroke: none,
+{% for key, value in mydict.items() %}
+   [*{% if prefix %}{{ prefix }}{{loop.index}}{% else %}{{ key }}{% endif %}* <{{ key }}>], [{{ value }}],
+{% endfor %}
+)
+{% endmacro %}
+
+
+
+{% if acronyms %}
+heading(level: 1, outlined: false)[List of Acronyms]
+{{ render_kvtable(acronyms, prefix=None) }}
+{% endif %}
+
+
+{% if applicables %}
+heading(level: 1, outlined: false)[List of Applicable Documents]
+{{ render_kvtable(applicables, prefix="AD") }}
+{% endif %}
+
+{% if references %}
+heading(level: 1, outlined: false)[List of Reference Documents]
+{{ render_kvtable(references, prefix="RD") }}
+{% endif %}
+
+
+    in-outline.update(false)
 
   } else {
     in-outline.update(false)    // even if outline is not shown, we want to continue with arabic page numbers
@@ -296,6 +338,22 @@
     pagebreak()
   }
 
+  // ----- Headings & Numbering Schemes ------------------------
+
+  set heading(numbering: "1.")
+  show heading: set text(font: heading-font, fill: heading-color)
+  show heading: set par(justify: false)
+
+
+
+
+  set figure(numbering: "1")
+  show figure.caption: it => {
+    set text(font: heading-font, size: label-size)
+    block(it)
+  }
+
+
   // ----- Body Text ------------------------
   
   if compact-mode {             // compact title infos in compact-mode
@@ -303,7 +361,6 @@
       doc-category,
       doc-title,
       author,
-      affiliation,
       logo,
       heading-font,             
       heading-color,            
@@ -322,20 +379,8 @@
 
 {% macro nonedefault(val) %}{% if val %} "{{ val }}" {% else %} none{% endif %}{% endmacro %}
 
-
 #set document(title: [ {{ title }} ])
 
-#let logo = {{ nonedefault(logo_b64) }}
-#show: it => basic-report(
-  doc-category: {{ nonedefault(doc_category) }},
-  doc-title: {{ nonedefault(title) }},
-  author: {{ nonedefault(author) }},
-  affiliation: {{ nonedefault(affiliation) }},
-  logo: {% if logo_b64 %} image(base64.decode(logo), width: 2cm) {% else %} none{% endif %},
-  language: "en",
-  compact-mode: {% if compact_mode %}true{% else %}false{% endif %},
-  it
-)
 
 
 #show link: set text(fill: blue, weight: 500)
@@ -344,8 +389,6 @@
 
 // code blocks
 #let code-border = luma(0)
-// #show raw: set text(font: (fonts.mono), fallback: true)
-// #show raw.where(block: false): set text(weight: "semibold")
 #show raw.where(block: true): set text(size: 0.8em)
 #show raw.where(block: true): it => {
     block(
@@ -358,9 +401,33 @@
 }
 
 #set figure(numbering: "1")
-#set figure.caption(separator: " - ") // With a nice separator
+#set figure.caption(separator: ": ") // With a nice separator
 #set math.equation(numbering: "(1)", supplement: "Eq.")
 
+
+
+
+{% if logo %} 
+#let logo = {{ logo }}
+{% elif logo_b64 %} 
+#let logo_b64 = {{ nonedefault(logo_b64) }}
+#let logo = image(base64.decode(logo_b64), width: 2cm) 
+{% elif not hide_pydocmaker and logo_b64_pydocmaker %}
+#let logo_b64 = {{ nonedefault(logo_b64_pydocmaker) }}
+#let logo = image(base64.decode(logo_b64), width: 2cm) 
+{% else %}
+#let logo = none
+{% endif %}
+
+#show: it => basic-report(
+  doc-category: {{ nonedefault(doc_category) }},
+  doc-title: {{ nonedefault(title) }},
+  author: {{ nonedefault(author) }},
+  logo: logo,
+  language: "en",
+  compact-mode: {{ 'true' if compact_mode else 'false' }},
+  it
+)
 
 
 #set heading(numbering: (..nums) => {
@@ -380,32 +447,3 @@
 
 
 
-{% macro render_kvtable(mydict, prefix=None) %}
-#table(
-  columns: (auto, 1fr),
-  stroke: none,
-{% for key, value in mydict.items() %}
-   [*{% if prefix %}{{ prefix }}{{loop.index}}{% else %}{{ key }}{% endif %}* <{{ key }}>], [{{ value }}],
-{% endfor %}
-)
-{% endmacro %}
-
-{% if applicables or references or acronyms %}
-#heading(level: 2, outlined: false)[References]
-{% endif %}
-
-{% if acronyms %}
-#heading(level: 3, outlined: false)[List of Acronyms]
-{{ render_kvtable(acronyms, prefix=None) }}
-{% endif %}
-
-
-{% if applicables %}
-#heading(level: 3, outlined: false)[List of Applicable Documents]
-{{ render_kvtable(applicables, prefix="AD") }}
-{% endif %}
-
-{% if references %}
-#heading(level: 3, outlined: false)[List of Reference Documents]
-{{ render_kvtable(references, prefix="RD") }}
-{% endif %}

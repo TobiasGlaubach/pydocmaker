@@ -316,16 +316,17 @@ class DocTemplate():
         Returns:
             DocTemplate: An instance of the DocTemplate class.
         """
+        tformat = '' if tformat is None else tformat
 
         if tformat and not tformat.startswith('.'):
             tformat = '.' + tformat
 
         t = TemplateDirSource(template_dir)
-        template_id = t.resolve_template_id(template_id + tformat)
+        template_id = t.resolve_template_id(f'{template_id}{tformat}')
         templates, params, attachments_all = t.get_all()
         # global assets and template specific assets
         attch = {**attachments_all[''], **attachments_all[template_id]} 
-        if template_id not in params:
+        if not params.get(template_id, None):
             params[template_id] = {k:None for k in t.find_undeclared_variables(templates[template_id])}
 
         template, params = templates[template_id], params[template_id]
@@ -357,6 +358,17 @@ class DocTemplate():
         self.env = env or Environment()
         self.template_id = template_id
 
+    @property
+    def tformat(self):
+        if not self.template_id:
+            return ''
+        tid = self.template_id
+        if tid.endswith('.j2'):
+            tid = tid[:-3]
+        if not '.' in tid:
+            return ''
+        return tid.split('.')[-1]
+        
     def __str__(self):
         return f"TemplateObject(id={self.template_id}, template={self.template}, params.keys()={self.params.keys()})"
 
@@ -374,11 +386,12 @@ class DocTemplate():
         
         # 1. Safely extract the raw string source from the Template object
         source_str = None
-        
-        if hasattr(self.template, 'source') and self.template.source is not None:
+        if isinstance(self.template, str):
+            source_str = self.template
+        elif hasattr(self.template, 'source') and self.template.source is not None:
             # Template was loaded directly from a string source
             source_str = self.template.source
-        elif hasattr(self.template, 'filename') and self.template.filename is not None:
+        elif hasattr(self.template, 'filename') and self.template.filename is not None and os.path.exists(self.template.filename):
             # Template was loaded from a file; read its raw string representation
             with open(self.template.filename, "r", encoding="utf-8") as f:
                 source_str = f.read()
