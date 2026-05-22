@@ -283,8 +283,6 @@
       },
       indent: auto,
     )
-    counter(page).update(0)     // so the first chapter starts at page 1 (now in arabic numbers)
-
 
 
     outline(
@@ -297,6 +295,9 @@
       title: "List of Tables",
       target: figure.where(kind: table),
     )
+
+
+
 
 {% macro render_kvtable(mydict, prefix=None) %}
 table(
@@ -327,6 +328,9 @@ heading(level: 1, outlined: false)[List of Reference Documents]
 {% endif %}
 
 
+    
+    pagebreak()
+    counter(page).update(1)     // so the first chapter starts at page 1 (now in arabic numbers)
     in-outline.update(false)
 
   } else {
@@ -334,17 +338,12 @@ heading(level: 1, outlined: false)[List of Reference Documents]
     counter(page).update(1)
   }
 
-  if (not compact-mode) {
-    pagebreak()
-  }
 
   // ----- Headings & Numbering Schemes ------------------------
 
   set heading(numbering: "1.")
   show heading: set text(font: heading-font, fill: heading-color)
   show heading: set par(justify: false)
-
-
 
 
   set figure(numbering: "1")
