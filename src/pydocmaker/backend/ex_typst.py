@@ -117,13 +117,20 @@ def to_typst_string(text):
 
 def _compile(verb, on_warning, **kw):
     inp = kw.get('input', None)
+    if isinstance(inp, (list, zip)):
+        inp = dict(inp) # naively try casting to dict
+
     if isinstance(inp, dict):
-        # check if we have any binary content
-        if [k for k, v in inp.items() if k != 'main.typ' and not isinstance(v, (str, Path))]:
-            logging.info(f'found attachments that need to be passed as files compiling typst in temporary dictionary...')
+        # Check if any values are strings (source code) that need to be written to temp files.
+        # The typst Rust library expects Path objects for file paths and tries to canonicalize
+        # them. When we pass string content, it interprets it as a file path, causing Windows
+        # error 123. So we always write string values to temp files first.
+        has_string_content = any(isinstance(v, str) for v in inp.values())
+        
+        if has_string_content:
+            logging.info('found string content in input dict, compiling typst in temporary directory...')
             with tempfile.TemporaryDirectory() as tempdir:
                 p = Path(tempdir)
-
                 newinp = {}
                 for k, v in inp.items():
                     fp = (p / k)
@@ -131,8 +138,8 @@ def _compile(verb, on_warning, **kw):
                         f.write(v) if isinstance(v, bytes) else f.write(v.encode('utf-8'))
                     newinp[k] = fp
                 
-                kw['input'] = {'main.typ': newinp['main.typ']}
-                kw.pop('root') # remove root as we are now in tempdir # NOTE: this could be a bit problematic if we have unknown files in base_dir
+                kw['input'] = newinp
+                kw.pop('root', None)  # remove root as we are now in tempdir
                 return _compile(verb, on_warning, root=str(tempdir), **kw)
 
 
@@ -140,8 +147,9 @@ def _compile(verb, on_warning, **kw):
     try:
         if verb:
             logging.info(f'Compiling typst document to {kw.get("output", "N/A")} format {kw.get("format", "N/A")} with typst compiler...')
+        
+        if verb:
             res, warns = typst.compile_with_warnings(**kw)
-
             if warns:
                 s = f'Typst compilation finished with warnings.'
                 for i, warn in enumerate(warns, 1):
@@ -160,11 +168,10 @@ def _compile(verb, on_warning, **kw):
                 elif on_warning == 'print':
                     print(s)
                 else:
-
                     logging.info(f'Compiling typst document... success')
-        
         else:
             res = typst.compile(**kw)
+            warns = []
     except ImportError as err:
         log.error(f'Typst is not installed: {err}', exc_info=1)
         raise
@@ -223,15 +230,27 @@ def compile_with_typst(typst_code: Union[str, List[dict]], output: str = None, v
             **attachments,
         }
     else:
-        files = typst_code
+        # Always use dict format for input when passing source code directly.
+        # On Windows, passing input as a string (source code) to typst.compile
+        # causes error 123 because typst interprets it as a file path.
+        files = {
+            "main.typ": typst_code,
+        }
 
 
+    # Build kw dict, only including output if it's set (None causes Windows error 123)
     kw = {
         'input': files,
-        'output': output,
         'format': ext,
         **kwargs
     }
+    if output is not None:
+        kw['output'] = output
+    
+    # On Windows, typst needs a valid root directory to resolve relative paths.
+    # If root is not provided, use current directory.
+    if 'root' not in kw:
+        kw['root'] = os.getcwd()
         
     return _compile(verb, on_warning, **kw)
 

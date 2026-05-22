@@ -1392,7 +1392,9 @@ class Doc(UserList):
                 if a:
                     attachments.update(a)
                 
-                return to_pdf_typst(s, on_warning=on_warning, attachments=attachments, root=base_dir, files_to_upload=files_to_upload, **kwargs)
+                # Only pass root if base_dir is set to avoid Windows error 123
+                root_kw = {'root': base_dir} if base_dir else {}
+                return to_pdf_typst(s, on_warning=on_warning, attachments=attachments, files_to_upload=files_to_upload, **root_kw, **kwargs)
 
             fun = _to_pdf_typst
         elif engine == 'tex':
