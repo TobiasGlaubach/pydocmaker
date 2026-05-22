@@ -1,0 +1,448 @@
+#import "@preview/based:0.2.0": base64
+
+// copied and modified from https://github.com/roland-KA/basic-report-typst-template/tree/main
+// THANKS!
+
+// ===== Functions for TITLE PAGE and COMPACT TITLE ===============
+
+
+// ===== TITLE PAGE: `titlepage` ====================
+
+#let titlepage(
+  doc-category,
+  doc-title,
+  author,
+  logo,
+  heading-font,             // the heading-font is also used for all text on the titlepage
+  heading-color,            // heading-color applies as well for the title
+  info-size,                // used throughout the document for "info text"
+  datetime-fmt,
+) = {
+
+  // ----- Page-Setup ------------------------
+  set page(
+    paper: "a4",
+    margin: (top: 2.5cm, left: 2.0cm, right: 2.5cm, bottom: 2.0cm),
+  )
+
+  // Some basic rules for the title page layout:
+  // - logo is right-justified
+  // - all other elements are left-justified
+  // - the page uses a grid of 1.5 cm units
+
+  // ----- Logo ------------------------
+  place(top + right,        // `place` so that the remaining layout is independent of the size of the logo
+    logo,
+  )
+
+  v(6cm)                    // = 4 x 1.5 cm
+
+  // ----- Title Category & Title ------------------------
+  align(
+    left,                   // 1 x 14pt + 2 x 36pt ≈ 2 x 1.5 cm
+    text(font: heading-font, weight: "regular", size: 14pt, 
+      doc-category),
+  )
+
+  text(font: heading-font, weight: "light", size: 36pt,  fill: heading-color,
+    doc-title,
+  )
+
+  // ----- Info Block ------------------------
+  set par(leading: 1em)  
+  let v = "Version: \"{{ version | default("N/A") }}\" \n"
+  let author-prefix = ""
+  if author != none {author-prefix = "Author:"}
+
+
+
+  let powered_by_link = link("https://pypi.org/project/pydocmaker/")[pydocmaker]
+  let watermark = ""
+  let a = ""
+  if author != none {
+    let a = lower(author.trim())
+  }
+  
+  if a == "automatically generated" or a == "pydocmaker" {
+    watermark = [This document was generated with ] + powered_by_link
+  }
+
+
+  place(
+    bottom + left,
+    text(
+      font: heading-font, weight: "regular", size: info-size, fill: black,
+      grid(
+        columns: (auto, auto),
+        align: (right, left),
+        gutter: 2.5em,
+        row-gutter: 0.5em,
+        [#author-prefix], [#author],
+        {% if titlepage_info_dict %}
+        {% for key, value in titlepage_info_dict.items() %}
+        [{{ key }}], [{{ value }}],
+        {% endfor %}
+        {% endif %}
+        {% if titlepage_info_dict and not "date" in titlepage_info_dict %}
+        {% if date %}
+        [Date:], [{{ date }}],
+        {% elif not hide_date %}
+        [Date:], [#datetime.today().display(datetime-fmt)],
+        {% endif %}
+        {% endif %}
+        {% if not hide_pydocmaker %}
+        [], [],
+        grid.cell(colspan: 2)[#watermark],
+        {% endif %}
+      )
+    )
+  )
+}
+
+// ===== COMPACT TITLE: `compact-title` ====================
+
+#let compact-title(
+  doc-category,
+  doc-title,
+  author,
+  logo,
+  heading-font,             // the heading-font is also used for all text on the titlepage
+  heading-color,            // heading-color applies as well for the title
+  info-size,                // used throughout the document for "info text"
+  body-size,
+  label-size,
+  datetime-fmt,
+) = {
+  stack(
+      v(1.5cm - 0.6cm),     // 3.6cm top-margin -0.6cm + 1.5cm = 4.5cm 
+      box(height: 1.5cm, 
+        text(font: heading-font, size: 1 * body-size, 
+          top-edge: "ascender",
+          doc-category) ),
+      box(height: 6cm,
+        par(leading: 0.5em,
+          text(font: heading-font, weight: "bold",
+            size: 2 * body-size, fill: luma(40%).mix(heading-color),
+            top-edge: "ascender",
+            hyphenate: false,
+                doc-title) + "\n\n") +
+        text(font: heading-font, size: label-size,
+          author + "\n" + 
+          {% if affiliation %} "{{ affiliation }}, " + {% endif %}
+          datetime.today().display(datetime-fmt)
+        )  
+      ),
+    )
+}
+
+// ----- Main Template Function: `basic-report` ----------------------
+
+#let basic-report(
+  doc-category: none,
+  doc-title: none,
+  author: none,
+  logo: none,
+  language: "en",
+  show-outline: true,
+  compact-mode: false,
+  heading-color: black,
+  heading-font: "Ubuntu", // recommended alternatives: "Fira Sans", "Lato", "Source Sans Pro"
+  body-font: "Vollkorn",
+  datetime-fmt: "[year]-[month]-[day]",
+  body,
+) = {
+
+  // ----- Global Parameters ------------------------
+
+  set document(title: doc-title)
+  
+  if author != none {
+    set document(author: author)
+  }
+
+  set text(lang: language)
+
+  let body-size = 11pt
+
+  // heading font is used in this size for kind of "information blocks"
+  let info-size = 10pt              
+  
+  // heading font is used in this size for different sorts of labels            
+  let label-size = 9pt                          
+  
+  // are we inside or outside of the outline (for roman/arabic page numbers)?
+  let in-outline = state("in-outline", if compact-mode {false} else {true})    
+
+  // ----- Title Page ------------------------
+
+  if (not compact-mode and doc-title != none and doc-title != "") {
+    counter(page).update(0)                     // so TOC after titlepage begins with page no 1 (roman)
+    titlepage(
+      doc-category,
+      doc-title,
+      author,
+      logo,
+      heading-font,
+      heading-color,
+      info-size,
+      datetime-fmt,
+    )
+  } 
+
+  // ----- Basic Text- and Page-Setup ------------------------
+
+  set text(
+    font: body-font,
+    size: body-size,
+    // Vollkorn has a broader stroke than other fonts; in order to adapt the grey value (Grauwert)
+    // of the page the font gets printed in a dark grey (instead of completely black)
+    fill: if body-font == "Vollkorn" {luma(50)} else {luma(0)}
+  )
+
+  set par(
+    justify: true,
+    leading: 0.75em,
+    spacing: 1.65em,
+    first-line-indent: 0em,
+  )
+
+
+  set page(
+    paper: "a4",
+    margin: (top: 2.5cm, left: 2.0cm, right: 2.5cm, bottom: 2.0cm),
+
+    {% if header_str_left or header_str_right %}
+    header: {
+        grid(
+            columns: (auto, auto),
+            align: (left, right),
+            row-gutter: 0.5em,
+            text(font: heading-font, size: label-size,[{{ header_str_left | default("") }}]),
+            text(font: heading-font, size: label-size,[{{ header_str_right | default("") }}]),          
+            grid.cell(colspan: 2, line(length: 100%, stroke: 0.5pt)),
+        )
+    }
+    header-ascent: 1.5em,
+    {% endif %}
+
+
+    footer: context {
+        let total = counter(page).final().at(0)
+        grid(
+          columns: (auto, 1fr, auto ),
+          align: (left, center, right),
+          row-gutter: 0.5em,
+          grid.cell(colspan: 3, line(length: 100%, stroke: 0.5pt)),
+          text(font: heading-font, size: label-size,[{{ footer_str_left | default("") }}]),
+          
+          text(font: heading-font, size: label-size, 
+            number-type: "lining",
+            {if in-outline.get() {
+                let current = counter(page).display("i")
+                [Page #current]
+              } else {
+                let current = counter(page).display("1")
+                [Page #current of #total]
+              }
+            }
+          ),
+          text(font: heading-font, size: label-size,[{{ footer_str_right | default("") }}]),
+        )   
+    }
+  )
+
+  
+
+  // ----- Table of Contents ------------------------
+
+
+  if (show-outline and not compact-mode) {
+    outline(
+      title: if language == "de" { 
+        "Inhalt"
+      } else if language == "fr" {
+        "Table des matières"
+      } else if language == "es" {
+        "Contenido"
+      } else if language == "it" {
+        "Indice"
+      } else if language == "nl" {
+        "Inhoud"
+      } else if language == "pt" {
+        "Índice"
+      } else if language == "zh" {
+        "目录"
+      } else if language == "ja" {
+        "目次"
+      } else if language == "ru" {
+        "Содержание"
+      } else if language == "ar" {
+        "المحتويات"
+      } else {
+        auto
+      },
+      indent: auto,
+    )
+
+
+    outline(
+      title: "List of Figures",
+      target: figure.where(kind: image),
+    )
+
+    // 3. Table of Tables
+    outline(
+      title: "List of Tables",
+      target: figure.where(kind: table),
+    )
+
+
+
+
+{% macro render_kvtable(mydict, prefix=None) %}
+table(
+  columns: (auto, 1fr),
+  stroke: none,
+{% for key, value in mydict.items() %}
+   [*{% if prefix %}{{ prefix }}{{loop.index}}{% else %}{{ key }}{% endif %}* <{{ key }}>], [{{ value }}],
+{% endfor %}
+)
+{% endmacro %}
+
+
+
+{% if acronyms %}
+heading(level: 1, outlined: false)[List of Acronyms]
+{{ render_kvtable(acronyms, prefix=None) }}
+{% endif %}
+
+
+{% if applicables %}
+heading(level: 1, outlined: false)[List of Applicable Documents]
+{{ render_kvtable(applicables, prefix="AD") }}
+{% endif %}
+
+{% if references %}
+heading(level: 1, outlined: false)[List of Reference Documents]
+{{ render_kvtable(references, prefix="RD") }}
+{% endif %}
+
+
+    
+    pagebreak()
+    counter(page).update(1)     // so the first chapter starts at page 1 (now in arabic numbers)
+    in-outline.update(false)
+
+  } else {
+    in-outline.update(false)    // even if outline is not shown, we want to continue with arabic page numbers
+    counter(page).update(1)
+  }
+
+
+  // ----- Headings & Numbering Schemes ------------------------
+
+  set heading(numbering: "1.")
+  show heading: set text(font: heading-font, fill: heading-color)
+  show heading: set par(justify: false)
+
+
+  set figure(numbering: "1")
+  show figure.caption: it => {
+    set text(font: heading-font, size: label-size)
+    block(it)
+  }
+
+
+  // ----- Body Text ------------------------
+  
+  if compact-mode {             // compact title infos in compact-mode
+    compact-title(
+      doc-category,
+      doc-title,
+      author,
+      logo,
+      heading-font,             
+      heading-color,            
+      info-size,                
+      body-size,
+      label-size,
+      datetime-fmt,
+    )
+  }
+
+  body
+
+}
+
+
+
+{% macro nonedefault(val) %}{% if val %} "{{ val }}" {% else %} none{% endif %}{% endmacro %}
+
+#set document(title: [ {{ title }} ])
+
+
+
+#show link: set text(fill: blue, weight: 500)
+#show link: underline
+//#show table.cell.where(y: 0): set text(weight: "bold")
+
+// code blocks
+#let code-border = luma(0)
+#show raw.where(block: true): set text(size: 0.8em)
+#show raw.where(block: true): it => {
+    block(
+        width:100%,
+        inset: 10pt,
+        radius: 4pt,
+        stroke: 0.1pt + code-border,
+        it,
+    )
+}
+
+#set figure(numbering: "1")
+#set figure.caption(separator: ": ") // With a nice separator
+#set math.equation(numbering: "(1)", supplement: "Eq.")
+
+
+
+
+{% if logo %} 
+#let logo = {{ logo }}
+{% elif logo_b64 %} 
+#let logo_b64 = {{ nonedefault(logo_b64) }}
+#let logo = image(base64.decode(logo_b64), width: 2cm) 
+{% elif not hide_pydocmaker and logo_b64_pydocmaker %}
+#let logo_b64 = {{ nonedefault(logo_b64_pydocmaker) }}
+#let logo = image(base64.decode(logo_b64), width: 2cm) 
+{% else %}
+#let logo = none
+{% endif %}
+
+#show: it => basic-report(
+  doc-category: {{ nonedefault(doc_category) }},
+  doc-title: {{ nonedefault(title) }},
+  author: {{ nonedefault(author) }},
+  logo: logo,
+  language: "en",
+  compact-mode: {{ 'true' if compact_mode else 'false' }},
+  it
+)
+
+
+#set heading(numbering: (..nums) => {
+  // 1. Convert the arguments to a regular positional array
+  let parts = nums.pos()
+  
+  // 2. If the first item is 0, slice it off 
+  if parts.at(0, default: none) == 0 {
+    parts = parts.slice(1)
+  }
+  
+  // 3. Join the remaining numbers with dots and add a trailing period
+  if parts.len() > 0 {
+    parts.map(str).join(".") + "."
+  }
+})
+
+
+

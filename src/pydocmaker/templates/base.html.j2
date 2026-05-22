@@ -5,7 +5,7 @@
         
     </style>
     {% if title %}
-    <title>{{ title }}</title>
+    <title>{{ title| default("Empty") }}</title>
     {% endif %}
 </head>
 <body>

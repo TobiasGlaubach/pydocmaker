@@ -51,6 +51,32 @@ def can_run_pandoc(force_retest=False):
 
 
 def pandoc_convert(input_string, input_format, output_format, is_binary=False, *args):
+    """
+    Convert text between different formats using Pandoc.
+    
+    This function wraps the pandoc command-line tool to convert text from one format 
+    to another. It handles both text and binary conversions, with proper encoding 
+    and error handling.
+    
+    Args:
+        input_string (str): The text to be converted
+        input_format (str): The source format (e.g., 'markdown', 'rst')
+        output_format (str): The target format (e.g., 'html', 'latex')
+        is_binary (bool): If True, treat input/output as binary data
+        *args: Additional arguments to pass to pandoc
+    
+    Returns:
+        str or bytes: The converted text. If is_binary is True, returns bytes;
+                     otherwise returns a UTF-8 decoded string
+    
+    Raises:
+        RuntimeError: If pandoc returns an error message
+    
+    Note:
+        If input_format equals output_format, the original input_string is returned
+        without invoking pandoc, as it would be redundant.
+    """
+    
     if input_format == output_format:
         return input_string # pandoc would just return the same anyways
     

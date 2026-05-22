@@ -1,7 +1,10 @@
+import os
+from pathlib import Path
 import base64, time, io, copy, json, traceback, hashlib, markdown, re
 import warnings
 from typing import List, Union
 import json
+import tempfile
 
 try:
     from pydocmaker.backend.baseformatter import BaseFormatter, _handle_template
@@ -12,6 +15,17 @@ try:
     from pydocmaker import util
 except Exception as err:
     from .. import util
+
+try:
+    from pydocmaker import templating
+except Exception as err:
+    from .. import templating
+
+    
+try:
+    from pydocmaker import b64_data
+except Exception as err:
+    from .. import b64_data
 
 
 try:
@@ -31,22 +45,15 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-
 __default_template = """
-#set page(paper: "a4")
-#set heading(numbering: "1.")
 
-{% for library in libraries %}
-{{ library }}
-{% endfor %}
+#set page("a4")
 
 #show link: set text(fill: blue, weight: 700)
 #show link: underline
-#show table.cell.where(y: 0): set text(weight: "bold")
 
 // code blocks
 #let code-border = luma(0)
-// #show raw: set text(font: (fonts.mono), fallback: true)
 #show raw.where(block: false): set text(weight: "semibold")
 #show raw.where(block: true): set text(size: 0.8em)
 #show raw.where(block: true): it => {
@@ -63,111 +70,10 @@ __default_template = """
 #set figure.caption(separator: " - ") // With a nice separator
 #set math.equation(numbering: "(1)", supplement: "Eq.")
 
-//-------------------------------------
-// Metadata of the document
-//
-#let doc= (
-{% if title %}
-  title    : [*{{ title }}*],
-{% endif %}
-  
-
-{% if authors %}
-  authors: (
-{% for author in authors %}
-    (
-      name        : [{{ author }}],
-    ),
-{% endfor %}
-  ),
-{% elif author %}
-  authors: (
-    (
-      name        : [{{ author }}],
-    ),
-  ),
-{% endif %}
-
-  keywords : ("Typst", "Template", "Report", "pydocmaker"),
-  version  : "v0.1.0",
-)
-
-//-------------------------------------
-// Settings
-//
-
-{% if title %}
-= {{ title }}
-{% endif %}
-  
-
-
-#let date= datetime.today()
-
-{% if applicables or references or acronyms %}
-
-
-// #let terms = ({{ terms | join(', ') }})
-
-// #let pattern = "\\b(" + terms.join("|") + ")\\b"
-
-// #show regex(pattern): it => {
-  // Use lower() to ensure "Servo" and "servo" both point to <servo>
-  // link(label(lower(it.text)))[#it]
-// }
-
-== References
-{% endif %}
-
-{% if acronyms %}
-
-=== List of Acronyms
-
-#table(
-  columns: (2cm, 1fr),
-  stroke: none,
-{% for key, value in acronyms.items() %}
-   ["{{ key }}:" <{{key}}>], [{{ value }}]
-{% endfor %}
-  )
-)
-
-{% endif %}
-
-
-{% if applicables %}
-
-=== Applicable Documents
-
-#table(
-  columns: (2cm, 1fr),
-  stroke: none,
-{% for key, value in applicables.items() %}
-   ["{{ key }}:" <{{key}}>], [{{ value }}]
-{% endfor %}
-  )
-)
-
-{% endif %}
-
-{% if references %}
-=== Reference Documents
-
-
-#table(
-  columns: (2cm, 1fr),
-  stroke: none,
-{% for key, value in references.items() %}
-   ["{{ key }}:" <{{key}}>], [{{ value }}]
-{% endfor %}
-    
-  )
-)
-{% endif %}
-
-{{ body }}
+{{ body}}
 
 """
+
 
 
 _table_template = """
@@ -208,39 +114,42 @@ def to_typst_string(text):
     safe_text = text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
     return f'"{safe_text}"'
 
-def compile_with_typst(typst_code: Union[str, List[dict]], output: str = None, verb=1, on_warning='warn', format=None, **kwargs):
+
+def _compile(verb, on_warning, **kw):
+    inp = kw.get('input', None)
+    if isinstance(inp, (list, zip)):
+        inp = dict(inp) # naively try casting to dict
+
+    if isinstance(inp, dict):
+        # Check if any values are strings (source code) that need to be written to temp files.
+        # The typst Rust library expects Path objects for file paths and tries to canonicalize
+        # them. When we pass string content, it interprets it as a file path, causing Windows
+        # error 123. So we always write string values to temp files first.
+        has_string_content = any(isinstance(v, str) for v in inp.values())
+        
+        if has_string_content:
+            logging.info('found string content in input dict, compiling typst in temporary directory...')
+            with tempfile.TemporaryDirectory() as tempdir:
+                p = Path(tempdir)
+                newinp = {}
+                for k, v in inp.items():
+                    fp = (p / k)
+                    with open(fp, 'wb') as f:
+                        f.write(v) if isinstance(v, bytes) else f.write(v.encode('utf-8'))
+                    newinp[k] = fp
+                
+                kw['input'] = newinp
+                kw.pop('root', None)  # remove root as we are now in tempdir
+                return _compile(verb, on_warning, root=str(tempdir), **kw)
+
+
+    import typst
     try:
-            
-        import typst
-
-        if not isinstance(typst_code, str):
-            typst_code = convert(typst_code)
-
-        typst_code = typst_code.encode('utf-8')
-        
-        format = format or ''
-
-        ext = None
-        if output and '.' in output:
-            ext = output.rsplit('.', 1)[-1].lower()
-        elif format:
-            ext = format.lower()
-        else:
-            ext = 'pdf'
-        
-        if on_warning is None:
-            on_warning = 'ignore'
-
-        kw = {
-            'input': typst_code,
-            'output': output,
-            'format': ext,
-            **kwargs
-        }
         if verb:
-            logging.info(f'Compiling typst document to {output} format {ext} with typst compiler...')
+            logging.info(f'Compiling typst document to {kw.get("output", "N/A")} format {kw.get("format", "N/A")} with typst compiler...')
+        
+        if verb:
             res, warns = typst.compile_with_warnings(**kw)
-
             if warns:
                 s = f'Typst compilation finished with warnings.'
                 for i, warn in enumerate(warns, 1):
@@ -259,11 +168,10 @@ def compile_with_typst(typst_code: Union[str, List[dict]], output: str = None, v
                 elif on_warning == 'print':
                     print(s)
                 else:
-
                     logging.info(f'Compiling typst document... success')
-        
         else:
             res = typst.compile(**kw)
+            warns = []
     except ImportError as err:
         log.error(f'Typst is not installed: {err}', exc_info=1)
         raise
@@ -277,15 +185,81 @@ def compile_with_typst(typst_code: Union[str, List[dict]], output: str = None, v
             s += '\nTrace:\n' + '\n'.join(err.trace)
         log.error(s, exc_info=1)
         raise 
-
+    
     return res
+
+def compile_with_typst(typst_code: Union[str, List[dict]], output: str = None, verb=1, on_warning='warn', format=None, attachments=None, **kwargs):
+
+    if not isinstance(typst_code, str):
+        typst_code = convert(typst_code)
+
+    # Keep typst_code as string; typst.compile expects str values in files dict
+    
+    format = format or ''
+
+    ext = None
+    if output and '.' in output:
+        ext = output.rsplit('.', 1)[-1].lower()
+    elif format:
+        ext = format.lower()
+    else:
+        ext = 'pdf'
+    
+    if on_warning is None:
+        on_warning = 'ignore'
+
+    if attachments is None:
+        attachments = {}
+
+    files_to_upload = kwargs.pop('files_to_upload', {})
+
+    if files_to_upload:
+        attachments.update(files_to_upload)
+
+    for k in attachments:
+        if isinstance(attachments[k], str) and os.path.exists(attachments[k]):
+            attachments[k] = Path(attachments[k])
+        elif isinstance(attachments[k], Path) and attachments[k].exists():
+            pass
+        # Keep strings as strings (typst will handle them as text files)
+        # Keep bytes as bytes (typst will handle them as binary files)
+    
+    if attachments:
+        files = {
+            "main.typ": typst_code,
+            **attachments,
+        }
+    else:
+        # Always use dict format for input when passing source code directly.
+        # On Windows, passing input as a string (source code) to typst.compile
+        # causes error 123 because typst interprets it as a file path.
+        files = {
+            "main.typ": typst_code,
+        }
+
+
+    # Build kw dict, only including output if it's set (None causes Windows error 123)
+    kw = {
+        'input': files,
+        'format': ext,
+        **kwargs
+    }
+    if output is not None:
+        kw['output'] = output
+    
+    # On Windows, typst needs a valid root directory to resolve relative paths.
+    # If root is not provided, use current directory.
+    if 'root' not in kw:
+        kw['root'] = os.getcwd()
+        
+    return _compile(verb, on_warning, **kw)
 
 # def _typstraw():
 #     import typst
 #     compiler = typst.Compiler()
 #     compiler.compile(input="hello.typ", format="png", ppi=144.0)
 
-def convert(doc:List[dict], template = None, template_params=None, **kwargs):
+def convert(doc:List[dict], template = None, template_params=None, ret_attachments=False, **kwargs):
 
     if not template_params:
         template_params = {}
@@ -299,16 +273,24 @@ def convert(doc:List[dict], template = None, template_params=None, **kwargs):
     tmp = list(doc.values()) if isinstance(doc, dict) else doc
     body = formatter.digest(tmp)
 
-    template_obj, attachments = _handle_template(template, __default_template)
+    template_obj, attachments, template_str = _handle_template(template, __default_template)
     
+    try:
+        dt = templating.DocTemplate(template_str)
+        expected_variables = dt.find_undeclared_variables()
+    except Exception as err:
+        log.warning(f'failed to extract expected_variables from template: {err} will continue without expected_variables')
+        expected_variables = set()
 
 
     kw = copy.deepcopy(template_params)
-    if "libraries" in kw:
-        kw['libraries'].extend(formatter.libraries)
-    else:
-        kw['libraries'] = [x for x in formatter.libraries]
-    
+    libraries = kw.pop("libraries", [])
+    libraries.extend(formatter.libraries)
+
+    if not 'logo_b64_pydocmaker' in kw and (not expected_variables or 'logo_b64_pydocmaker' in expected_variables):
+        kw['logo_b64_pydocmaker'] = b64_data.logo_b64_pydocmaker    
+
+
     terms = list(template_params.get('applicables', {})) + list(template_params.get('references', {})) + list(template_params.get('acronyms', {}))
 
     if terms:
@@ -320,16 +302,15 @@ def convert(doc:List[dict], template = None, template_params=None, **kwargs):
     if 'terms' in kw:
         # ensure all terms are properly escaped etc. for typst
         kw['terms'] = [json.dumps(term) for term in set(kw['terms'])]
-    
-    if 'authors' in kw:
-        # ensure all authors are properly escaped etc. for typst
-        kw['authors'] = [json.dumps(author) for author in kw['authors']]
 
-    if 'author' in kw:
-        kw['author'] = json.dumps(kw['author'])
 
     assert not ('body' in kw), f'the "body" keyword is an invalid keyword for templates as it is reserved for the document body.'
-    kw['body'] = body
+    
+    if libraries:
+        b = ('\n'.join(libraries) + '\n\n' + body)
+    else:
+        b = body
+    kw['body'] = b
     
     # typst can handle named references, so we can directly pass the dict to the template
     # if 'applicables' in kw:
@@ -339,13 +320,20 @@ def convert(doc:List[dict], template = None, template_params=None, **kwargs):
 
     try:
         doc_typst = template_obj.render(**kw)
+        # {{ body }} was not part of the template... just append it to the end
+        if not b in doc_typst:
+            doc_typst += '\n\n' + b
+
     except Exception as err:
         s = f'Error while rendering the typst template: {err}'
         log.error(s)
         log.error(traceback.format_exc())
         raise 
-
-    return doc_typst
+    
+    if ret_attachments:
+        return doc_typst, attachments
+    else:
+        return doc_typst
 
 
 
@@ -418,7 +406,11 @@ class DocumentTypstFormatter(BaseFormatter):
         n_rows = len(mat)
         to_row = lambda row: ', '.join([f'[{s}]' for s in row])
 
-        header = f"table.header({to_row(head)})," if head else ''
+        if head:
+          head = [f'#strong[{s}]' for s in head]
+          header = f"table.header({to_row(head)}),"
+        else:
+          header = ''
         rows = ',\n'.join([to_row(row) for row in mat])
 
         self.cnt_tables += 1

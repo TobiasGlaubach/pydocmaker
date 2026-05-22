@@ -16,9 +16,9 @@ from typing import List
 
 
 try:
-    from pydocmaker.backend.baseformatter import BaseFormatter, _handle_template
+    from pydocmaker.backend.baseformatter import BaseFormatter
 except Exception as err:
-    from .baseformatter import BaseFormatter, _handle_template
+    from .baseformatter import BaseFormatter
     
     
 try:

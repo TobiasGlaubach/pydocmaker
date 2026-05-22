@@ -691,25 +691,26 @@ class Doc(UserList):
             return chapters
 
 
-    def get_template_from_meta(self, tformat ='', template_dir = None) -> DocTemplate:
+    def get_template_from_meta(self, tformat ='', template_dir = None, raise_on_error = False) -> DocTemplate:
         """Gets the template from the metadata in this document if there is any defined.
 
         Args:
             tformat (str, optional): The format of the template either 'tex' or 'html'. Defaults to ''.
             template_dir (str, optional): If this is given only this specific template dir is mounted to load templates from. Otherwise all registered templates are loaded
-
+            raise_on_error: (bool, optional): If this is False None will be returned in case of an error. Defaults to False.
+       
         Returns:
             DocTemplate: The template object if a template_id is found in the metadata, otherwise None.
         """
-        meta = self.get_meta({}).get("data", {})
+        meta = copy.deepcopy(self.get_meta({}).get("data", {}))
         template_id = meta.get("template_id", None)
 
-        attachments = meta.get("files_to_upload", {})
-        attachments.update(meta.get("attachments", {}))
+        attachments = meta.pop("files_to_upload", {})
+        attachments.update(meta.pop("attachments", {}))
         attachments = {k:base64.b64decode(v) if isinstance(v, str) else v for k, v in attachments.items()}
     
         if template_id is None:
-            template_str = meta.get("template", None)
+            template_str = meta.pop("template", None)
             if template_str:
                 return DocTemplate(template_str, attachments=attachments)
             else:
@@ -718,11 +719,14 @@ class Doc(UserList):
 
         try:
             template = DocTemplate.from_tid(template_id, tformat, template_dir)
-            template.params = {k:v for k, v in meta.items() if k in template.params}
+            template.params = {k:v for k, v in meta.items()}
 
             template.attachments.update(attachments)
             return template
         except KeyError as err:
+            if raise_on_error:
+                raise
+
             if 'my_template_id=' in str(err):
                 tformat = 'Any' if not tformat else tformat
                 s = f'The {template_id=} was defined for this document, and the current serializer tried to get it with the format="{tformat}", but it could not be resolved.\nWill continue without template. Original Error message\n' + str(err) 
@@ -733,16 +737,17 @@ class Doc(UserList):
 
     
 
-    def set_template_to_meta(self, template_id:str, with_params=True, with_assets=True, test_found=True, on_exist='fail') -> dict:
+    def set_template_to_meta(self, template_id:str, with_params=True, with_assets=True, test_found=True, on_exist='fail', template_params:dict=None) -> dict:
         """
         Sets a template by a given template_id to the document metadata.
 
         Args:
             template_id (str): The ID of the template to set.
-            with_params (bool, optional): Whether to include the (defalt) parameters from the template in the metadata. Defaults to True.
+            with_params (bool, optional): Whether to include the (default) parameters from the template in the metadata. Defaults to True.
             with_assets (bool, optional): Whether to include the assets (files) from the template in the metadata. Defaults to True.
             test_found (bool, optional): Whether to test if the template exists before adding anything. Defaults to True.
             on_exist (str, optional): What to do if the parameters or assets from a template already exist in the metadata. Can be 'fail', 'overwrite', or 'skip'. Defaults to 'fail'.
+            template_params (dict, optional): Additional parameters to add to the template. Defaults to None.
 
         Raises:
             FileNotFoundError: If the template with the given ID does not exist.
@@ -764,6 +769,9 @@ class Doc(UserList):
         files_to_upload = {k:base64.b64encode(v).decode() if isinstance(v, bytes) else v for k, v in files_to_upload.items()}
 
         meta = self.get_meta({}).get("data", {})
+
+        if template_params:
+            params.update(template_params)
 
         if on_exist == 'fail':
             if files_to_upload:
@@ -1264,19 +1272,19 @@ class Doc(UserList):
         """
         params = {}
         meta = self.get_meta(default={}).get('data', {})
-        mytemplate = self.get_template_from_meta(tformat='typst')
+        mytemplate = self.get_template_from_meta(tformat='typ')
         if template is None and not mytemplate is None:
             template = mytemplate.template
-        if not mytemplate is None:
+        if not mytemplate is None and mytemplate.params:
             params_from_meta = mytemplate.params
         else:
-            params_from_meta = {k:v for k, v in meta.items() if not k in ["template_id", "files_to_upload", "additional_files"]}
+            params_from_meta = {k:v for k, v in meta.items() if not k in ["template_id", "files_to_upload", "additional_files", "attachments", "template"]}
         params.update(params_from_meta)
 
         if template_params:
             params.update(template_params)
 
-        return self._ret(to_typst(self.dump(), template=template, template_params=template_params), path_or_stream)
+        return self._ret(to_typst(self.dump(), template=template, template_params=params), path_or_stream)
         
 
     def to_pdf(self, path_or_stream=None, docname='', files_to_upload=None, base_dir=None, engine=None, latex_compiler=None, n_times_make=None, verb=0, ignore_error=True, template=None, template_params=None, do_escape_template_params='auto', **kwargs) -> Union[str, bytes, bool]:
@@ -1333,9 +1341,21 @@ class Doc(UserList):
         if verb:
             log.info(f'using engine "{engine}" to convert to pdf')
 
-        tformat = 'tex' if engine == 'tex' else ('typst' if engine == 'typst' else 'html')
+        tformat = 'tex' if engine == 'tex' else ('typ' if engine == 'typst' else 'html')
 
-        mytemplate = self.get_template_from_meta(tformat=tformat)
+        try:
+            mytemplate = self.get_template_from_meta(tformat=tformat, raise_on_error=True)    
+        except KeyError as err:
+            # fall back to check if any template with that given id exists
+            mytemplate = self.get_template_from_meta(raise_on_error=False)    
+
+        if not mytemplate is None and mytemplate.tformat and mytemplate.tformat != tformat:
+            newengine = 'tex' if mytemplate.tformat == 'tex' else ('typst' if mytemplate.tformat == 'typ' else 'html')
+            log.warning(f'The requested template {mytemplate.template_id} is of format "{mytemplate.tformat}" while the current engine is "{engine}" which requires "{tformat}" for templates. Will switch over to a new engine ("{newengine}") now in order to handle this. ')
+            tformat = mytemplate.tformat
+            engine = newengine
+
+
         if template is None and not mytemplate is None:
             template = mytemplate.template
         if not mytemplate is None:
@@ -1354,17 +1374,27 @@ class Doc(UserList):
         if template_params:
             params.update(template_params)
 
-        if engine == 'typst':
+        if engine.startswith('typ'):
+                        
             def _to_pdf_typst(*ar, **kw):
-                s = self.to_typst(*ar, template=template, template_params=params, **kw)
-                if ignore_error and verb:
-                    on_warning = 'warn' 
-                elif ignore_error and not verb:
-                    on_warning = 'ignore'
-                elif verb:
-                    on_warning = 'log'
+                s, attachments = to_typst(*ar, template=template, template_params=params, ret_attachments=True)
 
-                return to_pdf_typst(s, verb=verb, on_warning=on_warning)
+                on_warning = kw.pop("on_warning", None)
+                if on_warning is None:
+                    if ignore_error and verb:
+                        on_warning = 'warn' 
+                    elif ignore_error and not verb:
+                        on_warning = 'ignore'
+                    elif verb:
+                        on_warning = 'log'
+                
+                a = kw.pop("attachments", None)
+                if a:
+                    attachments.update(a)
+                
+                # Only pass root if base_dir is set to avoid Windows error 123
+                root_kw = {'root': base_dir} if base_dir else {}
+                return to_pdf_typst(s, on_warning=on_warning, attachments=attachments, files_to_upload=files_to_upload, **root_kw, **kwargs)
 
             fun = _to_pdf_typst
         elif engine == 'tex':
