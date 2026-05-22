@@ -271,9 +271,6 @@ def convert(doc:List[dict], template = None, template_params=None, ret_attachmen
     if not 'logo_b64_pydocmaker' in kw and (not expected_variables or 'logo_b64_pydocmaker' in expected_variables):
         kw['logo_b64_pydocmaker'] = b64_data.logo_b64_pydocmaker    
 
-    if not 'version' in kw and (not expected_variables or 'version' in expected_variables):
-        if 'revision' in kw and not 'revision' in expected_variables:
-            kw["version"] = f'Revision {kw["revision"]}'
 
     terms = list(template_params.get('applicables', {})) + list(template_params.get('references', {})) + list(template_params.get('acronyms', {}))
 
