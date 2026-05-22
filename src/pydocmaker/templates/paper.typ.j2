@@ -109,12 +109,12 @@
   {% if authors %}
   authors: (
   {% for author in authors %}
-    {{ render_author(dict_author) }}
+    {{ render_author(author) }}
   {% endfor %}
 
   {% elif author %}
   authors: (
-    {{ render_author(dict_author) }}
+    {{ render_author(author) }}
   {% endif %}
   ),
   abstract: {{ abstract | default('none') }},
