@@ -1349,7 +1349,7 @@ class Doc(UserList):
             # fall back to check if any template with that given id exists
             mytemplate = self.get_template_from_meta(raise_on_error=False)    
 
-        if not mytemplate is None and mytemplate.tformat != tformat:
+        if not mytemplate is None and mytemplate.tformat and mytemplate.tformat != tformat:
             newengine = 'tex' if mytemplate.tformat == 'tex' else ('typst' if mytemplate.tformat == 'typ' else 'html')
             log.warning(f'The requested template {mytemplate.template_id} is of format "{mytemplate.tformat}" while the current engine is "{engine}" which requires "{tformat}" for templates. Will switch over to a new engine ("{newengine}") now in order to handle this. ')
             tformat = mytemplate.tformat
