@@ -355,7 +355,7 @@ class DocTemplate():
         self.template = template
         self.params = params if not params is None else {}
         self.attachments = attachments if not attachments is None else {}
-        self.env = env or Environment()
+        self.env = env or Environment(cache_size=0)
         self.template_id = template_id
 
     @property

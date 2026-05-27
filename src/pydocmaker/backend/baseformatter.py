@@ -19,7 +19,7 @@ def _handle_template(template, default_template) -> Tuple[Template, dict]:
             template_obj = Template(template_str)
     elif isinstance(template, str) and not template:
         template_str = '{{ body }}'
-        template_obj = Template()
+        template_obj = Template(template_str)
     elif isinstance(template, str):
         template_obj = Template(template)
         template_str = str(template)
