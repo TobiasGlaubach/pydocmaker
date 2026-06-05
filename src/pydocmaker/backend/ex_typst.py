@@ -115,6 +115,7 @@ def to_typst_string(text):
     return f'"{safe_text}"'
 
 
+
 def _compile(verb, on_warning, **kw):
     inp = kw.get('input', None)
     if isinstance(inp, (list, zip)):
@@ -145,18 +146,30 @@ def _compile(verb, on_warning, **kw):
             logging.info('found non-path content in input dict, compiling typst in temporary directory...')
             with tempfile.TemporaryDirectory() as tempdir:
                 p = Path(tempdir)
+                # copy everything to tempdir
                 newinp = {}
+                context = {}
+
                 for k, v in inp.items():
                     newpath = None
                     if isinstance(v, Path) and v.exists():
-                        newpath = v
+                        newpath:Path = (p / k)
+                        newpath.write_bytes(v.read_bytes())
+
                     elif isinstance(v, bytes) and util.bytes_path_exists(v):
-                        newpath = Path(v.decode())
+                        v = Path(v.decode())
+                        newpath:Path = (p / k)
+                        newpath.write_bytes(v.read_bytes())
+
                     elif isinstance(v, bytes) and v:
                         newpath:Path = (p / k)
                         newpath.write_bytes(v)
+
                     elif isinstance(v, str) and v and os.path.exists(v):
-                        newpath:Path = Path(v).resolve()
+                        v = Path(v).resolve()
+                        newpath:Path = (p / k)
+                        newpath.write_bytes(v.read_bytes())
+
                     elif isinstance(v, str) and v:
                         newpath:Path = (p / k)
                         newpath.write_bytes(v.encode())
@@ -165,13 +178,23 @@ def _compile(verb, on_warning, **kw):
                     # pathes within the document). Therefore only include typst files.
                     if newpath and newpath.suffix in ['.typ', '.txt', '.csv', '.json']:
                         newinp[k] = newpath.resolve()
-                
+                    elif newpath:
+                        context[k] = newpath.resolve()
+
                 kw['input'] = newinp
+                
+                if context and not 'context' in kw:
+                    kw['context'] = context
+                elif context:
+                    kw['context'].update(context)
+
                 kw.pop('root', None)  # remove root as we are now in tempdir
                 return _compile(verb, on_warning, root=str(tempdir), **kw)
 
 
     import typst
+    context = kw.pop('context', {}) or {}
+
     try:
         if verb:
             logging.info(f'Compiling typst document to {kw.get("output", "N/A")} format {kw.get("format", "N/A")} with typst compiler...')
@@ -202,6 +225,7 @@ def _compile(verb, on_warning, **kw):
             warns = []
     except ImportError as err:
         log.error(f'Typst is not installed: {err}', exc_info=1)
+        err.context = util.get_inp_context('main.typ', context=context, **kw)
         raise
 
     except typst.TypstError as err:
@@ -212,7 +236,12 @@ def _compile(verb, on_warning, **kw):
         if err.trace:
             s += '\nTrace:\n' + '\n'.join(err.trace)
         log.error(s, exc_info=1)
+        err.context = util.get_inp_context('main.typ', context=context, **kw)
         raise 
+    except Exception as err:
+        err.context = util.get_inp_context('main.typ', context=context, **kw)
+        raise
+    
     
     return res
 
