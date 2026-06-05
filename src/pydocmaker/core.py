@@ -1255,7 +1255,12 @@ class Doc(UserList):
         if template_params:
             params.update(template_params)
 
-        return self._ret(to_html(self.dump(), template=template, template_params=template_params), path_or_stream)
+        # Pass the fully-merged `params` (meta defaults + caller overrides) to the
+        # backend renderer, not the raw `template_params` argument. Using the raw
+        # argument silently dropped parameters set via set_template_to_meta()
+        # or stored in document metadata, causing templates to render with
+        # missing fields (e.g. empty <title>, missing references table).
+        return self._ret(to_html(self.dump(), template=template, template_params=params), path_or_stream)
 
     def to_typst(self, path_or_stream=None, template=None, template_params=None) -> str:
         """
@@ -1524,8 +1529,12 @@ class Doc(UserList):
             params = auto_escape_latex(params)
             do_escape_template_params = False
 
-
-        tex, files = to_tex(self.dump(), with_attachments=True, template=template, files_to_upload=additional_files, do_escape_template_params=do_escape_template_params, template_params=template_params)
+        # Pass the fully-merged `params` (meta defaults + caller overrides) to the
+        # backend renderer, not the raw `template_params` argument. Using the raw
+        # argument silently dropped parameters set via set_template_to_meta()
+        # or stored in document metadata, so LaTeX templates rendered without
+        # their configured defaults.
+        tex, files = to_tex(self.dump(), with_attachments=True, template=template, files_to_upload=additional_files, do_escape_template_params=do_escape_template_params, template_params=params)
 
         with io.BytesIO() as in_memory_zip:
             with zipfile.ZipFile(in_memory_zip, 'w') as zipf:
