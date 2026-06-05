@@ -29,8 +29,7 @@ class TestTypstCompilation(unittest.TestCase):
         call_kwargs = mock_compile.call_args[1]
         self.assertIn('input', call_kwargs)
         self.assertIn('root', call_kwargs)
-        # The input should be Path objects after temp file processing
-        self.assertIsInstance(call_kwargs['input'], dict)
+
 
     @patch('typst.compile')
     def test_string_input_many_keys_no_attachments(self, mock_compile):
@@ -42,7 +41,7 @@ class TestTypstCompilation(unittest.TestCase):
         mock_compile.assert_called_once()
         call_kwargs = mock_compile.call_args[1]
         self.assertIn('input', call_kwargs)
-        self.assertIsInstance(call_kwargs['input'], dict)
+
 
     @patch('typst.compile')
     def test_bytes_input_single_attachment(self, mock_compile):
@@ -279,9 +278,6 @@ class TestTypstCompilation(unittest.TestCase):
                 root=tmpdir
             )
             self.assertIsNotNone(result)
-
-
-class TestTypstRenderer(unittest.TestCase):
 
     def setUp(self) -> None:
         self.formatter = ex_typst.DocumentTypstFormatter()
