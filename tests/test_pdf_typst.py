@@ -307,18 +307,99 @@ class TestDocToPdfTypst(unittest.TestCase):
         self.assertTrue(result2.startswith(b'%PDF'))
 
 
+        
+        
+    def test_minimal_pdf(self):
+        data = pyd.Doc().add('Hello World!').to_pdf(engine='typst', verb=0)
+        self.assertTrue(data.startswith(b'%PDF'))
 
     def test_embed_image(self):
-        attachments2={'mylogo.png': base64.b64decode(pyd.b64_data.logo_b64_pydocmaker)}
+        attachments_bytes = {'mylogo.png': base64.b64decode(pyd.b64_data.logo_b64_pydocmaker)}
 
         d1 = pyd.Doc().add('Hello World!')
         d2 = pyd.Doc().add('Hello World!\n\n\n#image("mylogo.png", width: 200pt)')
         result = d1.to_pdf(engine='typst', verb=0)
-        result_with_img = d2.to_pdf(engine='typst', attachments=attachments2, verb=0)
+        result_with_img = d2.to_pdf(engine='typst', attachments=attachments_bytes, verb=0)
         self.assertTrue(result.startswith(b'%PDF'))
         self.assertTrue(result_with_img.startswith(b'%PDF'))
 
         self.assertGreater(len(result_with_img), len(result)*1.1, f'expected a PDF with image to be much bigger than an nearly empty PDF but got: {len(result_with_img)=} vs. {len(result_with_img)=}')
+
+    def test_embed_image_bytes_attachment(self):
+        """Test embedding an image using bytes attachment."""
+        attachments = {'mylogo.png': base64.b64decode(pyd.b64_data.logo_b64_pydocmaker)}
+        doc = pyd.Doc().add('Hello World!\n\n\n#image("mylogo.png", width: 200pt)')
+        result = doc.to_pdf(engine='typst', attachments=attachments, verb=0)
+        self.assertTrue(result)
+        self.assertIsInstance(result, bytes)
+        self.assertTrue(result.startswith(b'%PDF'))
+
+        r = len(pyd.Doc().add('Hello World!').to_pdf(engine='typst', verb=0))
+        self.assertGreater(len(result), r*1.1, f'expected a PDF with image to be much bigger than an nearly empty PDF but got: {len(result)=} vs. {r=}')
+
+
+    def test_embed_image_path_attachment(self):
+        """Test embedding an image using a Path object attachment."""
+        with tempfile.NamedTemporaryFile(suffix='.png') as f:
+            f.write(base64.b64decode(pyd.b64_data.logo_b64_pydocmaker))
+            fig_path = Path(f.name)
+            
+            attachments = {'mylogo.png': fig_path}
+            doc = pyd.Doc().add('Hello World!\n\n\n#image("mylogo.png", width: 200pt)')
+            result = doc.to_pdf(engine='typst', attachments=attachments, verb=0)
+            self.assertTrue(result)
+            self.assertIsInstance(result, bytes)
+            self.assertTrue(result.startswith(b'%PDF'))
+            r = len(pyd.Doc().add('Hello World!').to_pdf(engine='typst', verb=0))
+            self.assertGreater(len(result), r*1.1, f'expected a PDF with image to be much bigger than an nearly empty PDF but got: {len(result)=} vs. {r=}')
+
+
+
+    def test_embed_image_str_path_attachment(self):
+        """Test embedding an image using a string path attachment."""
+        with tempfile.NamedTemporaryFile(suffix='.png') as f:
+            f.write(base64.b64decode(pyd.b64_data.logo_b64_pydocmaker))
+            fig_path = f.name
+        
+            attachments = {'mylogo.png': fig_path}
+            doc = pyd.Doc().add('Hello World!\n\n\n#image("mylogo.png", width: 200pt)')
+            result = doc.to_pdf(engine='typst', attachments=attachments, verb=0)
+            self.assertTrue(result)
+            self.assertIsInstance(result, bytes)
+            self.assertTrue(result.startswith(b'%PDF'))
+
+            r = len(pyd.Doc().add('Hello World!').to_pdf(engine='typst', verb=0))
+            self.assertGreater(len(result), r*1.1, f'expected a PDF with image to be much bigger than an nearly empty PDF but got: {len(result)=} vs. {r=}')
+
+
+
+    def test_error_context(self):
+        "test that the context is correctly pared on failed compilation"
+        doc = pyd.Doc().add('Hello World!\n\n\n#image("mylogononexisting.png", width: 200pt)')
+
+        with self.assertRaises(Exception) as exc_info:
+            doc.to_pdf()
+            err = exc_info.value
+            self.assertTrue(hasattr(err, 'context'))
+            self.assertIsInstance(err.context, dict)
+            self.assertTrue(err.context.get('main.typ', None))
+            self.assertIsInstance(err.context.get('main.typ', None), (bytes, str))
+
+
+    def test_error_context2(self):
+        "test that the context is correctly pared on failed compilation"
+        attachments = {'mylogo.png': base64.b64decode(pyd.b64_data.logo_b64_pydocmaker)}
+        doc = pyd.Doc().add('Hello World!\n\n\n#image("mylogononexisting.png", width: 200pt)')
+        
+        with self.assertRaises(Exception) as exc_info:    
+            doc.to_pdf(attachments=attachments)
+            err = exc_info.value
+            self.assertTrue(hasattr(err, 'context'))
+            self.assertIsInstance(err.context, dict)
+            self.assertTrue(err.context.get('main.typ', None))
+            self.assertIsInstance(err.context.get('main.typ', None), (bytes, str))
+            self.assertIsInstance(err.context.get('mylogo.png', None), bytes)
+
 
 
 if __name__ == '__main__':
