@@ -340,10 +340,10 @@ class TestDocToPdfTypst(unittest.TestCase):
 
     def test_embed_image_path_attachment(self):
         """Test embedding an image using a Path object attachment."""
-        with tempfile.NamedTemporaryFile(suffix='.png') as f:
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
             f.write(base64.b64decode(pyd.b64_data.logo_b64_pydocmaker))
             fig_path = Path(f.name)
-            
+        try:
             attachments = {'mylogo.png': fig_path}
             doc = pyd.Doc().add('Hello World!\n\n\n#image("mylogo.png", width: 200pt)')
             result = doc.to_pdf(engine='typst', attachments=attachments, verb=0)
@@ -352,15 +352,18 @@ class TestDocToPdfTypst(unittest.TestCase):
             self.assertTrue(result.startswith(b'%PDF'))
             r = len(pyd.Doc().add('Hello World!').to_pdf(engine='typst', verb=0))
             self.assertGreater(len(result), r*1.1, f'expected a PDF with image to be much bigger than an nearly empty PDF but got: {len(result)=} vs. {r=}')
+        finally:
+            fig_path.unlink(missing_ok=True)
 
 
 
     def test_embed_image_str_path_attachment(self):
         """Test embedding an image using a string path attachment."""
-        with tempfile.NamedTemporaryFile(suffix='.png') as f:
-            f.write(base64.b64decode(pyd.b64_data.logo_b64_pydocmaker))
-            fig_path = f.name
-        
+        f = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+        f.write(base64.b64decode(pyd.b64_data.logo_b64_pydocmaker))
+        fig_path = f.name
+        f.close()
+        try:
             attachments = {'mylogo.png': fig_path}
             doc = pyd.Doc().add('Hello World!\n\n\n#image("mylogo.png", width: 200pt)')
             result = doc.to_pdf(engine='typst', attachments=attachments, verb=0)
@@ -370,6 +373,8 @@ class TestDocToPdfTypst(unittest.TestCase):
 
             r = len(pyd.Doc().add('Hello World!').to_pdf(engine='typst', verb=0))
             self.assertGreater(len(result), r*1.1, f'expected a PDF with image to be much bigger than an nearly empty PDF but got: {len(result)=} vs. {r=}')
+        finally:
+            Path(fig_path).unlink(missing_ok=True)
 
 
 
