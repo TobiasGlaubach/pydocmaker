@@ -1380,26 +1380,30 @@ class Doc(UserList):
             params.update(template_params)
 
         if engine.startswith('typ'):
-                        
+
             def _to_pdf_typst(*ar, **kw):
                 s, attachments = to_typst(*ar, template=template, template_params=params, ret_attachments=True)
 
                 on_warning = kw.pop("on_warning", None)
                 if on_warning is None:
                     if ignore_error and verb:
-                        on_warning = 'warn' 
+                        on_warning = 'warn'
                     elif ignore_error and not verb:
                         on_warning = 'ignore'
                     elif verb:
                         on_warning = 'log'
-                
+
                 a = kw.pop("attachments", None)
                 if a:
                     attachments.update(a)
-                
+
+                if files_to_upload:
+                    attachments.update(files_to_upload)
+
                 # Only pass root if base_dir is set to avoid Windows error 123
                 root_kw = {'root': base_dir} if base_dir else {}
-                return to_pdf_typst(s, on_warning=on_warning, attachments=attachments, files_to_upload=files_to_upload, **root_kw, **kwargs)
+                bulk_kw = {k: v for k, v in kwargs.items() if k not in ('on_warning', 'attachments')}
+                return to_pdf_typst(s, on_warning=on_warning, attachments=attachments, **root_kw, **bulk_kw)
 
             fun = _to_pdf_typst
         elif engine == 'tex':

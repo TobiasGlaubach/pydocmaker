@@ -115,35 +115,86 @@ def to_typst_string(text):
     return f'"{safe_text}"'
 
 
+
 def _compile(verb, on_warning, **kw):
     inp = kw.get('input', None)
     if isinstance(inp, (list, zip)):
         inp = dict(inp) # naively try casting to dict
 
     if isinstance(inp, dict):
-        # Check if any values are strings (source code) that need to be written to temp files.
+        code = inp.get('main.typ', None)
+
+        # handle case of only one input and that being "main.typ"
+        if len(inp) == 1 and code:
+            if isinstance(code, Path) and code.exists():
+                kw['input'] = code.read_bytes()
+                return _compile(verb, on_warning, **kw)
+            elif isinstance(code, str) and Path(code).exists():
+                kw['input'] = Path(code).read_bytes()
+                return _compile(verb, on_warning, **kw)
+            elif isinstance(code, str):
+                kw['input'] = code.encode()
+                return _compile(verb, on_warning, **kw)
+            
+        # Check if any values need to be written to temp files (strings, bytes, or Path objects).
         # The typst Rust library expects Path objects for file paths and tries to canonicalize
-        # them. When we pass string content, it interprets it as a file path, causing Windows
-        # error 123. So we always write string values to temp files first.
-        has_string_content = any(isinstance(v, str) for v in inp.values())
+        # them. When we pass string or bytes content, it interpretes it as a file path, causing
+        # errors. So we always write string/bytes values to temp files first.
+        needs_temp = any(not isinstance(v, Path) for v in inp.values())
         
-        if has_string_content:
-            logging.info('found string content in input dict, compiling typst in temporary directory...')
+        if needs_temp:
+            logging.info('found non-path content in input dict, compiling typst in temporary directory...')
             with tempfile.TemporaryDirectory() as tempdir:
                 p = Path(tempdir)
+                # copy everything to tempdir
                 newinp = {}
+                context = {}
+
                 for k, v in inp.items():
-                    fp = (p / k)
-                    with open(fp, 'wb') as f:
-                        f.write(v) if isinstance(v, bytes) else f.write(v.encode('utf-8'))
-                    newinp[k] = fp
-                
+                    newpath = None
+                    if isinstance(v, Path) and v.exists():
+                        newpath:Path = (p / k)
+                        newpath.write_bytes(v.read_bytes())
+
+                    elif isinstance(v, bytes) and util.bytes_path_exists(v):
+                        v = Path(v.decode())
+                        newpath:Path = (p / k)
+                        newpath.write_bytes(v.read_bytes())
+
+                    elif isinstance(v, bytes) and v:
+                        newpath:Path = (p / k)
+                        newpath.write_bytes(v)
+
+                    elif isinstance(v, str) and v and os.path.exists(v):
+                        v = Path(v).resolve()
+                        newpath:Path = (p / k)
+                        newpath.write_bytes(v.read_bytes())
+
+                    elif isinstance(v, str) and v:
+                        newpath:Path = (p / k)
+                        newpath.write_bytes(v.encode())
+
+                    # typst rust bindings do not like non text files (but will try to find them at the given 
+                    # pathes within the document). Therefore only include typst files.
+                    if newpath and newpath.suffix in ['.typ', '.txt', '.csv', '.json']:
+                        newinp[k] = newpath.resolve()
+                    elif newpath:
+                        context[k] = newpath.resolve()
+
                 kw['input'] = newinp
+                
+                if context and not 'context' in kw:
+                    kw['context'] = context
+                elif context:
+                    kw['context'].update(context)
+
                 kw.pop('root', None)  # remove root as we are now in tempdir
                 return _compile(verb, on_warning, root=str(tempdir), **kw)
 
 
     import typst
+    context = kw.pop('context', {}) or {}
+
     try:
         if verb:
             logging.info(f'Compiling typst document to {kw.get("output", "N/A")} format {kw.get("format", "N/A")} with typst compiler...')
@@ -174,6 +225,7 @@ def _compile(verb, on_warning, **kw):
             warns = []
     except ImportError as err:
         log.error(f'Typst is not installed: {err}', exc_info=1)
+        err.context = util.get_inp_context('main.typ', context=context, **kw)
         raise
 
     except typst.TypstError as err:
@@ -184,7 +236,12 @@ def _compile(verb, on_warning, **kw):
         if err.trace:
             s += '\nTrace:\n' + '\n'.join(err.trace)
         log.error(s, exc_info=1)
+        err.context = util.get_inp_context('main.typ', context=context, **kw)
         raise 
+    except Exception as err:
+        err.context = util.get_inp_context('main.typ', context=context, **kw)
+        raise
+    
     
     return res
 
@@ -229,10 +286,12 @@ def compile_with_typst(typst_code: Union[str, List[dict]], output: str = None, v
             "main.typ": typst_code,
             **attachments,
         }
+    elif isinstance(typst_code, str) and not os.path.exists(typst_code):
+        files = typst_code.encode()
     else:
-        # Always use dict format for input when passing source code directly.
-        # On Windows, passing input as a string (source code) to typst.compile
-        # causes error 123 because typst interprets it as a file path.
+        # # Always use dict format for input when passing source code directly.
+        # # On Windows, passing input as a string (source code) to typst.compile
+        # # causes error 123 because typst interprets it as a file path.
         files = {
             "main.typ": typst_code,
         }

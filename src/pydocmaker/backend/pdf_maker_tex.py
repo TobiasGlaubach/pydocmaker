@@ -17,6 +17,7 @@ import zipfile
 
 import logging
 
+
 # Configure once
 logging.basicConfig(
     level=logging.INFO,
@@ -173,107 +174,118 @@ def make_pdf_from_tex(input_latex_text, attachments_dc=None, docname='', out_for
         AssertionError: If the attachments_dc contains invalid keys or values.
     """
      
-    if attachments_dc is None:
-        attachments_dc = {}
-
-    if isinstance(input_latex_text, bytes):
-        input_latex_text = input_latex_text.decode('utf-8')
-    
-    if not docname:
-        docname = f'{time.time():.0f}_mydocument'
-
-    assert isinstance(input_latex_text, str), f'input_latex_text must be string type but is type="{type(input_latex_text)}"'
-    assert isinstance(docname, str), f'docname must be string type but is type="{type(docname)}"'
-
-
-    if latex_compiler is None:
-        
-        latex_compiler = config_latex_compiler_get()
-    else:
-        assert test_latex_compiler(latex_compiler), f'The given Latex Compiler "{latex_compiler}" was not found in PATH'
-
-    assert latex_compiler, 'No latex compiler found on the system'
-    
-    if n_times_make is None:
-        n_times_make = 1 if latex_compiler == 'pandoc' else 3
-        
-    if verb: log.info(f'Running with {latex_compiler=}')
-
-    # open a temp folder at base dir which will be deleted after completion
-    with tempfile.TemporaryDirectory(dir=base_dir) as od:
-        output_dir = Path(od).resolve() # should remove tilde
-        out_file_tex = f'{docname}.tex'
-        out_path_tex = os.path.join(output_dir, out_file_tex)
-        out_path_pdf = os.path.join(output_dir, f'{docname}.pdf')
-
-        if verb: log.info(f'Writing file: {out_file_tex}')
-        # write the tex file to the folder
-        with open(out_path_tex, 'w') as fp:
-            fp.write(input_latex_text)
-    
-        # write all attachments to the folder
-        for filename, file_content_bytes in attachments_dc.items():
-            assert isinstance(filename, str) and isinstance(file_content_bytes, (bytes, str)), f'attachments_dc must only contain path:bytes pairs but given was {filename=} with content type {type(file_content_bytes)}'
-            if verb: log.info(f'Writing file: {filename}')
-            out_path = os.path.join(output_dir, filename)
+    try:
             
-            with open(out_path, 'wb' if isinstance(file_content_bytes, bytes) else 'w') as fp:
-                fp.write(file_content_bytes)
+        if attachments_dc is None:
+            attachments_dc = {}
 
-        # Convert the TeX document to a PDF using the selected latex compiler
-        for i in range(n_times_make):
-            i1 = i+1
-            ir = True if (i1 < n_times_make) or ignore_error else False # only assure the last run did not fail if requested
-            if verb: log.info(f'Compilation run {i1}')
-            if latex_compiler == 'pandoc':
-                _procrun(['pandoc', '-o', out_path_pdf, out_path_tex], verb=verb, ignore_error=ir,  cwd=output_dir)
-            elif latex_compiler in ['pdflatex', 'lualatex', 'xelatex']:
-                _procrun([latex_compiler, "-interaction", "nonstopmode", out_file_tex], verb=verb, ignore_error=ir, cwd=output_dir)
-            else:
-                raise ValueError(f'Need to specify a valid latex compiler! Either "pdflatex", "lualatex", "xelatex", or "pandoc". Given was {latex_compiler=}')
+        if isinstance(input_latex_text, bytes):
+            input_latex_text = input_latex_text.decode('utf-8')
         
-        if out_format.lower() == 'zip':
-            if verb: log.info(f'Zipping folder to bytes: {output_dir}')
-            return zip_folder(output_dir)
-        elif out_format.lower() == 'pdf':
-            if verb: log.info(f'Reading PDF to bytes: {output_dir}')
-            logfile = os.path.join(output_dir, f'{docname}.log')
+        if not docname:
+            docname = f'{time.time():.0f}_mydocument'
 
-            showlog = False
-            if not os.path.exists(out_path_pdf) and verb > 2:
-                showlog = True
-            if verb > 3:
-                showlog = True
-            if not os.path.exists(logfile):
-                showlog = False
-            if showlog:
-                with open(logfile, 'r') as fp:
-                    log.warning(f"{'='*100}\nPDF FILE NOT FOUND! HERE IS THE LOG\n{'_'*20}\n{fp.read()}\n{'='*100}")
-                    
-            if not os.path.exists(out_path_pdf):
-                info_string = f"The file {out_path_pdf} does not exist."
-                if os.path.exists(output_dir):
-                    files_in_dir = os.listdir(output_dir)
-                    sep = '\n-'
-                    info_string += f"\The directory '{output_dir}' exists and contains the following files:\n{sep.join(files_in_dir)}"
-                else:
-                    info_string += f"\nThe directory {output_dir} does not exist either."
-                if os.path.exists(logfile):
-                    with open(logfile, 'r') as fp:
-                        s = fp.read()
-                        info_string += '\nHere is the last 500 chars from the log file:\n---------\n' + s[-500:]
-                        if verb and os.environ.get('PYDOCMAKER_TESTFULL'):
-                            log.error(((('>'*100) + '\n')*10) + s + (('<'*100) + '\n')*10)
+        assert isinstance(input_latex_text, str), f'input_latex_text must be string type but is type="{type(input_latex_text)}"'
+        assert isinstance(docname, str), f'docname must be string type but is type="{type(docname)}"'
 
-                info_string += '\n To debug the latex code you can have a look at doc.to_tex() or doc.show("tex") directly to see the source. You can also call doc.to_pdf("myfolder/mydoc.zip") to get the full folder directly'
 
-                raise FileNotFoundError(info_string)
+        if latex_compiler is None:
             
-            with open(out_path_pdf, 'rb') as fp:
-                bts = fp.read()
-            return bts
+            latex_compiler = config_latex_compiler_get()
         else:
-            raise ValueError(f'Unknown format requested: {out_format}. Allowed are only "zip" or "pdf"')
+            assert test_latex_compiler(latex_compiler), f'The given Latex Compiler "{latex_compiler}" was not found in PATH'
+
+        assert latex_compiler, 'No latex compiler found on the system'
+        
+        if n_times_make is None:
+            n_times_make = 1 if latex_compiler == 'pandoc' else 3
+            
+        if verb: log.info(f'Running with {latex_compiler=}')
+
+        # open a temp folder at base dir which will be deleted after completion
+        with tempfile.TemporaryDirectory(dir=base_dir) as od:
+            output_dir = Path(od).resolve() # should remove tilde
+            out_file_tex = f'{docname}.tex'
+            out_path_tex = os.path.join(output_dir, out_file_tex)
+            out_path_pdf = os.path.join(output_dir, f'{docname}.pdf')
+
+            if verb: log.info(f'Writing file: {out_file_tex}')
+            # write the tex file to the folder
+            with open(out_path_tex, 'w') as fp:
+                fp.write(input_latex_text)
+        
+            # write all attachments to the folder
+            for filename, file_content_bytes in attachments_dc.items():
+                assert isinstance(filename, str) and isinstance(file_content_bytes, (bytes, str)), f'attachments_dc must only contain path:bytes pairs but given was {filename=} with content type {type(file_content_bytes)}'
+                if verb: log.info(f'Writing file: {filename}')
+                out_path = os.path.join(output_dir, filename)
+                
+                with open(out_path, 'wb' if isinstance(file_content_bytes, bytes) else 'w') as fp:
+                    fp.write(file_content_bytes)
+
+            # Convert the TeX document to a PDF using the selected latex compiler
+            for i in range(n_times_make):
+                i1 = i+1
+                ir = True if (i1 < n_times_make) or ignore_error else False # only assure the last run did not fail if requested
+                if verb: log.info(f'Compilation run {i1}')
+                if latex_compiler == 'pandoc':
+                    _procrun(['pandoc', '-o', out_path_pdf, out_path_tex], verb=verb, ignore_error=ir,  cwd=output_dir)
+                elif latex_compiler in ['pdflatex', 'lualatex', 'xelatex']:
+                    _procrun([latex_compiler, "-interaction", "nonstopmode", out_file_tex], verb=verb, ignore_error=ir, cwd=output_dir)
+                else:
+                    raise ValueError(f'Need to specify a valid latex compiler! Either "pdflatex", "lualatex", "xelatex", or "pandoc". Given was {latex_compiler=}')
+            
+            if out_format.lower() == 'zip':
+                if verb: log.info(f'Zipping folder to bytes: {output_dir}')
+                return zip_folder(output_dir)
+            elif out_format.lower() == 'pdf':
+                if verb: log.info(f'Reading PDF to bytes: {output_dir}')
+                logfile = os.path.join(output_dir, f'{docname}.log')
+
+                showlog = False
+                if not os.path.exists(out_path_pdf) and verb > 2:
+                    showlog = True
+                if verb > 3:
+                    showlog = True
+                if not os.path.exists(logfile):
+                    showlog = False
+                if showlog:
+                    with open(logfile, 'r') as fp:
+                        log.warning(f"{'='*100}\nPDF FILE NOT FOUND! HERE IS THE LOG\n{'_'*20}\n{fp.read()}\n{'='*100}")
+                        
+                if not os.path.exists(out_path_pdf):
+                    info_string = f"The file {out_path_pdf} does not exist."
+                    if os.path.exists(output_dir):
+                        files_in_dir = os.listdir(output_dir)
+                        sep = '\n-'
+                        info_string += f"\The directory '{output_dir}' exists and contains the following files:\n{sep.join(files_in_dir)}"
+                    else:
+                        info_string += f"\nThe directory {output_dir} does not exist either."
+                    if os.path.exists(logfile):
+                        with open(logfile, 'r') as fp:
+                            s = fp.read()
+                            info_string += '\nHere is the last 500 chars from the log file:\n---------\n' + s[-500:]
+                            if verb and os.environ.get('PYDOCMAKER_TESTFULL'):
+                                log.error(((('>'*100) + '\n')*10) + s + (('<'*100) + '\n')*10)
+
+                    info_string += '\n To debug the latex code you can have a look at doc.to_tex() or doc.show("tex") directly to see the source. You can also call doc.to_pdf("myfolder/mydoc.zip") to get the full folder directly'
+
+                    raise FileNotFoundError(info_string)
+                
+                with open(out_path_pdf, 'rb') as fp:
+                    bts = fp.read()
+                return bts
+            else:
+                raise ValueError(f'Unknown format requested: {out_format}. Allowed are only "zip" or "pdf"')
 
 
+    except Exception as err:
+        try:
+            from pydocmaker import util
+            err.context = util.get_inp_context('main.tex', input = {'main.tex': input_latex_text, **(attachments_dc or {})})    
+        except Exception as err:
+            err.context = {}
+        
+        raise
 
+    

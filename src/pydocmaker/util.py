@@ -1,5 +1,6 @@
 import copy
 import os
+from pathlib import Path
 import re
 import tempfile
 from typing import Dict
@@ -239,3 +240,40 @@ class _raise_missing:
     @classmethod
     def __getattr__(self, name):
         raise ImportError('latex package not found. This needs the full pydocmaker installation. Please install pydocmaker with "pip install pydocmaker[full]" to use this function.')
+
+def bytes_path_exists(b: bytes, encoding: str = "utf-8") -> bool:
+    """Check if a bytes literal refers to an existing file/directory."""
+    try:
+        if isinstance(b, bytes):
+            b = b.decode()
+
+        return Path(b).exists()
+    except (UnicodeDecodeError, OSError):
+        return False
+    
+def get_inp_context(default_name='main', context:dict=None, **kw):
+    try:
+        context = context or {}
+        inp = kw.get('input')
+        
+        if not isinstance(inp, dict):
+            inp = {default_name: inp}
+        
+        inp.update(context)
+        context = {}
+
+        for k, v in inp.items():
+            if isinstance(v, Path) and v.exists():
+                context[k] = v.read_bytes()
+            elif isinstance(v, str) and os.path.exists(v):
+                context[k] = Path(v).read_bytes()
+            elif isinstance(v, str):
+                context[k] = v.encode()
+            elif isinstance(v, bytes):
+                context[k] = v
+            else:
+                context[k] = str(v)
+        return context    
+    except Exception as err:
+        return {}
+    
