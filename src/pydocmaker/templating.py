@@ -1,18 +1,26 @@
 
 import os
 import json
-from typing import List
+from typing import Iterable, List, Union
 from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader, ChoiceLoader, meta
+from jinja2 import Environment, FileSystemLoader, ChoiceLoader, meta, TemplateNotFound, Template
 
 
 default_template_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
 
 registered_template_dirs = set()
 
+def _remove_template_ext(filename):
+    parts = str(filename).split('.')
+    if parts[-1] in 'jinja2 j2 jinja j'.split():
+        return '.'.join(parts[:-1])
+    else:
+        return filename
+
 def register_new_template_dir(new_template_dir:str, check_exists=True) -> bool:
-    """Register a new template directory.
+    """Register a new template directory if its not already registered. 
+    NOTE: If its already registered this function does nothing without much overhead. 
 
     Args:
         new_template_dir (str): The path to the new template directory.
@@ -24,6 +32,8 @@ def register_new_template_dir(new_template_dir:str, check_exists=True) -> bool:
     Returns:
         bool: True if the directory was successfully registered, False otherwise.
     """
+    if isinstance(new_template_dir, Path):
+        new_template_dir = str(new_template_dir)
     if check_exists and not os.path.exists(new_template_dir):
         raise FileNotFoundError(f'The directory "{new_template_dir}" does not exist.')
     global registered_template_dirs
@@ -80,7 +90,7 @@ def test_template_exists(template_id, tformat = '', template_dir=None):
     return (template_id + tformat) in TemplateDirSource(template_dir)
 
 
-def get_available_template_ids(template_dir=None):
+def get_available_template_ids(template_dir=None) -> list:
     """
         This function retrieves the template IDs from the list of templates.
 
@@ -88,6 +98,22 @@ def get_available_template_ids(template_dir=None):
             list: A list of template IDs, which are the names of the templates without the file extension.
     """
     return TemplateDirSource(template_dir).get_template_ids()
+
+
+def get_template_params(template_id=None, template_dir=None, allow_fallback_jinja=True) -> dict:
+    """
+        This function retrieves the template params for one or many templates.
+
+        Returns:
+            list: A list of template IDs, which are the names of the templates without the file extension.
+    """
+    if template_id:
+        return TemplateDirSource(template_dir).get_params([template_id], allow_fallback_jinja=allow_fallback_jinja)
+    else:
+        return TemplateDirSource(template_dir).get_params(allow_fallback_jinja=allow_fallback_jinja)
+    
+def resolve_template_id(template_id, template_dir=None):
+    return TemplateDirSource(template_dir).resolve_template_id(template_id)
 
 
 class TemplateDirSource():
@@ -132,26 +158,128 @@ class TemplateDirSource():
         self.env = Environment(loader=ChoiceLoader(loaders))
             
 
-    def find_undeclared_variables(self, template):
-        """Find undeclared variables in a template.
+    def find_undeclared_variables(self, template:Union[Template, str]):
+        """Find undeclared variables in a Jinja2 template.
+
+        Accepts the ``template`` argument as any of the following:
+
+        * a :class:`pathlib.Path` or ``str`` **template ID** (e.g. ``"base.tex"``,
+          ``"base.html.j2"``) — the ID is resolved via ``resolve_template_id``
+          so that ``{% extends %}``, ``{% include %}``, etc. are followed
+          through by jinja2's loader.
+        * a ``str`` containing raw Jinja2 template source code
+        * a Jinja2 ``Template`` object loaded from a file (has a ``filename``
+          attribute pointing to an on-disk file)
+
+        Jinja2's ``env.parse()`` is used for all paths that go through the
+        loader, which automatically traces ``{% extends %}`` / ``{% include %}``
+        and collects variables from all included/extended templates.
+
+        Note: Jinja2 does not expose the original source of templates created
+        via ``Environment.from_string()`` (``name`` is ``None`` and there is
+        no ``filename``).  Passing such templates raises ``ValueError``.  Use
+        a raw source string instead.
 
         Args:
-            template (str): The template to analyze.
+            template: The template to analyze. See above for accepted types.
 
         Returns:
             set: A set of undeclared variable names used in the template.
         """
-        ast = self.env.parse(template)
-        return meta.find_undeclared_variables(ast)
+        # --- Case: already a Jinja2 Template object ---
+        if isinstance(template, Template):
+            env = getattr(template, "environment", None) or self.env
+            # Try to reconstruct the template ID (the "name" attribute) and
+            # re-load through the loader so that includes/extends are resolved.
+            tmp_name = getattr(template, "name", None)
+            if tmp_name is not None:
+                try:
+                    raw_source, _, _ = env.loader.get_source(env, tmp_name)
+                    return meta.find_undeclared_variables(env.parse(raw_source))
+                except Exception:
+                    pass
+            # If name is None (from_string) or loader can't resolve it,
+            # try filename as a last resort (read raw file directly).
+            fn = getattr(template, "filename", None)
+            if fn and os.path.exists(fn):
+                with open(fn, "r", encoding="utf-8") as f:
+                    raw_source = f.read()
+                return meta.find_undeclared_variables(env.parse(raw_source))
+            raise ValueError(
+                "Cannot extract source from template object. "
+                "Pass the template source as a string or use a template "
+                "loaded from a file."
+            )
+
+        # --- Case: Path / string ---
+        file_path = None
+        if isinstance(template, Path):
+            file_path = template
+            template = str(template)
+
+        if isinstance(template, str):
+            env = self.env
+            stripped = template.strip()
+
+            # If we got an absolute file path from a Path object, use it
+            # directly via a temporary loader so that jinja2's include/extends
+            # resolution works correctly.
+            if file_path and file_path.is_file():
+                abs_dir = str(file_path.parent)
+                abs_base = file_path.name
+                # Build a temporary loader hierarchy where the file's own
+                # directory is the first (highest-priority) search path so
+                # that relative includes/extends from the file itself work.
+                if isinstance(env.loader, ChoiceLoader):
+                    existing = env.loader.loaders.copy()
+                    new_loader = FileSystemLoader(abs_dir)
+                    env = Environment(loader=ChoiceLoader([new_loader] + existing))
+                else:
+                    env = Environment(
+                        loader=ChoiceLoader(
+                            [FileSystemLoader(abs_dir), env.loader]
+                        )
+                    )
+                # Now try resolving through the loader so includes are traced.
+                try:
+                    raw_source, _, _ = env.loader.get_source(env, abs_base)
+                    return meta.find_undeclared_variables(env.parse(raw_source))
+                except TemplateNotFound:
+                    pass
+
+            # --- Try to resolve via the loader (handles template IDs) ---
+            if env and env.loader:
+                try:
+                    actual_name = self.resolve_template_id(stripped)
+                    raw_source, _, _ = env.loader.get_source(env, actual_name)
+                    return meta.find_undeclared_variables(env.parse(raw_source))
+                except (KeyError, TemplateNotFound):
+                    pass
+
+                # Try get_source with the name as-is (handles e.g.
+                # "templates/base.html.j2" if a sub-loader knows that dir).
+                try:
+                    raw_source, _, _ = env.loader.get_source(env, stripped)
+                    return meta.find_undeclared_variables(env.parse(raw_source))
+                except TemplateNotFound:
+                    pass
+
+            # --- Fall back: raw source ---
+            return meta.find_undeclared_variables(env.parse(stripped))
+
+        raise TypeError(
+            f"template must be a Path, str, or Jinja2 Template object, "
+            f"got {type(template).__name__}"
+        )
     
 
     
-    def get_params(self, templates=None) -> dict:
+    def get_params(self, templates:Iterable[str]=None, allow_fallback_jinja=True) -> dict:
         """
         Returns a dictionary of (default) parameters for the specified templates.
 
         Args:
-            templates (iterable str): A dictionary of template params. If None, all templates are loaded.
+            templates (iterable str): A iterable of template ids/names. If None, all templates are loaded.
 
         Returns:
             dict: A dictionary of parameters for the specified templates with dict[template_id, dict[param_name,param_value]].
@@ -159,17 +287,26 @@ class TemplateDirSource():
         if templates is None:
             templates = self.get_templates()
         params = {}
-        for template in templates:
-            template_param_name = template.rsplit('.')[0] + '.params.json'
+        for template_id in templates:
+            template_param_name = template_id.rsplit('.')[0] + '.params.json'
             for template_dir in self.template_dirs:
                 fpath = os.path.join(template_dir, template_param_name)
                 if os.path.exists(fpath) and os.path.isfile(fpath):
                     with open(fpath, 'r') as f:
-                        params[template] = json.load(f)
+                        params[template_id] = json.load(f)   
                     break
+                if not template_id in params and allow_fallback_jinja:
+                    template = self.get(template_id, None)
+                    if not template is None:
+                        params[template_id] = {k:None for k in self.find_undeclared_variables(template)}
+
 
         return params
     
+    def get(self, template_id:str, default=None):
+        template_id = self.resolve_template_id(template_id)
+        return self.get_templates().get(template_id, default)
+
     def get_templates(self) -> dict:
         """Retrieves all the templates from the directory.
 
@@ -279,7 +416,7 @@ class TemplateDirSource():
         if my_template_id in templates:
             return my_template_id
         template_ids = {t.rsplit('.')[0]:t for t in templates} # filename no extension only
-        template_ids.update({t[:-3]:t for t in templates}) # remove ".j2" only
+        template_ids.update({_remove_template_ext(t):t for t in templates}) # remove ".j2" only
         if not my_template_id in template_ids:
             raise KeyError(f'{my_template_id=} was not found in {template_ids.keys()=}')
         return template_ids[my_template_id]
