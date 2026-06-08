@@ -91,58 +91,82 @@ def test_template_exists(template_id, tformat = '', template_dir=None):
 
 
 def get_available_template_ids(template_dir=None) -> list:
-    """
-        This function retrieves the template IDs from the list of templates.
+    """Retrieve the template IDs from the registered template directories.
 
-        Returns:
-            list: A list of template IDs, which are the names of the templates without the file extension.
+    Args:
+        template_dir (str, optional): A specific template directory to search.
+            If None, all registered template directories are searched.
+
+    Returns:
+        list: A list of template IDs (names without file extensions).
     """
     return TemplateDirSource(template_dir).get_template_ids()
 
 
 def get_template_params(template_id=None, template_dir=None, allow_fallback_jinja=True) -> dict:
-    """
-        This function retrieves the template params for one or many templates.
+    """Retrieve the parameters for one or more templates.
+    
+        When a .params.json file is found for a template, its contents are used as-is.
+        When no .params.json file exists and ``allow_fallback_jinja`` is True, parameters
+        are inferred from the template source via ``find_undeclared_variables``, in which
+        case all parameter values are set to ``None``.
+    Args:
+        template_id (str, optional): A specific template ID to get parameters for.
+            If None, parameters for all templates are returned.
+        template_dir (str, optional): A specific template directory to search.
+            If None, all registered template directories are searched.
+        allow_fallback_jinja (bool, optional): If True and no .params.json file is found,
+            infer parameters from undeclared variables in the template source. Defaults to True.
 
-        Returns:
-            list: A list of template IDs, which are the names of the templates without the file extension.
+    Returns:
+        dict: A dictionary of template parameters. If template_id is provided, the parameter dicts 
+            is returned directly for template_id. If template_id is None, keys are
+            template IDs mapping to their parameter dicts (including all templates).
     """
-    if template_id:
-        return TemplateDirSource(template_dir).get_params([template_id], allow_fallback_jinja=allow_fallback_jinja)
-    else:
-        return TemplateDirSource(template_dir).get_params(allow_fallback_jinja=allow_fallback_jinja)
+    return TemplateDirSource(template_dir).get_params(template_id, allow_fallback_jinja=allow_fallback_jinja)
     
 def resolve_template_id(template_id, template_dir=None):
+    """Resolve a template ID to its full file name.
+
+    Args:
+        template_id (str): The template ID to resolve (e.g. 'base', 'base.html', 'base.html.j2').
+        template_dir (str, optional): A specific template directory to search.
+            If None, all registered template directories are searched.
+
+    Returns:
+        str: The actual template file name resolved from the available templates.
+    """
     return TemplateDirSource(template_dir).resolve_template_id(template_id)
 
 
 class TemplateDirSource():
-    """
-    A class used to manage templates, parameters, and attachments from a specified directory.
+    """Manage templates, parameters, and attachments from specified directories.
 
     ...
 
     Attributes
     ----------
-    template_dir : str
-        a string representing the directory path where the templates are located
+    template_dirs : list
+        a list of directory paths where templates are located
     env : Environment
         an Environment object from the jinja2 library used to load templates
 
     Methods
     -------
-    get_params(templates=None)
+    get_params(templates=None, allow_fallback_jinja=True)
         Returns a dictionary of parameters for the specified templates.
     get_templates()
-        Returns a dictionary of templates in the directory.
+        Returns a dictionary of Jinja2 Template objects keyed by template name.
     get_template_ids()
-        Returns a list of template IDs.
+        Returns a list of template IDs (names without file extensions).
     get_attachments(templates=None)
         Returns a dictionary of attachments for the specified templates.
     get_all(load_params=True, load_attachments=True)
-        Returns a tuple containing dictionaries of templates, parameters, and attachments.
+        Returns a tuple of (templates dict, params dict, attachments dict).
     resolve_template_id(my_template_id)
-        Returns the full template name corresponding to the given template ID.
+        Returns the full template file name corresponding to the given template ID.
+    find_undeclared_variables(template)
+        Returns a set of variable names used in the template but not declared.
     """
 
 
@@ -156,7 +180,7 @@ class TemplateDirSource():
 
         loaders = [FileSystemLoader(template_dir) for template_dir in self.template_dirs]
         self.env = Environment(loader=ChoiceLoader(loaders))
-            
+             
 
     def find_undeclared_variables(self, template:Union[Template, str]):
         """Find undeclared variables in a Jinja2 template.
@@ -179,6 +203,10 @@ class TemplateDirSource():
         via ``Environment.from_string()`` (``name`` is ``None`` and there is
         no ``filename``).  Passing such templates raises ``ValueError``.  Use
         a raw source string instead.
+
+        Note: When results from this method are used by ``get_params`` with
+        ``allow_fallback_jinja=True``, each variable name is mapped to ``None``
+        as its value (e.g. ``{var_name: None for var_name in result}``).
 
         Args:
             template: The template to analyze. See above for accepted types.
@@ -278,12 +306,26 @@ class TemplateDirSource():
         """
         Returns a dictionary of (default) parameters for the specified templates.
 
+        When a .params.json file is found for a template, its contents are used as-is.
+        When no .params.json file exists and ``allow_fallback_jinja`` is True, parameters
+        are inferred from the template source via ``find_undeclared_variables``, in which
+        case all parameter values are set to ``None``.
+
         Args:
-            templates (iterable str): A iterable of template ids/names. If None, all templates are loaded.
+            templates (iterable str): An iterable of template ids/names. If None, all templates are loaded.
+            allow_fallback_jinja (bool, optional): If True and no .params.json file is found for a template,
+                infer parameters from undeclared variables in the template source with ``None`` values.
+                Defaults to True.
 
         Returns:
-            dict: A dictionary of parameters for the specified templates with dict[template_id, dict[param_name,param_value]].
+            dict: A dictionary keyed by template_id, where each value is a dict of
+                param_name to param_value. When parameters come from a .params.json file,
+                values are as defined in that file. When inferred via the Jinja2 fallback,
+                all values are ``None``.
         """
+        if isinstance(templates, str):
+            return self.get_params([templates], allow_fallback_jinja)[templates]
+
         if templates is None:
             templates = self.get_templates()
         params = {}
@@ -471,10 +513,31 @@ class DocTemplate():
 
     @staticmethod
     def test_tid_exists(template_id:str, tformat='', template_dir=None):
+        """Test if a template with the given ID and optional format exists.
+
+        Args:
+            template_id (str): The template ID to search for (e.g. 'base').
+            tformat (str, optional): The template format to look for ('tex', 'html', etc.).
+                If empty, checks for any format. Defaults to ''.
+            template_dir (str, optional): If given, only the specified template directory
+                is searched. Defaults to None.
+
+        Returns:
+            bool: True if a template with the given ID (and optional format) exists.
+        """
         return test_template_exists(template_id, tformat, template_dir)
     
     @staticmethod
     def get_available_tids(template_dir=None):
+        """Get the list of available template IDs.
+
+        Args:
+            template_dir (str, optional): A specific template directory to search.
+                If None, all registered template directories are searched.
+
+        Returns:
+            list: A list of template IDs (names without file extensions).
+        """
         return TemplateDirSource(template_dir).get_template_ids()
 
     def __init__(self, template, params=None, attachments = None, env=None, template_id=None) -> None:
@@ -514,6 +577,10 @@ class DocTemplate():
 
     def find_undeclared_variables(self):
         """Find undeclared variables in the template.
+
+        When results from this method are used by ``get_params`` with
+        ``allow_fallback_jinja=True``, each variable name is mapped to ``None``
+        as its value (e.g. ``{var_name: None for var_name in result}``).
 
         Returns:
             set: A set of undeclared variable names used in the template.
