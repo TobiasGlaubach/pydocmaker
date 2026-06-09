@@ -1,7 +1,7 @@
-__version__ = '2.6.7'
+__version__ = '2.6.8a'
 
 from pydocmaker.core import Doc, construct, constr, buildingblocks, print_to_pdf, make_pdf_from_tex, show_pdf, is_notebook
-from pydocmaker.util import upload_report_to_redmine, bcolors, txtcolor, colors_dc, _raise_missing
+from pydocmaker.util import upload_report_to_redmine, bcolors, txtcolor, colors_dc, _raise_missing, log
 
 from pydocmaker.backend.ex_docx import DocxFile, DocxFileW32, can_use_libreoffice, can_use_w32_word
 from pydocmaker.backend.ex_tex import can_run_pandoc
@@ -10,7 +10,7 @@ from pydocmaker.backend.pandoc_api import pandoc_convert_file, pandoc_set_allowe
 from pydocmaker.backend.pandoc_api import config_pandoc_allowed_set, config_pandoc_allowed_get
 
 
-from pydocmaker.templating import DocTemplate, TemplateDirSource, register_new_template_dir, get_registered_template_dirs, get_available_template_ids, test_template_exists, remove_from_template_dir
+from pydocmaker.templating import DocTemplate, TemplateDirSource, register_new_template_dir, get_registered_template_dirs, get_available_template_ids, test_template_exists, remove_from_template_dir, get_template_params, resolve_template_id
 
 
 try:

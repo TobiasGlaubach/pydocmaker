@@ -45,17 +45,12 @@ try:
     from docx import Document
 except ImportError:
     Document = None
+    
+try:
+    from pydocmaker.util import log
+except Exception as err:
+    from ..util import log
 
-import logging
-
-# Configure once
-logging.basicConfig(
-    level=logging.INFO,
-    format='[%(asctime)s | %(levelname)-8s | %(filename)-15s:%(lineno)3d] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-
-log = logging.getLogger(__name__)
 
 
 gwin32 = None
