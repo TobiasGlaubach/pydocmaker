@@ -5,28 +5,6 @@ from typing import Tuple
 
 from jinja2 import Template
 
-def _handle_template(template, default_template) -> Tuple[Template, dict]:
-    if template is None:
-        template = default_template
-
-    attachments = {}
-    if hasattr(template, 'render'):
-        template_obj = template
-        template_str = ''
-    elif isinstance(template, str) and os.path.exists(template):
-        with open(template, 'r') as fp:
-            template_str = fp.read()
-            template_obj = Template(template_str)
-    elif isinstance(template, str) and not template:
-        template_str = '{{ body }}'
-        template_obj = Template(template_str)
-    elif isinstance(template, str):
-        template_obj = Template(template)
-        template_str = str(template)
-    
-    else:
-        raise KeyError(f'Unknown template type! {type(template)=}')    
-    return template_obj, attachments, template_str
 
 
 
