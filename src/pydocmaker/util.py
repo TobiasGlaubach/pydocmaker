@@ -1,15 +1,32 @@
 import copy
+import enum
+import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePath
 import re
 import tempfile
-from typing import Dict
+from typing import Any, Dict
 import io, datetime
 import time
 import random
 import string
 from enum import Enum
 import re
+
+from jinja2 import Undefined
+UNDEFINED_PREFIX = '__jinja2.Undefined'
+
+import logging
+# Configure once
+logging.basicConfig(
+    level=logging.INFO,
+    # format='[%(asctime)s | %(levelname)-8s | %(filename)-15s:%(lineno)4d] %(message)s',
+    format='[%(asctime)s | %(levelname)-5s | %(name)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+log = logging.getLogger("pydocmaker")
+
 
 class bcolors(Enum):
     HEADER = '\033[95m'
@@ -276,4 +293,76 @@ def get_inp_context(default_name='main', context:dict=None, **kw):
         return context    
     except Exception as err:
         return {}
+
+
+def undefined_obj2str(obj:Undefined):
+    return undefined_name2str(obj.name)
+
+def undefined_name2str(name, sep=','):
+    return f'{UNDEFINED_PREFIX}{sep}{name}'
+
+def undefined_str2obj(s:str):
+    if isinstance(s, str) and s.startswith(UNDEFINED_PREFIX):
+        return Undefined(s.split(',')[-1])
+    return s
+
+def remove_undefined(params):
+    _filt = lambda v: isinstance(v, Undefined) or (isinstance(v, str) and v.startswith(UNDEFINED_PREFIX))
+    return {k:v for k,v in params.items() if not _filt(v)}
+
+class MyJSONDecoder(json.JSONDecoder):
+    def __init__(self, *args, **kwargs):
+        # Call parent constructor with custom object_hook
+        super().__init__(object_hook=self.custom_object_hook, *args, **kwargs)
+    
+    def custom_object_hook(self, dct):
+        """
+        Custom hook to transform decoded objects.
+        """
+        for key, value in dct.items():
+            if isinstance(value, str) and value.startswith(UNDEFINED_PREFIX):
+                dct[key] = undefined_str2obj(value)
+        return dct
+
+class CommonJSONEncoder(json.JSONEncoder):
+    def default(self, obj: Any) -> Any:
+        if isinstance(obj, Exception):
+            return {
+                "type": type(obj).__name__,
+                "message": str(obj),
+                "args": obj.args,
+                "module": type(obj).__module__,
+                "full_name": f"{type(obj).__module__}.{type(obj).__name__}"
+            }
+        if isinstance(obj, (datetime.datetime, datetime.date)):
+            return obj.isoformat()
+        if isinstance(obj, (set, frozenset)):
+            return list(obj)
+        if isinstance(obj, Path):
+            return str(obj)
+        if isinstance(obj, enum.Enum):
+            return obj.value
+        if isinstance(obj, bytes):
+            return obj.decode(errors="replace")
+        if isinstance(obj, type):
+            return f"<class '{type(obj).__module__}.{type(obj).__name__}'>"
+        if hasattr(obj, 'shape') and hasattr(obj, 'tolist'): # numpy array
+            return obj.tolist()
+        if hasattr(obj, 'columns') and hasattr(obj, 'index') and hasattr(obj, 'to_dict'): # pandas dataframe
+            return obj.to_dict()
+        if isinstance(obj, Undefined):
+            return undefined_name2str(obj.name)
+        
+        return super().default(obj)
+
+
+
+def limit_len(k, n_max =10, LR='L'):
+    if k is None:
+        return str(None)
+    k = str(k)
+    if LR == 'L':
+        return k if len(k) < n_max else k[:n_max]+'...'
+    else:
+        return k if len(k) < n_max else '...' + k[-n_max:]
     

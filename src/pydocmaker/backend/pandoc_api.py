@@ -17,16 +17,8 @@ import io
 from pathlib import Path
 
 
-import logging
+from pydocmaker.util import log
 
-# Configure once
-logging.basicConfig(
-    level=logging.INFO,
-    format='[%(asctime)s | %(levelname)-8s | %(filename)-15s:%(lineno)3d] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-
-log = logging.getLogger(__name__)
 
 
 allow_pandoc = True

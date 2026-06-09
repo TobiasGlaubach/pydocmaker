@@ -17,10 +17,21 @@ from typing import List
 
 from jinja2 import Template
 
+
 try:
-    from pydocmaker.backend.baseformatter import BaseFormatter, _handle_template
+    from pydocmaker.backend.baseformatter import BaseFormatter
 except Exception as err:
-    from .baseformatter import BaseFormatter, _handle_template
+    from .baseformatter import BaseFormatter
+
+try:
+    from pydocmaker.templating import handle_template
+except Exception as err:
+    from ..templating import handle_template
+
+try:
+    from pydocmaker import util
+except Exception as err:
+    from . import util
     
 try:
     from pydocmaker.backend.pandoc_api import can_run_pandoc, pandoc_convert
@@ -114,7 +125,7 @@ def convert(doc:List[dict], template = None, template_params=None, **kwargs):
     tmp = list(doc.values()) if isinstance(doc, dict) else doc
     body = html_renderer().format(tmp)
 
-    template_obj, attachments, template_str = _handle_template(template, __default_template)
+    template_obj, attachments, template_str = handle_template(template, __default_template, tformat='html')
     
     kw = copy.deepcopy(template_params)
 
@@ -126,6 +137,7 @@ def convert(doc:List[dict], template = None, template_params=None, **kwargs):
     if 'references' in kw:
         kw['references'] = {i:v for i, v in enumerate(kw['references'].values(), 1)} 
 
+    kw = util.remove_undefined(kw)
     doc_html = template_obj.render(**kw)
 
     return doc_html

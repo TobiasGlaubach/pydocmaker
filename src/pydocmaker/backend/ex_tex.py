@@ -24,17 +24,32 @@ from jinja2 import Template
 
 from typing import List
 import markdown
+
+
+
+
 try:
     import pydocmaker.backend.mdx_latex as mdx_latex
 except Exception as err:
     from . import mdx_latex
     
+try:
+    from pydocmaker import util
+except Exception as err:
+    from . import util
+    
+log = util.log
 
 try:
-    from pydocmaker.backend.baseformatter import BaseFormatter, _handle_template
+    from pydocmaker.backend.baseformatter import BaseFormatter
 except Exception as err:
-    from .baseformatter import BaseFormatter, _handle_template
-    
+    from .baseformatter import BaseFormatter
+
+try:
+    from pydocmaker.templating import handle_template
+except Exception as err:
+    from ..templating import handle_template
+
 try:
     from pydocmaker.backend import pdf_maker_tex
 except Exception as err:
@@ -133,7 +148,7 @@ def auto_escape_latex(params):
 
 
 
-def convert(doc:List[dict], with_attachments=True, files_to_upload=None, template = None, do_escape_template_params=False, template_params=None):
+def convert(doc:List[dict], with_attachments=True, files_to_upload=None, template = None, do_escape_template_params=False, template_params=None, verb=0):
 
     if not files_to_upload:
         files_to_upload = {}
@@ -156,13 +171,11 @@ def convert(doc:List[dict], with_attachments=True, files_to_upload=None, templat
 
     body = '\n'.join(s) if isinstance(s, list) else s
 
-    template_obj, attachments, template_str = _handle_template(template, __default_template)
+    template_obj, attachments, template_str = handle_template(template, __default_template, tformat='tex')
     
     if template == '':
-        s = 'It seems you have provided an empty template to use.'
-        s += '\nThis will most likely fail, since LaTeX actually needs imports etc. to work.'
-        s += '\nI will try anyways though.'
-        warnings.warn(s)
+        s = 'It seems you have provided an empty template to use. This will most likely fail, since LaTeX actually needs imports etc. to work. I will try anyways though.'
+        log.warning(s)
     
     kw = copy.deepcopy(template_params)
     if do_escape_template_params:
@@ -176,6 +189,14 @@ def convert(doc:List[dict], with_attachments=True, files_to_upload=None, templat
     if 'references' in kw:
         kw['references'] = {i:escape(v) for i, v in enumerate(kw['references'].values(), 1)} 
 
+    kw = util.remove_undefined(kw)
+    if verb > 1:
+        log.info(f'"tex" backend creating ".tex" document with')
+        log.info(f'   template={util.limit_len(template_obj, 30)!r}') 
+        log.info(f'      -> str: {util.limit_len(template_str, 30)!r}') 
+        log.info(f'   {kw.keys()=}')
+        log.info(f'   {attachments.keys()=}')
+
     doc_tex = template_obj.render(**kw)
     formatter.attachments.update(attachments)
 
@@ -185,7 +206,7 @@ def convert(doc:List[dict], with_attachments=True, files_to_upload=None, templat
         return doc_tex
     
 
-def make_pdf(doc:List[dict], files_to_upload=None, template = None, template_params=True, do_escape_template_params=False, docname=None, **kwargs):
+def make_pdf(doc:List[dict], files_to_upload=None, template = None, template_params=True, do_escape_template_params=False, docname=None, verb=0, **kwargs):
     """
     Generate a PDF document from a list of dictionaries.
 
@@ -203,11 +224,13 @@ def make_pdf(doc:List[dict], files_to_upload=None, template = None, template_par
         bytes: A bytes object containing the PDF data.
     """
 
-    latex_str, attachments_dc = convert(doc, files_to_upload=files_to_upload, template=template, template_params=template_params, do_escape_template_params=do_escape_template_params, with_attachments=True)
+    latex_str, attachments_dc = convert(doc, files_to_upload=files_to_upload, template=template, template_params=template_params, do_escape_template_params=do_escape_template_params, with_attachments=True, verb=verb)
+    if verb > 1:
+        log.info(f'"tex" backend creating ".tex" document from latex string {util.limit_len(latex_str, 30)!r} and attachments {attachments_dc.keys()!r}')        
     return pdf_maker_tex.make_pdf_from_tex(input_latex_text=latex_str, attachments_dc=attachments_dc, docname=docname, out_format='pdf', **kwargs)
 
     
-def make_pdf_zip(doc:List[dict], files_to_upload=None, template = None, template_params=True, do_escape_template_params=False, docname=None, **kwargs):
+def make_pdf_zip(doc:List[dict], files_to_upload=None, template = None, template_params=True, do_escape_template_params=False, docname=None, verb=0, **kwargs):
     """
     Generates a PDF zip file from a list of dictionaries.
 
@@ -227,8 +250,8 @@ def make_pdf_zip(doc:List[dict], files_to_upload=None, template = None, template
     
     if not files_to_upload:
         files_to_upload = {}
-    files_to_upload['doc.json'] = json.dumps(doc, indent=2)
-    latex_str, attachments_dc = convert(doc, files_to_upload=files_to_upload, template=template, template_params=template_params, do_escape_template_params=do_escape_template_params, with_attachments=True)
+    files_to_upload['doc.json'] = json.dumps(doc, cls=util.CommonJSONEncoder, indent=2)
+    latex_str, attachments_dc = convert(doc, files_to_upload=files_to_upload, template=template, template_params=template_params, do_escape_template_params=do_escape_template_params, with_attachments=True, verb=verb)
     return pdf_maker_tex.make_pdf_from_tex(input_latex_text=latex_str, attachments_dc=attachments_dc, docname=docname, out_format='zip', **kwargs)
 
     
