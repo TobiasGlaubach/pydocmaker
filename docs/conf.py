@@ -76,7 +76,7 @@ autoapi_dirs = [
 
 autoapi_ignore = ['*/tests/*', '*/examples/*']
 
-autoapi_add_toctree_entry = False
+autoapi_add_toctree_entry = True
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output

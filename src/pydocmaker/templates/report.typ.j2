@@ -1,9 +1,24 @@
+{% macro nonedefault(val) %}{% if val %} "{{ val }}" {% else %} none{% endif %}{% endmacro %}
+
+{% macro render_kvtable(mydict, prefix=None) %}
+table(
+  columns: (auto, 1fr),
+  stroke: none,
+{% for key, value in mydict.items() %}
+   [*{% if prefix %}{{ prefix }}{{loop.index}}{% else %}{{ key }}{% endif %}* <{{ key }}>], [{{ value }}],
+{% endfor %}
+)
+{% endmacro %}
+
+
 #import "@preview/based:0.2.0": base64
 
 // copied and modified from https://github.com/roland-KA/basic-report-typst-template/tree/main
 // THANKS!
 
 // ===== Functions for TITLE PAGE and COMPACT TITLE ===============
+
+#let powered_by_link = link("https://pypi.org/project/pydocmaker/")[pydocmaker]
 
 
 // ===== TITLE PAGE: `titlepage` ====================
@@ -34,18 +49,38 @@
     logo,
   )
 
-  v(6cm)                    // = 4 x 1.5 cm
+  v(4cm)                    // = 4 x 1.5 cm
 
   // ----- Title Category & Title ------------------------
   align(
     left,                   // 1 x 14pt + 2 x 36pt ≈ 2 x 1.5 cm
-    text(weight: "regular", size: 14pt, 
+    text(weight: "regular", size: 14pt, fill: luma(50%),
       doc-category),
   )
 
   text(weight: "light", size: 36pt,  fill: heading-color,
     doc-title,
   )
+
+{% if subtitle %}
+ v(0.3cm)
+
+  text(weight: "regular", size: 18pt, fill: luma(50%),
+    [{{ subtitle }}],
+  )
+{% endif %}
+
+{% if abstract %}
+ v(3cm)
+  text(weight: "bold", size: 11pt,
+    [Abstract: ]
+  )
+  text(weight: "regular", size: 9pt,
+    [{{ abstract }}],
+  )
+{% endif %}
+
+
 
   // ----- Info Block ------------------------
   set par(leading: 1em)  
@@ -55,8 +90,8 @@
 
 
 
-  let powered_by_link = link("https://pypi.org/project/pydocmaker/")[pydocmaker]
-  let watermark = ""
+
+  let watermark = [This document was generated with ] + powered_by_link
   let a = ""
   if author != none {
     let a = lower(author.trim())
@@ -77,61 +112,40 @@
         gutter: 2.5em,
         row-gutter: 0.5em,
         [#author-prefix], [#author],
+        {% if date %}
+        [Date:], [{{ date }}],
+        {% elif not hide_date %}
+        [Date:], [#datetime.today().display(datetime-fmt)],
+        {% endif %}
         {% if titlepage_info_dict %}
         {% for key, value in titlepage_info_dict.items() %}
         [{{ key }}], [{{ value }}],
         {% endfor %}
         {% endif %}
         {% if titlepage_info_dict and not "date" in titlepage_info_dict %}
-        {% if date %}
-        [Date:], [{{ date }}],
-        {% elif not hide_date %}
-        [Date:], [#datetime.today().display(datetime-fmt)],
-        {% endif %}
         {% endif %}
         {% if not hide_pydocmaker %}
         [], [],
+        [], [],
+        [], [],
+        [], [],
         grid.cell(colspan: 2)[#watermark],
         {% endif %}
+        // space at the bottom
+        [], [],
+        [], [],
+        [], [],
+        [], [],
+        [], [],
+        [], [],
+        [], [],
+        [], [],
+        [], [],
       )
     )
   )
 }
 
-// ===== COMPACT TITLE: `compact-title` ====================
-
-#let compact-title(
-  doc-category,
-  doc-title,
-  author,
-  logo,
-  heading-color,            // heading-color applies as well for the title
-  info-size,                // used throughout the document for "info text"
-  body-size,
-  label-size,
-  datetime-fmt,
-) = {
-  stack(
-      v(1.5cm - 0.6cm),     // 3.6cm top-margin -0.6cm + 1.5cm = 4.5cm 
-      box(height: 1.5cm, 
-        text(size: 1 * body-size, 
-          top-edge: "ascender",
-          doc-category) ),
-      box(height: 6cm,
-        par(leading: 0.5em,
-          text(weight: "bold",
-            size: 2 * body-size, fill: luma(40%).mix(heading-color),
-            top-edge: "ascender",
-            hyphenate: false,
-                doc-title) + "\n\n") +
-        text(size: label-size,
-          author + "\n" + 
-          {% if affiliation %} "{{ affiliation }}, " + {% endif %}
-          datetime.today().display(datetime-fmt)
-        )  
-      ),
-    )
-}
 
 // ----- Main Template Function: `basic-report` ----------------------
 
@@ -142,7 +156,6 @@
   logo: none,
   language: "en",
   show-outline: true,
-  compact-mode: false,
   heading-color: black,
   datetime-fmt: "[year]-[month]-[day]",
   body,
@@ -167,11 +180,11 @@
   let label-size = 9pt                          
   
   // are we inside or outside of the outline (for roman/arabic page numbers)?
-  let in-outline = state("in-outline", if compact-mode {false} else {true})    
+  let in-outline = state("in-outline", true)    
 
   // ----- Title Page ------------------------
 
-  if (not compact-mode and doc-title != none and doc-title != "") {
+  if (doc-title != none and doc-title != "") {
     counter(page).update(0)                     // so TOC after titlepage begins with page no 1 (roman)
     titlepage(
       doc-category,
@@ -212,7 +225,7 @@
             text(size: label-size,[{{ header_str_right | default("") }}]),          
             grid.cell(colspan: 2, line(length: 100%, stroke: 0.5pt)),
         )
-    }
+    },
     header-ascent: 1.5em,
     {% endif %}
 
@@ -246,8 +259,12 @@
 
   // ----- Table of Contents ------------------------
 
+    
+{% if not hide_toc %}
 
-  if (show-outline and not compact-mode) {
+
+  if (show-outline) {
+
     outline(
       title: if language == "de" { 
         "Inhalt"
@@ -288,20 +305,6 @@
     )
 
 
-
-
-{% macro render_kvtable(mydict, prefix=None) %}
-table(
-  columns: (auto, 1fr),
-  stroke: none,
-{% for key, value in mydict.items() %}
-   [*{% if prefix %}{{ prefix }}{{loop.index}}{% else %}{{ key }}{% endif %}* <{{ key }}>], [{{ value }}],
-{% endfor %}
-)
-{% endmacro %}
-
-
-
 {% if acronyms %}
 heading(level: 1, outlined: false)[List of Acronyms]
 {{ render_kvtable(acronyms, prefix=None) }}
@@ -328,7 +331,10 @@ heading(level: 1, outlined: false)[List of Reference Documents]
     in-outline.update(false)    // even if outline is not shown, we want to continue with arabic page numbers
     counter(page).update(1)
   }
-
+{% else %}
+    in-outline.update(false)    // even if outline is not shown, we want to continue with arabic page numbers
+    counter(page).update(1)
+{% endif %}
 
   // ----- Headings & Numbering Schemes ------------------------
 
@@ -345,28 +351,12 @@ heading(level: 1, outlined: false)[List of Reference Documents]
 
 
   // ----- Body Text ------------------------
-  
-  if compact-mode {             // compact title infos in compact-mode
-    compact-title(
-      doc-category,
-      doc-title,
-      author,
-      logo,
-      heading-color,            
-      info-size,                
-      body-size,
-      label-size,
-      datetime-fmt,
-    )
-  }
-
   body
 
 }
 
 
 
-{% macro nonedefault(val) %}{% if val %} "{{ val }}" {% else %} none{% endif %}{% endmacro %}
 
 #set document(title: [ {{ title }} ])
 
@@ -414,7 +404,6 @@ heading(level: 1, outlined: false)[List of Reference Documents]
   author: {{ nonedefault(author) }},
   logo: logo,
   language: "en",
-  compact-mode: {{ 'true' if compact_mode else 'false' }},
   it
 )
 

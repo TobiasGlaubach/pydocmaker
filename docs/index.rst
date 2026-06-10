@@ -56,7 +56,7 @@ Links
    :maxdepth: 3
    :caption: API-Reference
 
-   pydocmaker
+   pydocmaker/autoapi/index
 
 
 

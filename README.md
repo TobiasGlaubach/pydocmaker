@@ -25,6 +25,8 @@ A minimal easy to use python document maker to create reports in `pdf`, `md`, `t
 
 Full documentation at https://pydocmaker.readthedocs.io/en/latest/
 
+For an **example of a created PDF document** please see `README.pdf` (located within the root folder of this repository) which is this `README.md` file converted to pdf via `pydocmaker` and `typst` with the `report` template.  
+
 ## Installation
 
 Install via:
@@ -191,7 +193,7 @@ sudo apt update
 sudo apt install texlive-full
 ```
 
-On MacOS: @git
+On MacOS:
 
 ```bash
 brew install --cask mactex
@@ -233,11 +235,11 @@ brew install --cask libreoffice
 
 On Windows:
 
-**NOTE**: You need to add 
-
 ```bash
 winget install TheDocumentFoundation.LibreOffice
 ```
+
+**NOTE**: You need to add the folder with the libreoffice executeables to PATH in windows. 
 
 ### Writing Word docx Documents with templates and fields
 

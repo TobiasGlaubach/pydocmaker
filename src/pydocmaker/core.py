@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 import tempfile
 import time
-from typing import Any, Dict, List, BinaryIO, TextIO, Tuple, Union
+from typing import Any, Dict, List, BinaryIO, TextIO, Tuple, Union, IO, Optional, Sequence
 import warnings
 import zipfile
 
@@ -18,7 +18,13 @@ import os
 
 import shlex
 
-from .util import flatten_list, split_camel_case, upload_report_to_redmine, CommonJSONEncoder, MyJSONDecoder, limit_len, log
+import jinja2
+
+
+
+
+
+from .util import flatten_list, split_camel_case, upload_report_to_redmine, CommonJSONEncoder, MyJSONDecoder, limit_len, log, make_png_imageblob
 
 
 from .backend.ex_html import convert as to_html
@@ -40,6 +46,8 @@ from .templating import DocTemplate, TemplateDirSource, _remove_template_ext, de
 
 from .backend.pandoc_api import can_run_pandoc, pandoc_convert, pandoc_to_pdf
 
+from . import b64_data
+
 ALLOWED_ENGINES_PDF = 'tex latex typst typ word libreoffice pandoc'.split()
 
 np = None
@@ -54,17 +62,17 @@ _renderer_default = 'auto'
 
 def config_renderer_default_set(choice:str='auto'):
     """
-    Sets the PDF engine to be used for generating PDF documents.
+    Sets the default renderer for displaying reports within Python.
 
     Parameters:
     choice (str): The desired renderer for showing reports within python. Must be any of 'auto', 'rich', 'md', 'html', 'pdf'.
                   Default is 'auto'.
 
     Returns:
-    str: The selected renderer_default.
+        str: The selected renderer_default.
 
     Raises:
-    ValueError: If the provided choice is not one of the allowed options.
+        ValueError: If the provided choice is not one of the allowed options.
     """
     options = "auto rich md html pdf".split()
     choice = str(choice).lower()
@@ -75,13 +83,14 @@ def config_renderer_default_set(choice:str='auto'):
     _renderer_default = choice
     return _renderer_default
 
-def config_renderer_default_get():
+def config_renderer_default_get() -> str:
+    """Returns the currently configured default renderer."""
     global _renderer_default
     return _renderer_default
 
 
 
-def config_pdf_engine_set(choice:str='typst'):
+def config_pdf_engine_set(choice: str = 'typst') -> str:
     """
     Sets the PDF engine to be used for generating PDF documents.
 
@@ -105,16 +114,18 @@ def config_pdf_engine_set(choice:str='typst'):
     return _pdf_engine
 
 
-def config_pdf_engine_get():
+def config_pdf_engine_get() -> str:
+    """Returns the currently configured PDF engine, testing and setting one if none is configured."""
     global _pdf_engine
     if _pdf_engine is None:
         config_pdf_engine_testset()
-    return _pdf_engine
+    return str(_pdf_engine)
 
 
-def config_pdf_engine_test(raise_on_error=True, force_reload=False):
+
+def config_pdf_engine_test(raise_on_error: bool = True, force_reload: bool = False) -> bool:
     """
-    tests the availability of the currently configured PDF engine.
+    Tests the availability of the currently configured PDF engine.
 
     Args:
         raise_on_error (bool): If True, raises a ValueError if no valid compiler is found.
@@ -123,6 +134,7 @@ def config_pdf_engine_test(raise_on_error=True, force_reload=False):
     Returns:
         bool: True if a valid compiler is found, False otherwise.
     """
+
     res = False
     global _pdf_engine
     if _pdf_engine == 'typst':
@@ -144,16 +156,16 @@ def config_pdf_engine_test(raise_on_error=True, force_reload=False):
 
 
 
-def config_pdf_engine_scan(force_reload=False, firstonly=False):
+def config_pdf_engine_scan(force_reload: bool = False, firstonly: bool = False) -> Union[str, List[str]]:
     """
-    Configures the PDF engine and tests its availability.
+    Scans the system for available PDF engines and returns them.
 
     Args:
-        raise_on_error (bool): If True, raises a ValueError if no valid compiler is found.
-        force_reload (bool): If True, forces a reload of the PDF engine configuration.
+        force_reload (bool): If True, forces a reload of the PDF engine configuration cache.
+        firstonly (bool): If True, returns only the first available engine as a string.
 
     Returns:
-        bool: True if a valid compiler is found, False otherwise.
+        str | list[str]: A list of available engine names, or the first engine name if firstonly=True.
     """
     res = []
     if test_typst_installed(): res.append('typst')
@@ -169,17 +181,24 @@ def config_pdf_engine_scan(force_reload=False, firstonly=False):
     if firstonly and not res: return ''
     return res
 
-def config_pdf_engine_testset():
+def config_pdf_engine_testset() -> Optional[str]:
+    """Scans for available PDF engines, sets the first one found, and returns it."""
     eng = config_pdf_engine_scan(firstonly=True)
     if eng:
         return config_pdf_engine_set(eng)
     else:
         global _pdf_engine
         _pdf_engine = ''
+        return None
 
     
     
 def is_notebook() -> bool:
+    """Checks whether the current code is running inside a notebook environment (Jupyter, Colab, etc.).
+
+    Returns:
+        bool: True if running in a notebook environment, False otherwise.
+    """
     try:
         shell = get_ipython().__class__.__name__ # type: ignore
         if shell == 'ZMQInteractiveShell':
@@ -197,24 +216,25 @@ def is_notebook() -> bool:
     return False      # Probably standard Python interpreter
 
 
-def show_pdf(pdf_bytes:bytes, width=1000, height=1200):
+
+def show_pdf(pdf_bytes: bytes, width: int = 1000, height: int = 1200) -> None:
     """
     Display a PDF file within an IPython environment.
 
     This function takes a PDF file in bytes or base64 encoded string format and displays it within an IPython notebook.
 
     Parameters:
-    pdf_bytes (bytes or str): The PDF file in bytes or base64 encoded string format.
-    width (int, optional): The width of the IFrame in which the PDF is displayed. Default is 1000.
-    height (int, optional): The height of the IFrame in which the PDF is displayed. Default is 1200.
+        pdf_bytes (bytes or str): The PDF file in bytes or base64 encoded string format.
+        width (int, optional): The width of the IFrame in which the PDF is displayed. Default is 1000.
+        height (int, optional): The height of the IFrame in which the PDF is displayed. Default is 1200.
 
     Raises:
-    AssertionError: If the function is not called within an IPython environment.
+        AssertionError: If the function is not called within an IPython environment.
 
     Example:
-    >>> with open('example.pdf', 'rb') as file:
-    ...     pdf_bytes = file.read()
-    >>> show_pdf(pdf_bytes)
+        >>> with open('example.pdf', 'rb') as file:
+        ...     pdf_bytes = file.read()
+        >>> show_pdf(pdf_bytes)
     """
     assert is_notebook(), 'can only show a PDF file within an ipython environment!'
     from IPython.display import display, IFrame 
@@ -226,9 +246,17 @@ def show_pdf(pdf_bytes:bytes, width=1000, height=1200):
     display(IFrame(pdf_bytes, width=width, height=height))
 
 
-def _is_chapter(dc):
+def _is_chapter(dc: Dict[str, Any]) -> str:
+    """Extracts the chapter name from a markdown element if it is a chapter heading.
+
+    Args:
+        dc: A document part dictionary.
+
+    Returns:
+        str: The chapter name if dc is a chapter heading, empty string otherwise.
+    """
     global chapter_level
-    pre='#' * chapter_level
+    pre = '#' * chapter_level
     if not isinstance(dc, dict):
         return ''
     if not dc.get('typ') == 'markdown':
@@ -242,14 +270,14 @@ def _is_chapter(dc):
 
     
 
-def make_png_imageblob(im_bytes:str):
-    imageblob = 'data:image/png;base64,' + im_bytes
-    return imageblob
-    
 
+class constr:
+    """This is the basic schema for the main building blocks for a document.
 
-class constr():
-    """This is the basic schema for the main building blocks for a document"""
+    Provides static factory methods that create document part dictionaries
+    with a 'typ' key identifying the element type (meta, markdown, text,
+    latex, verbatim, line, image, table, iter, etc.).
+    """
 
     # some aliases
     typalias = {
@@ -263,7 +291,17 @@ class constr():
     }
 
     @staticmethod
-    def meta(children='', data=None, **kwargs):
+    def meta(children: str = '', data: Optional[Dict[str, Any]] = None, **kwargs: Any) -> Dict[str, Any]:
+        """Create a metadata document part dict.
+
+        Args:
+            children: Unused string content placeholder.
+            data: Dictionary of metadata key-value pairs.
+            **kwargs: Additional metadata fields.
+
+        Returns:
+            dict: Document part dict with typ='meta', children, and data.
+        """
         data = {k:v for k,v in data.items()} if data else {}
         data.update(kwargs)
         return {
@@ -273,7 +311,17 @@ class constr():
         }
     
     @staticmethod
-    def markdown(children='', color='', end=None):
+    def markdown(children: str = '', color: str = '', end: Optional[str] = None) -> Dict[str, Any]:
+        """Create a markdown document part dict.
+
+        Args:
+            children: The markdown text content.
+            color: Color for rendering (for HTML/LaTeX backends).
+            end: Custom line ending.
+
+        Returns:
+            dict: Document part dict with typ='markdown'.
+        """
         return {
             'typ': 'markdown',
             'children': children,
@@ -282,7 +330,17 @@ class constr():
         }
     
     @staticmethod
-    def text(children='', color='', end=None):
+    def text(children: str = '', color: str = '', end: Optional[str] = None) -> Dict[str, Any]:
+        """Create a plain text document part dict.
+
+        Args:
+            children: The plain text content.
+            color: Color for rendering (for HTML/LaTeX backends).
+            end: Custom line ending.
+
+        Returns:
+            dict: Document part dict with typ='text'.
+        """
         return {
             'typ': 'text',
             'children': children,
@@ -291,7 +349,17 @@ class constr():
         }
     
     @staticmethod
-    def line(children='', color='', end=None):
+    def line(children: str = '', color: str = '', end: Optional[str] = None) -> Dict[str, Any]:
+        """Create a line document part dict.
+
+        Args:
+            children: The text content for this line.
+            color: Color for rendering (for HTML/LaTeX backends).
+            end: Custom line ending (default '\n').
+
+        Returns:
+            dict: Document part dict with typ='line'.
+        """
         return {
             'typ': 'line',
             'children': children,
@@ -300,7 +368,17 @@ class constr():
         }
     
     @staticmethod
-    def latex(children='', color='', end=None):
+    def latex(children: str = '', color: str = '', end: Optional[str] = None) -> Dict[str, Any]:
+        """Create a LaTeX document part dict.
+
+        Args:
+            children: The LaTeX source code string.
+            color: Color for rendering (for HTML backends).
+            end: Custom line ending.
+
+        Returns:
+            dict: Document part dict with typ='latex'.
+        """
         return {
             'typ': 'latex',
             'children': children,
@@ -310,7 +388,17 @@ class constr():
     
 
     @staticmethod
-    def verbatim(children='', color='', end=None):
+    def verbatim(children: str = '', color: str = '', end: Optional[str] = None) -> Dict[str, Any]:
+        """Create a verbatim (pre-formatted text) document part dict.
+
+        Args:
+            children: The verbatim text content.
+            color: Color for rendering (for HTML/LaTeX backends).
+            end: Custom line ending.
+
+        Returns:
+            dict: Document part dict with typ='verbatim'.
+        """
         return {
             'typ': 'verbatim',
             'children': children,
@@ -319,7 +407,19 @@ class constr():
         }
     
     @staticmethod
-    def iter(children:list=None, color='', end=None):
+    def iter(children: Optional[List[Any]] = None, color: str = '', end: Optional[str] = None) -> Dict[str, Any]:
+        """Create an iter (iterator/loop) document part dict.
+
+        Used to wrap content that should be iterated over (flattened) during export.
+
+        Args:
+            children: List of document parts to iterate over.
+            color: Color for rendering (for HTML/LaTeX backends).
+            end: Custom line ending.
+
+        Returns:
+            dict: Document part dict with typ='iter'.
+        """
         return {
             'typ': 'iter',
             'children': [] if children is None else children,
@@ -328,7 +428,24 @@ class constr():
         }
     
     @staticmethod
-    def table(children:list=None, color='', end=None, header=None, caption=None, n_cols=None, n_rows=None, borders=True):
+    def table(children: Optional[List[List[Any]]] = None, color: str = '', end: Optional[str] = None,
+              header: Optional[List[Any]] = None, caption: str = '',
+              n_cols: Optional[int] = None, n_rows: Optional[int] = None, borders: bool = True) -> Dict[str, Any]:
+        """Create a table document part dict.
+
+        Args:
+            children: Matrix (list of lists) with formatable elements.
+            color: Color for rendering (for HTML/LaTeX backends).
+            end: Custom line ending.
+            header: Header row as a list of formatable elements.
+            caption: Caption text to place under/above the table.
+            n_cols: Number of columns (auto-detected from `children` if not given).
+            n_rows: Number of rows (auto-detected from `children` if not given).
+            borders: Whether the table should have lines between cells.
+
+        Returns:
+            dict: Document part dict with typ='table'.
+        """
         return {
             'typ': 'table',
             'children': children,
@@ -342,7 +459,21 @@ class constr():
         }
     
     @staticmethod
-    def image(imageblob='', caption='', children='', width=None, color='', end=None):
+    def image(imageblob: str = '', caption: str = '', children: str = '', width: Optional[float] = None,
+              color: str = '', end: Optional[str] = None) -> Dict[str, Any]:
+        """Create an image document part dict.
+
+        Args:
+            imageblob: Base64-encoded image data string.
+            caption: Caption text for the image.
+            children: Internal name/id for the image file. Auto-generated if empty.
+            width: Display width for the image in the document.
+            color: Color for rendering (for HTML/LaTeX backends).
+            end: Custom line ending.
+
+        Returns:
+            dict: Document part dict with typ='image'.
+        """
 
         if not children:
             # HACK: need to get format somehow
@@ -360,7 +491,24 @@ class constr():
     
 
     @staticmethod
-    def image_from_link(url, caption='', children='', width=None, color='', end=None):
+    def image_from_link(url: str, caption: str = '', children: str = '', width: Optional[float] = None,
+                        color: str = '', end: Optional[str] = None) -> Dict[str, Any]:
+        """Create an image document part by downloading an image from a URL.
+
+        Args:
+            url: The URL to download the image from.
+            caption: Caption text for the image. Derived from filename if empty.
+            children: Internal name/id for the image file. Derived from URL if empty.
+            width: Display width for the image in the document.
+            color: Color for rendering (for HTML/LaTeX backends).
+            end: Custom line ending.
+
+        Returns:
+            dict: Document part dict with typ='image' containing the downloaded image data.
+
+        Raises:
+            AssertionError: If url is empty or downloaded content is not an image MIME type.
+        """
         import requests
         assert url, 'need to give an URL!'
 
@@ -392,8 +540,24 @@ class constr():
 
 
     @staticmethod
-    def image_from_file(path, children='', caption='', width=None, color='', end=None):
+    def image_from_file(path: Union[str, 'os.PathLike', BinaryIO], children: str = '', caption: str = '',
+                        width: Optional[float] = None, color: str = '', end: Optional[str] = None) -> Dict[str, Any]:
+        """Create an image document part from a file path or file-like object.
 
+        Args:
+            path: File path string, PathLike object, or a file-like object with a read() method.
+            children: Internal name/id for the image file. Derived from filename if empty.
+            caption: Caption text for the image. Derived from children if empty.
+            width: Display width for the image in the document.
+            color: Color for rendering (for HTML/LaTeX backends).
+            end: Custom line ending.
+
+        Returns:
+            dict: Document part dict with typ='image' containing the image data.
+
+        Raises:
+            AssertionError: If path is empty or read content is not bytes.
+        """
         assert path, 'need to give a path!'
 
         if hasattr(path, 'read'):
@@ -414,17 +578,24 @@ class constr():
         return constr.image(imageblob=imageblob, children=children, caption=caption, width=width, color=color, end=end)
         
 
-    def image_from_fig(caption='', width=None, children=None, fig=None, color='', end=None, bbox_inches='tight', **kwargs):
-        """convert a matplotlib figure (or the current figure) to a document image dict to later add to a document
+    @staticmethod
+    def image_from_fig(caption: str = '', width: Optional[float] = None, children: Optional[str] = None,
+                       fig: Any = None, color: str = '', end: Optional[str] = None,
+                       bbox_inches: str = 'tight', **kwargs: Any) -> Dict[str, Any]:
+        """Convert a matplotlib figure (or the current figure) to a document image dict.
 
         Args:
-            caption (str, optional): the caption to give to the image. Defaults to ''.
-            width (float, optional): The width for the image to have in the document None will let the individual formatter determine the width. Defaults to None.
-            children (str, optional): A specific name/id to give to the image (will be auto generated if None). Defaults to None.
-            fig (matplotlib figure, optional): the figure which to upload (or the current figure if None). Defaults to None.
+            caption: The caption to give to the image.
+            width: The width for the image to have in the document. None lets the individual formatter determine the width.
+            children: A specific name/id to give to the image (will be auto generated if None).
+            fig: The matplotlib figure object (or the current figure if None).
+            color: Color for rendering (for HTML/LaTeX backends).
+            end: Custom line ending.
+            bbox_inches: Bounding box for the figure save (passed to matplotlib.savefig).
+            **kwargs: Additional keyword arguments passed to matplotlib.savefig.
 
         Returns:
-            dict
+            dict: Document part dict with typ='image' containing the rendered figure as base64.
         """
         if not 'plt' in locals():
             import matplotlib.pyplot as plt
@@ -446,17 +617,28 @@ class constr():
 
 
     @staticmethod
-    def image_from_obj(img, caption = '', width=None, children=None, color='', end=None):
-        """make a image type dict from given image of type matrix, filelike or PIL image
+    def image_from_obj(img: Any, caption: str = '', width: Optional[float] = None, children: Optional[str] = None,
+                       color: str = '', end: Optional[str] = None) -> Dict[str, Any]:
+        """Create an image document part from a matrix, file-like object, PIL Image, or numpy array.
+
+        Accepts various input types and converts them to a base64-encoded PNG image:
+        - 2D lists of lists -> numpy array -> PIL Image
+        - numpy arrays with shape -> PIL Image
+        - PIL Images -> file-like -> bytes -> base64
+        - File path strings -> file-like -> bytes -> base64
+        - Bytes -> base64
 
         Args:
-            im (np.array): the image as NxMx
-            caption (str, optional): the caption to give to the image. Defaults to ''.
-            width (float, optional): The width for the image to have in the document None will let the individual formatter determine the width. Defaults to None.
-            children (str, optional): A specific name/id to give to the image (will be auto generated if None). Defaults to None.
+            img: Image input. Can be a list of lists, numpy array, PIL Image, file path (str),
+                 file-like object with a read() method, or bytes.
+            caption: The caption to give to the image.
+            width: The width for the image to have in the document. None lets the formatter determine width.
+            children: A specific name/id for the image (auto-generated if None).
+            color: Color for rendering (for HTML/LaTeX backends).
+            end: Custom line ending.
 
         Returns:
-            dict with the results
+            dict: Document part dict with typ='image' containing the image data.
         """
         global np, gImage
 
@@ -509,26 +691,35 @@ buildingblocks = 'text markdown image verbatim iter line latex meta'.split()
 
 
 class Doc(UserList):
-            
-    """a collection of document parts to make a document (can be used like a list)"""
+    """A collection of document parts to make a document (can be used like a list).
 
-    DEFAULT_ADD_STRING_TYPE = 'markdown'
-    EXPORT_ENGINES = ['md', 'html', 'typst', 'json', 'docx', 'textile', 'ipynb', 'tex', 'redmine', 'pdf']
-    EXPORT_ENGINES_EXTENSIONS = {'md': '.md', 'html':'.html', 'typst': '.typ', 'json':'.json', 'docx': '.docx', 'textile': '.textile.zip', 'ipynb': '.ipynb', 'tex': '.tex.zip', 'pdf': '.pdf'}
+    The Doc class extends UserList and stores document parts as a list of dictionaries.
+    Each dictionary represents a document element with a 'typ' key identifying its type
+    (e.g., 'markdown', 'text', 'latex', 'image', 'table', 'iter', 'meta').
+
+    Attributes:
+        DEFAULT_ADD_STRING_TYPE: Default type used when adding plain strings to the document.
+        EXPORT_ENGINES: List of supported export format identifiers.
+        EXPORT_ENGINES_EXTENSIONS: Mapping of export format identifiers to their file extensions.
+    """
+
+    DEFAULT_ADD_STRING_TYPE: str = 'markdown'
+    EXPORT_ENGINES: List[str] = ['md', 'html', 'typst', 'json', 'docx', 'textile', 'ipynb', 'tex', 'redmine', 'pdf']
+    EXPORT_ENGINES_EXTENSIONS: Dict[str, str] = {'md': '.md', 'html': '.html', 'typst': '.typ', 'json': '.json', 'docx': '.docx', 'textile': '.textile.zip', 'ipynb': '.ipynb', 'tex': '.tex.zip', 'pdf': '.pdf'}
 
     @staticmethod
-    def load_json(path):
+    def load_json(path: Union[str, Path, BinaryIO, TextIO]) -> 'Doc':
         """Load a JSON file and return a Doc object.
 
         Args:
-            path (str or file-like object): The path to the JSON file or a file-like object.
+            path: The path to the JSON file, a URL string, or a file-like object.
 
         Returns:
             Doc: A Doc object initialized with the loaded JSON data.
 
         Raises:
             json.JSONDecodeError: If the JSON file is not valid.
-            TypeError: If the loaded JSON object is not of type list.
+            ValueError: If the remote response is not valid JSON.
         """
         if hasattr(path, 'read'): # test file pointer
             lst = json.load(path, cls=MyJSONDecoder)
@@ -552,17 +743,28 @@ class Doc(UserList):
             warnings.warn(f'The loaded json object is not of type list, but instead of type ({type(lst)=})')
         return Doc(lst)
     
-    def __init__(self, initial_data=None):
+    def __init__(self, initial_data: Optional[List[Dict[str, Any]]] = None) -> None:
+        """Initialize a Doc with optional initial list of document parts.
+
+        Args:
+            initial_data: Optional list of document part dictionaries.
+        """
         if initial_data is None:
             initial_data = []
 
         super().__init__(initial_data)
 
-    def __add__(a, b):
+    def __add__(a, b: Any) -> 'Doc':
         """Add (join) two Docs into a single one and return a new instance.
 
         This method combines two `Doc` objects into one. If `b` is a tuple or list containing a string and a default type,
         it uses the provided default type. If `b` is a string, it wraps it in a `Doc` object using the default type.
+
+        Args:
+            b: Content to append. Can be a Doc, list, tuple, or string.
+
+        Returns:
+            Doc: A new Doc instance with combined content.
         """
 
         default = a.DEFAULT_ADD_STRING_TYPE
@@ -583,19 +785,19 @@ class Doc(UserList):
             b = [b]
         return Doc(a + b)
     
-    def __iadd__(self, b):
+    def __iadd__(self, b: Any) -> 'Doc':
         """
         Add content to the current instance using the += operator.
 
-        Parameters:
-        b (str, tuple, list, or object with a dump method): The content to add.
-            - If `b` has a `dump` method, it will be called to get the content.
-            - If `b` is a tuple or list of length 2 with both elements being strings,
-            the first element is used as the key and the second as the value.
-            - If `b` is a string, it will be added with the default key.
+        Args:
+            b: The content to add. Can be a Doc, list, tuple, or string.
+                - If `b` has a `dump` method, it will be called to get the content.
+                - If `b` is a tuple or list of length 2 with both elements being strings,
+                the first element is used as the key and the second as the value.
+                - If `b` is a string, it will be added with the default key.
 
         Returns:
-        self: The modified instance after adding the content.
+            Doc: self (the modified instance after adding the content).
         """
         
         default = self.DEFAULT_ADD_STRING_TYPE
@@ -610,23 +812,31 @@ class Doc(UserList):
             self.add(k)
         return self
     
-    def flatten(self):
+    def flatten(self) -> 'Doc':
         """Unpacks all iterator elements within this document and returns a new flat document.
 
         Returns:
-            Doc: A new document with all elements flattened.
+            Doc: A new document with all elements flattened (iterators expanded in-place).
         """
         return Doc(flatten_list(self.dump()))
 
-    def add_chapter(self, chapter_name:str, chapter_index=None, color=''):
-        """Adds a new chapter to the document.
+    def add_chapter(self, chapter_name: str, chapter_index: Optional[int] = None, color: str = '') -> 'Doc':
+        """Adds a new chapter heading to the document.
+
+        The chapter is inserted after the chapter at the given index (if chapter_index is provided),
+        or appended to the end of the document.
 
         Args:
-            chapter_name (str): The name of the new chapter.
-            chapter_index (int, optional): The index after which chapter to insert the new chapter. If None, appends to the end.
+            chapter_name: The name/title of the new chapter.
+            chapter_index: The zero-based index of an existing chapter after which to insert.
+                If None, the new chapter is appended to the end.
+            color: Color for the chapter heading (for HTML/LaTeX backends).
+
+        Returns:
+            Doc: self (for method chaining).
 
         Raises:
-            AssertionError: If `chapter_name` is not a string or is empty.
+            AssertionError: If chapter_name is not a string, is empty, or already exists.
         """
         global chapter_level
         assert isinstance(chapter_name, str), f'chapter name must be type string but was {type(chapter_name)=} {chapter_name=}'
@@ -636,29 +846,30 @@ class Doc(UserList):
         self.add_kw('markdown', '#' * chapter_level + ' ' + chapter_name, chapter=chapter_index, color=color)
         return self
     
-    def get_chapter(self, chapter) -> List[dict]:
+    def get_chapter(self, chapter: str) -> List[Dict[str, Any]]:
         """Retrieves a specific chapter from the document.
 
         Args:
-            chapter (str): The name of the chapter to retrieve.
+            chapter: The name of the chapter to retrieve.
 
         Returns:
-            List[dict]: A list of dictionaries representing the content of the specified chapter.
+            List[Dict[str, Any]]: A list of dictionaries representing the content items in the specified chapter.
         """
         return self.get_chapters(as_ranges=False)[chapter]
     
-    def get_chapters(self, as_ranges=False) -> dict:
-        """Extracts chapters from the internal data and returns them as either dictionaries or ranges.
+    def get_chapters(self, as_ranges: bool = False) -> Union[Dict[str, List[Dict[str, Any]]], Dict[str, slice]]:
+        """Extracts chapter names and their content (or index ranges) from the document.
 
-        This method iterates through the internal data structure (represented by `self.data`) and identifies chapters based on a custom logic implemented in the `_is_chapter` function.
+        Iterates through the internal data and identifies chapters based on markdown heading elements
+        matched by the `_is_chapter` function.
 
         Args:
-            as_ranges (bool, optional): If True, returns chapters as dictionaries with keys as chapter names (obtained from the previous chapter) and values as ranges of indices (inclusive-exclusive) within the data list representing the chapter content. Defaults to False.
+            as_ranges: If False, returns chapter names mapped to their content lists.
+                If True, returns chapter names mapped to slice objects with start/stop indices.
 
         Returns:
-            dict or dict[str, range]:
-                If `as_ranges` is False, returns a dictionary where keys are chapter names and values are corresponding chapter content extracted from the data list using the identified ranges.
-                If `as_ranges` is True, returns a dictionary where keys are chapter names and values are ranges of indices (inclusive-exclusive) within the data list representing the chapter content.
+            Dict[str, List[Dict[str, Any]]] if as_ranges=False, or Dict[str, slice] if as_ranges=True.
+                Keys are chapter names. Values are either content lists or slice objects.
         """
 
         chapters = {}
@@ -683,16 +894,21 @@ class Doc(UserList):
             return chapters
 
 
-    def get_template_from_meta(self, tformat ='', template_dir = None, raise_on_error = False) -> DocTemplate:
-        """Gets the template from the metadata in this document if there is any defined.
+    def get_template_from_meta(self, tformat: str = '', template_dir: Optional[str] = None,
+                                raise_on_error: bool = False) -> Optional['DocTemplate']:
+        """Gets the template from the metadata in this document if one is defined.
+
+        Loads template parameters and attachments stored in the document's metadata element.
+        If a template_id is defined, resolves it from the template directory. If a raw
+        template string is stored instead, returns a DocTemplate wrapping it.
 
         Args:
-            tformat (str, optional): The format of the template either 'tex' or 'html'. Defaults to ''.
-            template_dir (str, optional): If this is given only this specific template dir is mounted to load templates from. Otherwise all registered templates are loaded
-            raise_on_error: (bool, optional): If this is False None will be returned in case of an error. Defaults to False.
-       
+            tformat: The format of the template ('tex', 'html', 'typ', etc.). Used to resolve template_id.
+            template_dir: If given, only this specific template directory is mounted for loading.
+            raise_on_error: If False, a template_id that cannot be resolved results in a warning and returns None.
+
         Returns:
-            DocTemplate: The template object if a template_id is found in the metadata, otherwise None.
+            DocTemplate if a template is found in metadata, None otherwise or on unresolved error.
         """
         meta = copy.deepcopy(self.get_meta({}).get("data", {}))
         template_id = meta.get("template_id", None)
@@ -729,25 +945,33 @@ class Doc(UserList):
 
     
 
-    def set_template_to_meta(self, template_id:str, with_params=True, with_assets=True, test_found=True, on_exist='fail', template_params:dict=None, tformat=None) -> dict:
+    def set_template_to_meta(self, template_id: str, with_params: bool = True, with_assets: bool = True,
+                              test_found: bool = True, on_exist: str = 'fail',
+                              template_params: Optional[Dict[str, Any]] = None,
+                              tformat: Optional[str] = None) -> Dict[str, Any]:
         """
         Sets a template by a given template_id to the document metadata.
 
-        Args:
-            template_id (str): The ID of the template to set.
-            with_params (bool, optional): Whether to include the (default) parameters from the template in the metadata. Defaults to True.
-            with_assets (bool, optional): Whether to include the assets (files) from the template in the metadata. Defaults to True.
-            test_found (bool, optional): Whether to test if the template exists before adding anything. Defaults to True.
-            on_exist (str, optional): What to do if the parameters or assets from a template already exist in the metadata. Can be 'fail', 'overwrite', or 'skip'. Defaults to 'fail'.
-            template_params (dict, optional): Additional parameters to add to the template. Defaults to None.
+        Copies template parameters and attachment files into the document's metadata element.
+        Controls behavior when the metadata already contains corresponding data via the on_exist parameter.
 
-        Raises:
-            FileNotFoundError: If the template with the given ID does not exist.
-            AssertionError: If overwrite protection is enabled and the template would overwrite existing data.
-            ValueError: If an unknown value is passed for the on_exist parameter.
+        Args:
+            template_id: The ID of the template to set.
+            with_params: Whether to include the default parameters from the template in the metadata.
+            with_assets: Whether to include the asset files from the template in the metadata.
+            test_found: Whether to verify the template exists before modifying metadata.
+            on_exist: What to do if parameters/assets from the template already exist in metadata.
+                'fail' raises an assertion, 'overwrite' replaces existing data, 'skip' preserves existing data.
+            template_params: Additional parameters to merge into the template parameters.
+            tformat: Template format override ('tex', 'html', 'typ', etc.).
 
         Returns:
-            dict: the meta elements data (content)
+            dict: The merged data content of the updated metadata element.
+
+        Raises:
+            FileNotFoundError: If test_found is True and the template_id does not exist.
+            AssertionError: If on_exist='fail' and template params/assets would overwrite existing metadata.
+            ValueError: If on_exist is not 'fail', 'overwrite', or 'skip'.
         """
         if (test_found or with_params or with_assets) and not DocTemplate.test_tid_exists(template_id, tformat=tformat):
             available_tids = TemplateDirSource(None).get_template_ids()
@@ -805,17 +1029,22 @@ class Doc(UserList):
         return self.update_meta(meta)
     
 
-    def parse_filename_meta(self, doc_name, regex_pattern: str, fancy_title_analysis=True) -> dict:
+    def parse_filename_meta(self, doc_name: str, regex_pattern: Union[str, Sequence[str]],
+                            fancy_title_analysis: bool = True) -> Dict[str, Any]:
         r"""
-        Parses the metadata from a document name using a regular expression pattern.
+        Parses metadata from a document name using a regular expression pattern.
+
+        Extracts named groups from a regex match against doc_name and stores them in the document's metadata.
+        Optionally performs fancy title analysis: resolves camelCasing and detects "signed" status.
 
         Args:
-            doc_name (str): The name of the document.
-            regex_pattern (str): The regular expression pattern to use for parsing (can also give multiple as list or tuple).
-            fancy_title_analysis (bool, optional): Will Analyse the title for "signed" in it and also resolve CamelCasing from it
+            doc_name: The document name to parse.
+            regex_pattern: A regex pattern string or sequence of pattern strings with named groups.
+            fancy_title_analysis: If True, attempts to detect "signed" status, resolves camelCasing,
+                and cleans up the title string.
 
         Returns:
-            dict: A dictionary containing the parsed metadata.
+            dict: A dictionary containing the parsed metadata, including 'doc_name' key.
 
         Example:
             >>> import pydocmaker as pyd
@@ -824,7 +1053,6 @@ class Doc(UserList):
             >>> doc_name = 'myfile-01-draft'
             >>> doc.parse_filename_meta(doc_name, regex_pattern)
             {'doc_name': 'myfile-01-draft', 'title': 'myfile', 'version': '01', 'state': 'draft'}
-
         """
 
         if isinstance(regex_pattern, str):
@@ -848,21 +1076,21 @@ class Doc(UserList):
         self.update_meta(dc)
         return dc
 
-    def set_meta(self, *args, **kwargs) -> dict:
+    def set_meta(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
         """
-        Sets the metadata for this document. 
+        Replaces the metadata for this document with the provided content.
         Can be used in two ways:
         - By passing a dictionary: `.set_meta({'doc_name': 'test'})`
         - By passing keyword arguments: `.set_meta(doc_name='test')`
 
-        This method updates the existing metadata or creates new metadata if it doesn't exist.
+        This method replaces all existing metadata or creates new metadata if it doesn't exist.
 
         Args:
             *args: A single dictionary containing metadata.
             **kwargs: Key-value pairs representing metadata.
 
         Returns:
-            dict: The updated metadata.
+            dict: The new metadata content (the merged data dict).
         """
         data = next(iter(args), {})
         data.update(kwargs)
@@ -877,31 +1105,51 @@ class Doc(UserList):
             meta['data'].update(data)
             return meta['data']
         
-    def get_meta(self, default=None) -> Union[Dict, None]:
-        """gets the (first) meta element in this document if it exists. If not returns None"""
+    def get_meta(self, default: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+        """Gets the first metadata element in this document if it exists.
+
+        Args:
+            default: Value to return if no metadata element is found.
+
+        Returns:
+            The metadata dict (with 'typ', 'children', 'data' keys) if found, or default.
+        """
         return next((k for k in self if isinstance(k, dict) and k.get('typ') == 'meta'), default)
     
-    def get_metadata(self) -> Union[Dict, None]:
-        """Equivalent to self.get_meta(default={}).get('data', {})
-        Gets the data of the (first) meta element in this document if it exists. 
-        If not exists an new empty dict is returned"""
+    def get_metadata(self) -> Dict[str, Any]:
+        """Gets the data dict from the first metadata element.
+
+        Gets the 'data' key content from the first metadata element.
+        If no metadata element exists, returns an empty dict.
+
+        Returns:
+            dict: The metadata data dictionary, or empty dict if none exists.
+        """
         return self.get_meta(default={}).get('data', {})
     
     def has_meta(self) -> bool:
-        """tests if this document has one or more metadata objects"""
+        """Tests if this document has one or more metadata objects.
+
+        Returns:
+            bool: True if a metadata element exists, False otherwise.
+        """
         return False if self.get_meta() is None else True
     
-    def update_meta(self, *args, **kwargs) -> Union[Dict, None]:
+    def update_meta(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
         """Updates the metadata element in this document if it exists.
-        If not, it will be added with the content provided. The content can be
-        provided either as a dictionary or as keyword arguments.
+        If no metadata element exists, it will be created with the provided content.
+        The content can be provided either as a dictionary (positional arg) or as keyword arguments.
 
         Examples:
             .update_meta({'doc_name': 'test'})
             .update_meta(doc_name='test')
 
+        Args:
+            *args: A single dictionary containing metadata fields to update.
+            **kwargs: Key-value pairs representing metadata fields to update.
+
         Returns:
-            dict: The updated metadata content.
+            dict: The updated metadata data content.
         """
         
         data = next(iter(args), {})
@@ -915,16 +1163,21 @@ class Doc(UserList):
             meta['data'].update(**data)
             return meta['data']
 
-    def add_meta(self, *args, **kwargs) -> dict:
-        """Adds a metadata element to this document. If the metadata already exists,
-        it will be updated. The content can be provided either as a dictionary or as keyword arguments.
+    def add_meta(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+        """Adds a metadata element to this document. If metadata already exists,
+        it will be updated via update_meta instead. The content can be provided
+        either as a dictionary (positional arg) or as keyword arguments.
 
         Examples:
             .add_meta({'doc_name': 'test'})
             .add_meta(doc_name='test')
 
+        Args:
+            *args: A single dictionary containing metadata fields.
+            **kwargs: Key-value pairs representing metadata fields.
+
         Returns:
-            dict: The metadata element's data (content).
+            dict: The metadata data content (from the added or updated element).
         """
         data = next(iter(args), {})
         data.update(kwargs)
@@ -936,19 +1189,28 @@ class Doc(UserList):
             self.add(el)
             return el['data']
         
-    def add(self, part:dict=None, index=None, chapter=None, color='', end=None):
+    def add(self, part: Optional[Union[Dict[str, Any], str]] = None, index: Optional[int] = None,
+            chapter: Optional[Union[str, int]] = None, color: str = '', end: Optional[str] = None) -> 'Doc':
         """Appends a new document part to the given location or end of this document.
 
+        If part is a string, it is automatically converted to a 'text' type document part.
+        If chapter is given, the part is inserted at the end of that chapter (or the chapter is created).
+        If index is given, the part is inserted at that list position.
+
         Args:
-            part (dict): The part to add. See the `constr` class for all possible parts.
-            index (int, optional): The index where to insert the part. If None, appends to the end.
-            chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
-            color (str, optional): any color which can be rendered by html or latex (ONLY VALID FOR string INPUTS!). Empty string for default.
-            end (str, optional): If you want to insert a different line ending (than the default) for this element set this argument to any string. None for default.
+            part: The document part dict (from constr methods) or string to add.
+            index: The list index where to insert the part. If None, appends to the end.
+            chapter: The chapter name or zero-based chapter index where to insert.
+                If None, appends to the end.
+            color: Color for rendering (only valid for string inputs).
+            end: Custom line ending (only valid for string inputs).
+
+        Returns:
+            Doc: self (for method chaining).
 
         Raises:
-            ValueError: If the `part` is invalid, or if both `index` and `chapter` are specified.
-            AssertionError: If `index` is not an integer or is out of bounds.
+            AssertionError: If part is empty, both index and chapter are specified,
+                or index is out of bounds.
         """
         assert part, f'need to give an element_to_add!, but got {type(part)=} {part=}'
         
@@ -983,82 +1245,107 @@ class Doc(UserList):
 
 
         
-    def add_kw(self, typ, children=None, index=None, chapter=None, color='', end=None, **kwargs):
-        """add a document part to this document with a given typ
+    def add_kw(self, typ: str, children: Optional[Union[str, List[Any]]] = None,
+               index: Optional[int] = None, chapter: Optional[Union[str, int]] = None,
+               color: str = '', end: Optional[str] = None, **kwargs: Any) -> 'Doc':
+        """Add a document part to this document with a given type.
+
+        Internally creates a document part dict via the `construct` function and calls `add()`.
 
         Args:
-            typ (str, optional): one of the allowed document part types. Either 'markdown', 'verbatim', 'text', 'iter' or 'image'.
-            children (str or list): the "children" for this element. Either text directly (as string) or a list of other parts
-            index (int, optional): The index where to insert the part. If None, appends to the end.
-            chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
-            color (str, optional): any color which can be rendered by html or latex. Empty string for default.
-            end (str, optional): If you want to insert a different line ending (than the default) for this element set this argument to any string. None for default.
+            typ: One of the allowed document part types ('markdown', 'verbatim', 'text', 'iter', 'image', 'table', 'latex', 'meta', 'line').
+            children: The content for this element. Either a string directly or a list of other document parts.
+            index: The list index where to insert the part. If None, appends to the end.
+            chapter: The chapter name or zero-based chapter index. If None, appends to the end.
+            color: Color for rendering (for HTML/LaTeX backends).
+            end: Custom line ending.
+            **kwargs: Additional keyword arguments passed to the document part constructor.
 
-            kwargs: the kwargs for such a document part
+        Returns:
+            Doc: self (for method chaining).
         """
         assert typ, 'need to give a content type!'
         self.add(construct(typ, children=children, color=color, end=end, **kwargs), index=index, chapter=chapter)
         return self
     
-
-    def add_text(self, children=None, index=None, chapter=None, color='', **kwargs):
-        """add a raw text part to this document
+    def add_text(self, children: Optional[Union[str, List[Any]]] = None, index: Optional[int] = None,
+                 chapter: Optional[Union[str, int]] = None, color: str = '', **kwargs: Any) -> 'Doc':
+        """Add a raw text part to this document.
 
         Args:
-            children (str or list): the "children" for this element. Either text directly (as string) or a list of other parts
-            index (int, optional): The index where to insert the part. If None, appends to the end.
-            chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
-            color (str, optional): any color which can be rendered by html or latex. Empty string for default.
+            children: The text content or list of items.
+            index: The list index where to insert. If None, appends to end.
+            chapter: Chapter name or index for insertion. If None, appends to end.
+            color: Color for rendering (for HTML/LaTeX backends).
+            **kwargs: Additional keyword arguments for the text element.
 
-            kwargs: the kwargs for such a document part
+        Returns:
+            Doc: self (for method chaining).
         """
         self.add(construct('text', children=children, color=color, **kwargs), index=index, chapter=chapter)
         return self
 
 
-    def add_tex(self, children=None, index=None, chapter=None, color='', end=None, **kwargs):
-        """add a latex part to this document
+    def add_tex(self, children: Optional[Union[str, List[Any]]] = None, index: Optional[int] = None,
+                chapter: Optional[Union[str, int]] = None, color: str = '', end: Optional[str] = None,
+                **kwargs: Any) -> 'Doc':
+        """Add a LaTeX part to this document.
 
         Args:
-            children (str or list): the "children" for this element. Either text directly (as string) or a list of other parts
-            index (int, optional): The index where to insert the part. If None, appends to the end.
-            chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
-            color (str, optional): any color which can be rendered by html or latex. Empty string for default.
+            children: The LaTeX source content or list of items.
+            index: The list index where to insert. If None, appends to end.
+            chapter: Chapter name or index for insertion. If None, appends to end.
+            color: Color for rendering (for HTML backends).
+            end: Custom line ending.
+            **kwargs: Additional keyword arguments for the LaTeX element.
 
-            kwargs: the kwargs for such a document part
+        Returns:
+            Doc: self (for method chaining).
         """
         self.add(construct('latex', children=children, color=color, end=end, **kwargs), index=index, chapter=chapter)
         return self
 
-    def add_md(self, children=None, index=None, chapter=None, color='', end=None, **kwargs):
-        """add a markdown document part to this document
+    def add_md(self, children: Optional[Union[str, List[Any]]] = None, index: Optional[int] = None,
+               chapter: Optional[Union[str, int]] = None, color: str = '', end: Optional[str] = None,
+               **kwargs: Any) -> 'Doc':
+        """Add a markdown document part to this document.
 
         Args:
-            children (str or list): the "children" for this element. Either text directly (as string) or a list of other parts
-            index (int, optional): The index where to insert the part. If None, appends to the end.
-            chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
-            color (str, optional): any color which can be rendered by html or latex. Empty string for default.
-            end (str, optional): If you want to insert a different line ending (than the default) for this element set this argument to any string. None for default.
+            children: The markdown content or list of items.
+            index: The list index where to insert. If None, appends to end.
+            chapter: Chapter name or index for insertion. If None, appends to end.
+            color: Color for rendering (for HTML/LaTeX backends).
+            end: Custom line ending.
+            **kwargs: Additional keyword arguments for the markdown element.
 
-            kwargs: the kwargs for such a document part
+        Returns:
+            Doc: self (for method chaining).
         """
         self.add(construct('markdown', children=children, color=color, end=end, **kwargs), index=index, chapter=chapter)
         return self
     
-    def add_table(self, children=None, index=None, chapter=None, color='', end=None, header=None, caption='', n_rows=None, n_cols=None, borders=True, **kwargs):
-        """add a table element to this document
+    def add_table(self, children: Optional[List[List[Any]]] = None, index: Optional[int] = None,
+                  chapter: Optional[Union[str, int]] = None, color: str = '', end: Optional[str] = None,
+                  header: Optional[List[Any]] = None, caption: str = '',
+                  n_rows: Optional[int] = None, n_cols: Optional[int] = None,
+                  borders: bool = True, **kwargs: Any) -> 'Doc':
+        """Add a table element to this document.
 
         Args:
-            children (list of lists): the "children" for this element. Must be a matrix (list of lists) with formatable elements in it.
-            index (int, optional): The index where to insert the part. If None, appends to the end.
-            chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
-            color (str, optional): any color which can be rendered by html or latex. Empty string for default.
-            end (str, optional): If you want to insert a different line ending (than the default) for this element set this argument to any string. None for default.
-            header (list, optional): The header row for the table. If given it must be a list with formatable elements in it.
-            caption (str, optional): The caption to place at/under the table. Empty for no caption.
-            n_rows (int, optional): The number of rows to give this table. If not given it will be determined from the number of rows in children.
-            n_cols (int, optional): The number of columns to give this table. If not given it will be determined from the max number of columns in all rows in children.
-            borders (bool, optional): Whether or not the table should have lines between its cells.
+            children: Matrix (list of lists) with formatable elements.
+            index: The list index where to insert. If None, appends to end.
+            chapter: Chapter name or index for insertion. If None, appends to end.
+            color: Color for rendering (for HTML/LaTeX backends).
+            end: Custom line ending.
+            header: Header row as a list of formatable elements.
+            caption: Caption text to place at/under the table.
+            n_rows: Number of rows (auto-detected from children if not given).
+            n_cols: Number of columns (auto-detected from children if not given).
+            borders: Whether the table should have lines between its cells.
+            **kwargs: Additional keyword arguments.
+
+        Returns:
+            Doc: self (for method chaining).
         """
         if header: kwargs['header'] = header
         if n_rows: kwargs['n_rows'] = n_rows
@@ -1068,60 +1355,79 @@ class Doc(UserList):
         self.add(constr.table(children=children, color=color, end=end, **kwargs), index=index, chapter=chapter)
         return self
     
-    def add_pre(self, children=None, index=None, chapter=None, color='', end=None, **kwargs):
-        """add a verbaim (pre formatted) document part to this document
+    def add_pre(self, children: Optional[Union[str, List[Any]]] = None, index: Optional[int] = None,
+                chapter: Optional[Union[str, int]] = None, color: str = '', end: Optional[str] = None,
+                **kwargs: Any) -> 'Doc':
+        """Add a verbatim (pre-formatted) document part to this document.
 
         Args:
-            children (str or list): the "children" for this element. Either text directly (as string) or a list of other parts
-            index (int, optional): The index where to insert the part. If None, appends to the end.
-            chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
-            color (str, optional): any color which can be rendered by html or latex. Empty string for default.
-            end (str, optional): If you want to insert a different line ending (than the default) for this element set this argument to any string. None for default.
+            children: The verbatim text content or list of items.
+            index: The list index where to insert. If None, appends to end.
+            chapter: Chapter name or index for insertion. If None, appends to end.
+            color: Color for rendering (for HTML/LaTeX backends).
+            end: Custom line ending.
+            **kwargs: Additional keyword arguments for the verbatim element.
 
-            kwargs: the kwargs for such a document part
+        Returns:
+            Doc: self (for method chaining).
         """
         self.add(construct('verbatim', children=children, color=color, end=end, **kwargs), index=index, chapter=chapter)
         return self
     
 
-    def add_fig(self, fig=None, caption = '', width=None, bbox_inches='tight', children=None, index=None, chapter=None, color='', end=None, **kwargs):
-        """add a pyplot figure type dict from given image input.
-        
-        Args:
-            fig (matplotlib figure, optional): the figure which to upload (or the current figure if None). Defaults to None.
-            caption (str, optional): the caption to give to the image. Defaults to ''.
-            width (float, optional): The width for the image to have in the document None will let the individual formatter determine the width. Defaults to None.
-            bbox_inches (str, optional): will give better spacing for matplotlib figures.
-            children (str, optional): A specific name/id to give to the image (will be auto generated if None). Defaults to None.
-            index (int, optional): The index where to insert the part. If None, appends to the end.
-            chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
-            color (str, optional): any color which can be rendered by html or latex. Empty string for default.
-            end (str, optional): If you want to insert a different line ending (than the default) for this element set this argument to any string. None for default.
+    def add_fig(self, fig: Any = None, caption: str = '', width: Optional[float] = None,
+                bbox_inches: str = 'tight', children: Optional[str] = None,
+                index: Optional[int] = None, chapter: Optional[Union[str, int]] = None,
+                color: str = '', end: Optional[str] = None, **kwargs: Any) -> 'Doc':
+        """Add a matplotlib figure to this document as an image element.
 
+        Args:
+            fig: Matplotlib figure object (or None to use current figure).
+            caption: The caption to give to the image.
+            width: The width for the image in the document. None lets the formatter decide.
+            bbox_inches: Bounding box for figure save (passed to matplotlib.savefig).
+            children: Specific name/id for the image (auto-generated if None).
+            index: The list index where to insert. If None, appends to end.
+            chapter: Chapter name or index for insertion. If None, appends to end.
+            color: Color for rendering (for HTML/LaTeX backends).
+            end: Custom line ending.
+            **kwargs: Additional keyword arguments passed to matplotlib.savefig.
+
+        Returns:
+            Doc: self (for method chaining).
         """
         self.add(constr.image_from_fig(caption=caption, width=width, bbox_inches=bbox_inches, children=children, fig=fig, color=color, end=end, **kwargs), index=index, chapter=chapter)
         return self
     
 
-    def add_image(self, image, caption = '', width=None, children=None, index=None, chapter=None, color='', end=None, **kwargs):
-        """add an image type dict from given image input.
-        image can be of type:
-            - pyplot figure
-            - link to download an image from
-            - filelike
-            - numpy NxMx1 or NxMx3 matrix
-            - PIL image
+    def add_image(self, image: Any, caption: str = '', width: Optional[float] = None,
+                  children: Optional[str] = None, index: Optional[int] = None,
+                  chapter: Optional[Union[str, int]] = None, color: str = '',
+                  end: Optional[str] = None, **kwargs: Any) -> 'Doc':
+        """Add an image element to this document from various input types.
+
+        Image input can be:
+            -  HTTP URL string (downloaded automatically)
+            -  File path string (local file)
+            -  Base64-encoded image data string
+            -  Matplotlib Figure object
+            -  NumPy array (NxM, NxMx1, or NxMx3)
+            -  PIL Image object
+            -  File-like object with read() method
 
         Args:
-            im (np.array): the image as NxMx
-            caption (str, optional): the caption to give to the image. Defaults to ''.
-            width (float, optional): The width for the image to have in the document None will let the individual formatter determine the width. Defaults to None.
-            children (str, optional): A specific name/id to give to the image (will be auto generated if None). Defaults to None.
-            index (int, optional): The index where to insert the part. If None, appends to the end.
-            chapter (str | int, optional): The chapter name or index where to insert the part. If None, appends to the end.
-            color (str, optional): any color which can be rendered by html or latex. Empty string for default.
-            end (str, optional): If you want to insert a different line ending (than the default)  for this element set this argument to any string. None for default.
+            image: The image source. See supported types above.
+            caption: The caption to give to the image.
+            width: The width for the image in the document. None lets the formatter decide.
+            children: Specific name/id for the image (auto-generated if None).
+            index: The list index where to insert. If None, appends to end.
+            chapter: Chapter name or index for insertion. If None, appends to end.
+            color: Color for rendering (for HTML/LaTeX backends).
+            end: Custom line ending.
+            **kwargs: Additional keyword arguments.
 
+        Returns:
+            Doc: self (for method chaining).
         """
 
         if isinstance(image, str) and image.startswith('http'):
@@ -1139,19 +1445,35 @@ class Doc(UserList):
         return self
     
 
-    def dump(self) -> List[Dict]:
-        """dump this document to a basic list of dicts for document parts
+    def dump(self) -> List[Dict[str, Any]]:
+        """Dump this document to a basic list of dicts (deep copy).
 
         Returns:
-            list: the individual parts of the document
+            List[Dict[str, Any]]: The individual parts of the document as a list of deep-copied dictionaries.
         """
         return [copy.deepcopy(v) for v in self]
     
-    def _ret(self, m, path_or_stream):
-        """internal method to return or write data"""
-        
+    def _ret(self, m: Union[str, bytes], path_or_stream: Optional[Union[str, Path, IO[Any]]]) -> Union[str, bytes, bool, None]:
+        """Internal method to return or write data to a path, stream, or return the value.
 
-        if path_or_stream and isinstance(path_or_stream, str):
+        Args:
+            m: The data to write (string or bytes).
+            path_or_stream: Path string, Path object, or file-like object to write to.
+                If None, returns the data directly.
+
+        Returns:
+            The written data (str or bytes) if path_or_stream is None.
+            True if written to a path/stream.
+        """
+        
+        if path_or_stream and isinstance(path_or_stream, Path):
+            if isinstance(m, str):
+                path_or_stream.write_text(m)
+            else:
+                path_or_stream.write_bytes(m)
+            return True
+
+        elif path_or_stream and isinstance(path_or_stream, str):
             mode = 'w' if isinstance(m, str) else 'wb'
             encoding = 'utf-8' if isinstance(m, str) else None
 
@@ -1172,42 +1494,63 @@ class Doc(UserList):
         else:
             return m
     
-    def dumps(self, path_or_stream=None) -> str:
-        """alias for self.to_json"""
-        return self.to_json(path_or_stream)
-
-    def to_json(self, path_or_stream=None) -> str:
-        """
-        Converts the current object to a JSON file.
+    def dumps(self, path_or_stream: Optional[Union[str, Path, IO[str]]] = None) -> str:
+        """Alias for self.to_json.
 
         Args:
-            path_or_stream (str or io.IOBase, optional): The path to save the file to, or a file-like object to write the data to. If not provided, the data will be returned as string.
+            path_or_stream: Path to save to, or file-like object. If None, returns string.
 
         Returns:
-            str: The JSON data as string, or True if the data was saved successfully to a file or stream.
+            str: The JSON data as string if path_or_stream is None, or True if written to a file/stream.
+        """
+        return self.to_json(path_or_stream)
+
+    def to_json(self, path_or_stream: Optional[Union[str, Path, IO[str]]] = None) -> str:
+        """
+        Converts the current document to a JSON file or string.
+
+        Args:
+            path_or_stream: Path string, Path object, or file-like object to write the data to.
+                If None, the JSON string is returned.
+
+        Returns:
+            str: The JSON data as a string if path_or_stream is None.
+                True if the data was saved successfully to a file or stream.
         """
         return self._ret(json.dumps(self.dump(), cls=CommonJSONEncoder, indent=2), path_or_stream)
 
-    def to_markdown(self, path_or_stream=None, embed_images=True) -> str:
+    def to_markdown(self, path_or_stream: Optional[Union[str, Path, IO[str]]] = None, embed_images: bool = True) -> Union[str, bool]:
         """
-        Converts the current object to a Markdown string or writes it to a file.
+        Converts the current document to a Markdown string or writes it to a file.
 
         Args:
-            path_or_stream (str or io.IOBase, optional): The path to save the Markdown file to, or a file-like object to write the data to. If not provided, the Markdown string will be returned.
-            embed_images (bool, optional): Whether to embed images as base64 strings within the Markdown. Defaults to True.
+            path_or_stream: Path string, Path object, or file-like object to write to.
+                If None, the Markdown string is returned.
+            embed_images: Whether to embed images as base64 strings within the Markdown.
 
         Returns:
-            str or bool: The Markdown string if `path_or_stream` is not provided, or True if the Markdown was successfully written to the file or stream.
+            The Markdown string if path_or_stream is None.
+            True if the Markdown was successfully written to a file or stream.
         """
         return self._ret(to_markdown(self.dump(), embed_images=embed_images), path_or_stream)
 
-    def to_docx(self, path_or_stream=None, template:str=None, template_params=None, use_w32=False, as_pdf=False, compress_images=False, allow_pandoc=True) -> bytes:
+    def to_docx(self, path_or_stream: Optional[Union[str, Path, IO[bytes]]] = None,
+                template: Optional[str] = None, template_params: Optional[Dict[str, Any]] = None,
+                use_w32: bool = False, as_pdf: bool = False, compress_images: bool = False,
+                allow_pandoc: bool = True) -> Union[bytes, bool]:
         """
-        Converts the current object to a DOCX file, or a PDF file via DOCX (WARNING some options need win32com and word installed if selected).
+        Converts the current document to a DOCX file, or a PDF file via DOCX.
+        WARNING: Some PDF options require win32com and Microsoft Word installed.
 
         Args:
-            template (str, optional): Path to a DOCX template file. Defaults to None.
-            template_params (dict, optional): Parameters to replace fields in the template. Defaults to None.
+            path_or_stream: Path string, Path object, or file-like object to write to.
+                If None, the DOCX bytes are returned.
+            template: Path to a DOCX template file. Defaults to None (default template).
+            template_params: Dictionary of parameters to replace fields in the template.
+            use_w32: Whether to use win32com for document field updating (needs win32com + Word installed).
+            as_pdf: Whether to output the document as a PDF (via docx + win32com).
+            compress_images: Whether to compress images in the document using win32com.
+            allow_pandoc: Whether to allow pandoc to be used instead of python-docx (usually produces nicer documents).
             use_w32 (bool, optional): Whether to use win32com for document field updating and any of the following arguments, THIS OPTION NEEDS win32com and word installed. Defaults to False.
             as_pdf (bool, optional): Whether to output the document as a PDF (via docx and win32com). Defaults to False.
             compress_images (bool, optional): Whether to compress images in the document using win32com. Defaults to False.
@@ -1223,30 +1566,38 @@ class Doc(UserList):
         filename = os.path.basename(path_or_stream) if isinstance(path_or_stream, (str, Path)) else None
         return self._ret(to_docx(self.dump(), filename=filename, template=template, template_params=template_params, use_w32=use_w32, as_pdf=as_pdf, compress_images=compress_images, allow_pandoc=allow_pandoc), path_or_stream)        
 
-    def to_ipynb(self, path_or_stream=None) -> str:
+    def to_ipynb(self, path_or_stream: Optional[Union[str, Path, IO[str]]] = None) -> Union[str, bool]:
         """
-        Converts the current object to an ipynb (iPython notebook) file.
+        Converts the current document to an ipynb (IPython notebook) file.
 
         Args:
-            path_or_stream (str or io.IOBase, optional): The path to save the file to, or a file-like object to write the data to. If not provided, the data will be returned as string.
+            path_or_stream: Path string, Path object, or file-like object to write to.
+                If None, the JSON string is returned.
 
         Returns:
-            str: The data as string, or True if the data was saved successfully to a file or stream.
+            The JSON string if path_or_stream is None.
+            True if successfully written to a file or stream.
         """
         return self._ret(to_ipynb(self.dump()), path_or_stream)
     
-    def to_html(self, path_or_stream=None, template=None, template_params=None) -> str:
+    def to_html(self, path_or_stream: Optional[Union[str, Path, IO[str]]] = None,
+                template: Optional[Any] = None,
+                template_params: Optional[Dict[str, Any]] = None) -> str:
         """
-        Converts the current object to a HTML file.
+        Converts the current document to a HTML file/string.
+
+        Uses template parameters from document metadata if no explicit template is provided.
 
         Args:
-            path_or_stream (str or io.IOBase, optional): The path to save the file to, or a file-like object to write the data to. If not provided, the data will be returned as string.
-            template (str, optional): A string containing the LaTeX code for the document template. Either a Jinja2 Latex template, or a string
-                If not provided, a default template will be used.
-            template_params (dict, optional): A dictionary containing the parameters for the document template which will be parsed to the "render" method of Jinja2
+            path_or_stream: Path string, Path object, or file-like object to write to.
+            template: A Jinja2 Template object or string for the HTML template.
+                If None, a default template or one from document metadata is used.
+            template_params: Dictionary of parameters for the HTML template, passed to Jinja2's render method.
+                Merged with template parameters from document metadata.
 
         Returns:
-            str: The data as string, or True if the data was saved successfully to a file or stream.
+            str: The HTML content if path_or_stream is None.
+                True if the data was saved successfully to a file or stream.
         """
         params = {}
         meta = self.get_meta(default={}).get('data', {})
@@ -1269,18 +1620,24 @@ class Doc(UserList):
         # missing fields (e.g. empty <title>, missing references table).
         return self._ret(to_html(self.dump(), template=template, template_params=params), path_or_stream)
 
-    def to_typst(self, path_or_stream=None, template=None, template_params=None) -> str:
+    def to_typst(self, path_or_stream: Optional[Union[str, Path, IO[str]]] = None,
+                 template: Optional[Union[str, jinja2.Template]] = None,
+                 template_params: Optional[Dict[str, Any]] = None) -> str:
         """
-        Converts the current object to a Typst file.
+        Converts the current document to a Typst file/string.
+
+        Uses template parameters from document metadata if no explicit template is provided.
 
         Args:
-            path_or_stream (str or io.IOBase, optional): The path to save the file to, or a file-like object to write the data to. If not provided, the data will be returned as string.
-            template (str, optional): A string containing the LaTeX code for the document template. Either a Jinja2 Latex template, or a string
-                If not provided, a default template will be used.
-            template_params (dict, optional): A dictionary containing the parameters for the document template which will be parsed to the "render" method of Jinja2
+            path_or_stream: Path string, Path object, or file-like object to write to.
+            template: A Jinja2 Template object or string for the Typst template.
+                If None, a default template or one from document metadata is used.
+            template_params: Dictionary of parameters for the Typst template, passed to Jinja2's render method.
+                Merged with template parameters from document metadata.
 
         Returns:
-            str: The data as string, or True if the data was saved successfully to a file or stream.
+            str: The Typst source if path_or_stream is None.
+                True if the data was saved successfully to a file or stream.
         """
         params = {}
         meta = self.get_meta(default={}).get('data', {})
@@ -1299,35 +1656,59 @@ class Doc(UserList):
         return self._ret(to_typst(self.dump(), template=template, template_params=params), path_or_stream)
         
 
-    def to_pdf(self, path_or_stream=None, docname='', files_to_upload=None, base_dir=None, engine=None, latex_compiler=None, n_times_make=None, verb=0, ignore_error=True, template=None, template_params=None, do_escape_template_params='auto', **kwargs) -> Union[str, bytes, bool]:
-        """Converts the current object to a PDF file or zipped latex project folder.
+    def to_pdf(self, 
+               path_or_stream:Union[str,Path,IO[bytes]]=None, 
+               docname:str='', 
+               files_to_upload:Union[Dict[str,bytes],None]=None, 
+               base_dir:Union[str,None]=None, 
+               engine:Union[str,None]=None, 
+               latex_compiler:Union[str,None]=None, 
+               n_times_make:Union[int,None]=None, 
+               verb:int=0, 
+               ignore_error:bool=True, 
+               template:Union[str, jinja2.Template, None]=None, 
+               template_params:Union[Dict[str,Any],None]=None, 
+               do_escape_template_params:str='auto', 
+               **kwargs) -> Union[str, bytes, bool]:
+        """Converts the current object to a PDF file or zipped LaTeX project folder.
 
         Args:
             path_or_stream (str or file-like object, optional): The output destination.
-                If it's a string ending with '.pdf', it will be written in pdf format to the given path.
-                If it's a string ending with '.zip', the whole project folder used for making the pdf file will be zipped and saved under the given path.
+                If it's a string ending with '.pdf', it will be written in PDF format to the given path.
+                If it's a string ending with '.zip', the whole project folder used for making the PDF file will be zipped and saved under the given path.
                 If it's 'zip' or 'pdf', the data will be returned in the given format.
                 If it's None, the PDF data will be returned as a bytes object.
             docname (str, optional): The name of the output document. Defaults to a unix timestamp followed by '_mydocument'.
-            files_to_upload (optional): A list of files to be uploaded with the document.
+            files_to_upload (dict, optional): A dictionary of files to be included with the document.
             base_dir (str, optional): The directory to use as the base directory for the temporary directory.
                 Defaults to the system's default temporary directory.
-            engine (str, optional): the pdf engine to use (either "typst", "tex", "word", or "libreoffice"). If None, the currently configured engine will be queried via config_pdf_engine_get().
-            latex_compiler (str, optional): Only used if engine resolves to "tex". The LaTeX compiler to use. Either 'pdflatex', 'lualatex', 'xelatex', or 'pandoc'.
-                If not specified, the function will try to use 'pandoc', 'pdflatex', 'lualatex', or 'xelatex' in that order.
-            n_times_make (int, optional): Only used if engine resolves to "tex". The number of times to run the LaTeX compiler. Defaults to 1 for pandoc and 3 for all others.
+            engine (str, optional): The PDF engine to use (one of "typst", "tex", "latextex", "word", "libreoffice", or "pandoc").
+                If None, the engine is first inferred from the template via determine_engine_from_template(), then from any default
+                template in meta via get_template_from_meta(), and finally from the config via config_pdf_engine_get().
+            latex_compiler (str, optional): Only used if engine resolves to "tex". The LaTeX compiler to use.
+                Either 'pdflatex', 'lualatex', 'xelatex', or 'pandoc'. If not specified, the function will try to
+                use 'pandoc', 'pdflatex', 'lualatex', or 'xelatex' in that order.
+            n_times_make (int, optional): Only used if engine resolves to "tex". The number of times to run the LaTeX compiler.
+                Defaults to 1 for pandoc and 3 for all others.
             verb (int, optional): The verbosity level (0, 1, 2). If greater than 0, the function will print more and more debug information. Defaults to 0.
-            ignore_error (bool, optional): Whether to ignore errors during the LaTeX compilation. Defaults to True.
-            template (str, optional): A string containing the LaTeX code for the document template. Either a Jinja2 Latex template, or a string
-                If not provided, a default template will be used.
-            template_params (dict, optional): A dictionary containing the parameters for the document template which will be parsed to the "render" method of Jinja2
-            do_escape_template_params (bool, optional): Only valid for Latex templates. Whether to escape the template parameters. "auto" will scan for %%latex at the start of a string to determine if its a latex string. Defaults to 'auto'.
+            ignore_error (bool, optional): Whether to ignore errors during compilation. Defaults to True.
+            template (str, optional): A string containing the document template code (either a Jinja2 template or plain LaTeX/Typst).
+                If not provided, a default template will be used based on the detected format or configured engine.
+            template_params (dict, optional): A dictionary containing parameters for the document template, passed to the "render" method of Jinja2.
+            do_escape_template_params (str | bool, optional): Only valid for LaTeX templates. Whether to escape the template parameters.
+                "auto" will scan for %%latex at the start of a string to determine if it's a LaTeX string.
+                Defaults to 'auto'.
 
         Returns:
-            str: Either the data as string, or bytes depending on if its binary. Or True|False to indicate if the data was saved successfully to a file or stream.
+            Union[str, bytes, bool]: If path_or_stream is a file path, returns True on success or False on failure.
+                If path_or_stream is 'pdf', 'zip', or None, returns the output as a bytes object (or str for certain engines).
 
         Raises:
             Warning: If the provided file path does not end with '.zip' or '.pdf', a warning is issued and the file is assumed to be in PDF format.
+
+        See Also:
+            additional_files (dict, optional): Passed via **kwargs; merged into files_to_upload.
+            attachments (dict, optional): Passed via **kwargs; merged into files_to_upload.
         """
 
 
@@ -1354,7 +1735,7 @@ class Doc(UserList):
         elif not template is None:
             tformat = determine_engine_from_template(template, engine)
         else:
-            tformat = 'tex' if engine.endswith('tex') else ('typ' if engine.startswith('typ') else 'html')
+            tformat = 'tex' if engine.endswith('tex') else ('typ' if engine.startswith('typ') else None)
 
         mytemplate = None
         if template is None:
@@ -1516,23 +1897,33 @@ class Doc(UserList):
     
 
     
-    def to_tex(self, path_or_stream=None, additional_files=None, template = None, do_escape_template_params='auto', template_params=None, text_only=False):
-        """Converts the current object to a TEX file (and attachments).
+    def to_tex(self, path_or_stream: Optional[Union[str, Path, BinaryIO]] = None,
+               additional_files: Optional[Dict[str, bytes]] = None,
+               template: Optional[str] = None,
+               do_escape_template_params: Union[str, bool] = 'auto',
+               template_params: Optional[Dict[str, Any]] = None,
+               text_only: bool = False) -> Union[bool, str, Tuple[str, Dict[str, bytes]], Tuple[bytes, Dict[str, bytes]]]:
+        """Converts the current document to a TEX file (and attachments) as a ZIP archive.
+
+        The output is always a ZIP file containing doc.json, main.tex, and any attachment files.
+        If saving to a file or stream, returns True on success.
+        If not saving, returns a tuple of (tex_as_bytes, files_dict) by default,
+        or just the tex string if text_only=True.
 
         Args:
-            path_or_stream (str or io.IOBase, optional): The path to save the file to, or a file-like object to write the data to. If not provided, the data will be returned as a string.
-            additional_files (dict[str:bytes], optional): Any additional files you want to upload to the tex document, such as an image as a logo in the header.
-            template (str, optional): The LaTeX template to use.
-            do_escape_template_params (bool, optional): Whether to escape the template parameters. "auto" will scan for %%latex at the start of a string to determine if its a latex string. Defaults to 'auto'.
-            template_params (dict, optional): Additional parameters to pass to the LaTeX template.
-            text_only (bool, optional): Only valid if path_or_stream is None. Whether or not to return attachments as well. Defaults to False
+            path_or_stream: Path string, Path object, or file-like object to write the ZIP to.
+            additional_files: Extra files to include in the ZIP (e.g., images, logos).
+            template: The LaTeX template (Jinja2) to use. If None, uses one from document metadata.
+            do_escape_template_params: Whether to escape LaTeX special chars in template params.
+                'auto' detects LaTeX templates automatically.
+            template_params: Additional parameters to pass to the LaTeX template.
+            text_only: If True and path_or_stream is None, returns the raw tex string instead of ZIP bytes.
 
         Returns:
-            If saving to a file or stream:
-                True if the data was saved successfully to a file or stream.
-            If returning:
-                str: The tex file as a string.
-                dict: The additional input files needed for LaTeX (bytes) as values and their relative paths (str) as keys.
+            bool: True if saved to a file/stream.
+            Tuple[str, Dict[str, bytes]]: The tex string and file dict if returning and not text_only.
+            str: The tex string if text_only=True.
+            Tuple[bytes, Dict[str, bytes]]: The ZIP bytes and file dict if path_or_stream is None.
         """
         if additional_files is None:
             additional_files = {}
@@ -1585,22 +1976,22 @@ class Doc(UserList):
             else:
                 return tex, files
     
-    def to_textile(self, path_or_stream=None, text_only=False):
+    def to_textile(self, path_or_stream: Optional[Union[str, Path, BinaryIO]] = None,
+                   text_only: bool = False) -> Union[bool, str, Tuple[str, Dict[str, bytes]]]:
         """
-        Converts the current object to a TEXTILE file (and attachments). 
-        If path_or_stream is given it will zip all contents and write it to the stream or file path given.
-        If not it will return a tuple with textile (str), files (dict[str, bytes])
+        Converts the current document to a TEXTILE file (and attachments) as a ZIP archive.
+
+        If path_or_stream is given, the ZIP is written to the stream or file path.
+        Otherwise returns a tuple of (textile_str, files_dict), or just the textile string if text_only=True.
 
         Args:
-            path_or_stream (str or io.IOBase, optional): The path to save the file to, or a file-like object to write the data to. If not provided, the data will be returned as string.
-            text_only (bool, optional): Only valid if path_or_stream is None. Whether or not to return attachments as well. Defaults to False
-        
+            path_or_stream: Path string, Path object, or file-like object to write the ZIP to.
+            text_only: If True and path_or_stream is None, returns just the textile string.
+
         Returns:
-            If saving to a file or stream:
-                True if the data was saved successfully to a file or stream.
-            If returning:
-                str: The tex file as a string.
-                dict: The additional input files needed for LaTeX (bytes) as values and their relative paths (str) as keys.
+            bool: True if saved to a file or stream.
+            str: The textile source string if text_only=True.
+            Tuple[str, Dict[str, bytes]]: The textile string and file dict if returning and not text_only.
         """
         
         textile, files = to_textile(self.dump(), with_attachments=True, aformat_redmine=False)
@@ -1626,47 +2017,60 @@ class Doc(UserList):
             else:
                 return textile, files
         
-    def to_redmine(self) -> Tuple[str, list]:
+    def to_redmine(self) -> Tuple[str, List[Dict[str, Any]]]:
         """
-        Converts the current object to a Redmine Textile like text (and attachments) and returns them as tuple.
+        Converts the current document to Redmine-compatible Textile formatted text and attachments.
+
+        Returns:
+            Tuple[str, List[Dict[str, Any]]]: A tuple of (textile_text, attachment_dicts).
+                Each attachment dict has keys: path, filename, content_type, description.
         """
 
         return to_textile(self.dump(), with_attachments=True, aformat_redmine=True)
     
-    def to_redmine_upload(self, redmine, project_id:str, report_name=None, page_title=None, force_overwrite=False, verb=True):
-        """Converts the current object to a Redmine Textile like text (and attachments) and Uploads it to a Redmine wiki page.
+    def to_redmine_upload(self, redmine: Any, project_id: Union[str, int],
+                          report_name: Optional[str] = None,
+                          page_title: Optional[str] = None,
+                          force_overwrite: bool = False, verb: bool = True) -> str:
+        """Converts the current document to Redmine Textile format and uploads it to a Redmine wiki page.
+
+        This will also export the document to all possible formats and attach them to the wiki page.
         This will also export the document to all possible formats and attach them to the wiki page.
 
         Args:
-            redmine (redminelib.Redmine): A Redmine connection object.
-            project_id (str): The ID of the Redmine project where the report should be uploaded.
-            report_name (str, optional): The name of the report. If not provided, the follwoing schema `%Y%m%d_%H%M_exported_report` will be used.
-            page_title (str, optional): The title of the Redmine wiki page. If not provided, it will be derived from the report name.
-            force_overwrite (bool, optional): Whether to overwrite an existing page with the same title. Defaults to False.
-            verb (bool, optional): Whether to print verbose output during upload. Defaults to True.
+            redmine: A Redmine connection object (redminelib.Redmine instance).
+            project_id: The ID of the Redmine project where the report should be uploaded.
+            report_name: The name of the report. If None, uses a timestamp-based default.
+            page_title: The title of the Redmine wiki page. If None, derived from the report name.
+            force_overwrite: Whether to overwrite an existing page with the same title.
+            verb: Whether to print verbose output during upload.
 
         Returns:
-            redminelib.WikiPage: The uploaded Redmine wiki page object.
+            str: The URL of the uploaded Redmine wiki page.
 
         Raises:
-            AssertionError: If any of the `doc`, `project_id` or `redmine` arguments is None or empty.
+            AssertionError: If any of the `project_id` or `redmine` arguments is None.
         """
             
         return upload_report_to_redmine(self, redmine=redmine, project_id=project_id, report_name=report_name, page_title=page_title, force_overwrite=force_overwrite, verb=verb)
     
-    def print_rich(self, path_or_stream=None, title=None, embed_images=True):
+    def print_rich(self, path_or_stream: Optional[Union[str, IO[str]]] = None,
+                   title: Optional[str] = None, embed_images: bool = True) -> Optional[bool]:
         """
-        Parses the current object using python rich library and output it either on console or to any file / stream.
+        Renders the current document using the Python Rich library and outputs it to the console or a file.
+
+        Attempts to extract a title from document metadata if not provided.
 
         Args:
-            path_or_stream: Either a file path (str) to write to, a file-like object
-                           with a write method, or None to output to stdout
-            title: Optional title for the documentation. If not provided, will attempt
-                  to extract from metadata using common title keys. If still None a default title will be used.
-            embed_images: if True this will make the images appear as simplified pixelized pictures on the console, 
-                  if False it will insert a placeholder instead. 
+            path_or_stream: File path string, file-like object with a write method, or None for stdout.
+            title: Optional title for the documentation. If None, attempts to extract from metadata
+                using common title keys (title, TITLE, filename, name, docname, etc.).
+            embed_images: If True, images appear as simplified pixelized pictures on the console.
+                If False, a placeholder is inserted instead.
+
         Returns:
-            bool: Only in path_or_stream is not None. True if successful, False otherwise
+            bool: True if path_or_stream is not None and writing was successful.
+                None if output went to stdout.
 
         Example:
             >>> doc.print_rich("output.rich")
@@ -1690,27 +2094,30 @@ class Doc(UserList):
             print_rich(self.dump(), stream=None, embed_images=embed_images)
 
 
-    def to_pdf_print(self, path_or_stream=None):
-        """Exports the document to a PDF file by using the systems "print to pdf" function to export from html to pdf.
+    def to_pdf_print(self, path_or_stream: Optional[Union[str, IO[bytes]]] = None) -> Optional[Union[bytes, bool]]:
+        """Exports the document to a PDF file using the system's "print to PDF" function (HTML to PDF).
 
-        WARNING: This function only works on posix like operating systems and requires a PDF printer to be installed 
-        and set as default printer. It will not work on windows or macos since they do not have a command line 
-        interface for printing to PDF. Use with caution and make sure to test it on your system before using it in production!
-
+        WARNING: This function only works on POSIX-like operating systems and requires a PDF printer
+        to be installed and set as default printer. It will not work on Windows or macOS.
+        The resulting PDF quality is lower than proper PDF engines like pdflatex, typst, or word.
+        
         WARNING II: The resulting PDF file will not be of the same quality as a PDF file generated by a proper PDF engine like 
         pdflatex, typst, or word. It is recommended to use this function only as a last resort if no other PDF engine is 
         available and you need a quick and dirty PDF file.
 
         Args:
-            output_pdf_path (str, optional): The path to save the PDF file to. If not provided, a temporary file will be used.
-            
-        Returns:
-            If saving to a file or stream:
-                True if the data was saved successfully to a file or stream.
-            If returning:
-                str: The PDF file as bytes.
+            path_or_stream: Path string for output PDF, file-like object to write to, or None to return bytes.
 
+        Returns:
+            bytes if path_or_stream is None.
+            bool (True/False) if path_or_stream is a file or stream.
+            None if a file/path was given as string but could not determine the return.
+
+        Raises:
+            AssertionError: If the OS is not POSIX.
+            IOError: If the PDF file could not be written.
         """
+
         os_name = os.name
         assert os_name == 'posix', 'only posix like operation systems are supported for printing a pdf file!'
 
@@ -1745,32 +2152,42 @@ class Doc(UserList):
                     raise IOError(f'failed to write {path_or_stream=}')
                 return exists
 
-    def export_all(self, dir_path=None, report_name='exported_report', **kwargs):
+    def export_all(self, dir_path: Optional[str] = None, report_name: str = 'exported_report',
+                   **kwargs: Any) -> Dict[Union[str, bytes], Any]:
         """
-        Exports the document to all possible formats.
+        Exports the document to all supported formats.
+
+        Calls export_many with all engines from Doc.EXPORT_ENGINES.
 
         Args:
-            dir_path (str, optional): The path to the directory where the exported files should be saved. If not provided, a dict with the returned data from the exporters will be returned.
-            report (str, optional): The base name for the exported files. Defaults to "exported_report".
-            **kwargs: Additional keyword arguments specific to the chosen export formats.
+            dir_path: Directory path where exported files should be saved. If None,
+                returns a dict mapping keys to exported data.
+            report_name: Base name for the exported files.
+            **kwargs: Additional keyword arguments specific to each export format.
 
         Returns:
-            dict: A dictionary containing the exported data or paths for each engine.
+            Dict mapping keys (file paths if dir_path given, or report_name+extension if not)
+            to the exported data (bytes, str, or True).
         """
         return self.export_many(engines=None, dir_path=dir_path, report_name=report_name, **kwargs)
 
-    def export_many(self, engines:List[str]=None, dir_path=None, report_name='exported_report', **kwargs):
+    def export_many(self, engines: Optional[List[str]] = None, dir_path: Optional[str] = None,
+                    report_name: str = 'exported_report', **kwargs: Any) -> Dict[Union[str, bytes], Any]:
         """
-        Exports the document to multiple formats.
+        Exports the document to multiple specified formats.
 
         Args:
-            engines (list[str], optional): A list of export engines to use. If not provided, all supported engines will be used.
-            dir_path (str, optional): The path to the directory where the exported files should be saved. If not provided, a dict with the returned data from the exporters will be returned.
-            report (str, optional): The base name for the exported files. Defaults to "exported_report".
-            **kwargs: Additional keyword arguments specific to the chosen export formats.
+            engines: List of export engine names (e.g., 'md', 'html', 'pdf', 'docx').
+                If None or empty, exports to all engines in Doc.EXPORT_ENGINES.
+            dir_path: Directory path where exported files should be saved. If None,
+                returns a dict mapping keys to exported data.
+            report_name: Base name for the exported files.
+            **kwargs: Additional keyword arguments, potentially keyed by engine name.
 
         Returns:
-            dict: A dictionary containing the exported data or paths for each engine.
+            Dict mapping keys to exported data.
+                If dir_path is given: keys are full file paths, values are bools.
+                If dir_path is None: keys are report_name+extension strings, values are raw data.
         """
         if engines is None and dir_path is None or not engines:
             engines = list(Doc.EXPORT_ENGINES.keys()) # all engines
@@ -1802,19 +2219,25 @@ class Doc(UserList):
         return ret
     
 
-    def export(self, engine:str, path_or_stream=None, **kwargs):
+    def export(self, engine: str, path_or_stream: Optional[Union[str, Path, BinaryIO, TextIO]] = None,
+               **kwargs: Any) -> Any:
         """Exports the document to a specified format.
 
+        Dispatches to the appropriate to_* method based on the engine name.
+
         Args:
-            engine (str): The format to export to. Valid options are: 'md', 'markdown', 'json', 'html', 'tex', 'latex', 'textile', 'word', 'docx', and 'redmine'.
-            path_or_stream (str or io.IOBase, optional): The path to save the exported file to, or a file-like object to write the data to.
+            engine: The format to export to. Valid options: 'md', 'markdown', 'json', 'html',
+                'typst', 'typ', 'pdf', 'tex', 'latex', 'textile', 'ipynb', 'jupyter',
+                'notebook', 'word', 'docx', 'redmine'.
+            path_or_stream: Path string, Path object, or file-like object to write to.
             **kwargs: Additional keyword arguments specific to the chosen export format.
 
         Returns:
-            str or bool: The exported data or True if the data was successfully written to a file or stream.
+            The exported data (str, bytes, bool, tuple, or dict) depending on the engine and whether
+            path_or_stream was provided.
 
         Raises:
-            KeyError: If the specified `engine` is not supported.
+            KeyError: If the specified engine is not supported.
         """
 
         if '\\' in engine or '/' in engine and not path_or_stream:
@@ -1849,31 +2272,28 @@ class Doc(UserList):
         else:
             raise KeyError(f'engine must be in: {Doc.EXPORT_ENGINES=}, but was {engine=}')
         
-    def upload(self, url, doc_name='', force_overwrite=False, page_title='', requests_kwargs=None, raise_on_fail=True, warn_on_fail=True):
-        """Uploads the document data to a specified URL using HTTP(s) and requests.
-            The json body is constructed as:
-            
-            upload = {
-                "doc_name": doc_name,
-                "doc": self.dump(),
-                "force_overwrite": force_overwrite,
-                "page_title": page_title
-            }
+    def upload(self, url: str, doc_name: str = '', force_overwrite: bool = False,
+               page_title: str = '', requests_kwargs: Optional[Dict[str, Any]] = None,
+               raise_on_fail: bool = True, warn_on_fail: bool = True) -> Dict[str, Any]:
+        """Uploads the document data to a specified URL via HTTP POST.
+
+        The JSON body sent is:
+            {"doc_name": doc_name, "doc": self.dump(), "force_overwrite": force_overwrite, "page_title": page_title}
 
         Args:
-            url (str): The URL of the endpoint that accepts the document data.
-            doc_name (str, optional): The name of the uploaded document. Defaults to ''.
-            force_overwrite (bool, optional): Whether to overwrite an existing document. Defaults to False.
-            page_title (str, optional): The title of the uploaded document (if applicable). Defaults to ''.
-            requests_kwargs: (dict, optional) with kwargs for requests.post(). Defaults to None.
-            raise_on_fail: (bool, optional): set True to raise an exception on failed upload. Defaults to True.
-            warn_on_fail: (bool, optional): set True to prompt some warning text with the feedback from server on a fail. Defaults to True.
+            url: The URL endpoint that accepts the document data.
+            doc_name: The name of the uploaded document.
+            force_overwrite: Whether to overwrite an existing document at the destination.
+            page_title: Title of the uploaded document (if applicable).
+            requests_kwargs: Dictionary of keyword arguments passed to requests.post().
+            raise_on_fail: If True, raises requests.exceptions.RequestException on non-2xx status.
+            warn_on_fail: If True, emits a warning with server response text on failure.
 
         Returns:
-            dict: The JSON response from the server after uploading the document.
+            dict: The JSON response from the server after uploading.
 
         Raises:
-            requests.exceptions.RequestException: If the upload request fails.
+            requests.exceptions.RequestException: If raise_on_fail is True and the upload fails.
         """
 
         upload = {
@@ -1897,21 +2317,32 @@ class Doc(UserList):
     
 
 
-    def show(self, engine = None, index=None, chapter=None, files_to_upload=None, template=None, template_params=None, do_escape_template_params=False, embed_images=True, **kwargs):
-        """Displays the document or a specific part of it in ipython display or via print
+    def show(self, engine: Optional[str] = None, index: Optional[int] = None,
+             chapter: Optional[str] = None, files_to_upload: Optional[Dict[str, bytes]] = None,
+             template: Optional[Any] = None,
+             template_params: Optional[Dict[str, Any]] = None,
+             do_escape_template_params: bool = False,
+             embed_images: bool = True, **kwargs: Any) -> None:
+        """Displays the document or a specific part of it via IPython display or print to console.
+
+        For IPython/Jupyter environments, uses HTML, Markdown, PDF, or Code display widgets.
+        For non-notebook environments, prints to stdout in the chosen format.
 
         Args:
-            engine (str, optional): The engine to use for displaying. None to decide based on the currently available console. Else either "html", "markdown", "md", "tex", "latex", or "pdf" (pdf only works in Ipython!)
-            index (int, optional): The index of the part to display.
-            chapter (str, optional): The name of the chapter to display.
-            files_to_upload (dict, optional): ONLY VALID WHEN engine='pdf'. See to_pdf method for details. Defaults to None.
-            template (jinja2 template or string, optional): ONLY VALID WHEN engine='pdf'. See to_pdf method for details. Defaults to None.
-            template_params (dict, optional): ONLY VALID WHEN engine='pdf'. See to_pdf method for details. Defaults to None.
-            do_escape_template_params (bool, optional): ONLY VALID WHEN engine='pdf'. See to_pdf method for details. Defaults to False.
-            embed_images (bool, optional): ONLY VALID WHEN engine='md' or 'rich'. Whether to embed (show) images within the document, or placeholders. Defaults to True.
+            engine: Display engine to use. None decides based on environment (html in notebooks, rich in console).
+                Options: 'html', 'markdown', 'md', 'tex', 'latex', 'pdf' (notebook only),
+                'typst', 'auto', 'rich', 'console', 'terminal', 'plain'.
+            index: Display only the document part at this list index.
+            chapter: Display only the content of this named chapter.
+            files_to_upload: EXTRA ONLY WHEN engine='pdf'. Additional files for PDF generation (see to_pdf).
+            template: ONLY WHEN engine='pdf' or 'html'. Template string or Jinja2 Template object.
+            template_params: ONLY WHEN engine='pdf' or 'html'. Template parameters dict.
+            do_escape_template_params: ONLY WHEN engine='pdf'. Whether to escape template params for LaTeX.
+            embed_images: ONLY WHEN engine='md' or 'rich'. Whether to embed images or show placeholders.
+            **kwargs: Additional arguments passed to the export method.
 
         Raises:
-            KeyError: if the specified engine is not found or not valid
+            KeyError: If the specified engine is not valid for the current environment.
             AssertionError: If both `index` and `chapter` are specified.
         """
 
@@ -1977,17 +2408,26 @@ class Doc(UserList):
             else:
                 raise KeyError(f'engine must be in: "html", "markdown", "md", "typst", "tex", or "latex", but was {engine=}')
             
-    def __repr__(self, *args, **kwargs):
+    def __repr__(self, *args: Any, **kwargs: Any) -> str:
+        """Return a summary string with number of chapters and element count."""
         chaps = self.get_chapters()
         return f'pydocmaker.Doc with N={len(chaps)} chapters, K={len(self)} elements.'
 
-    def __str__(self, *args, **kwargs): 
+    def __str__(self, *args: Any, **kwargs: Any) -> str:
+        """Alias for __repr__."""
         return self.__repr__()
-    
 
+    
     @classmethod
-    def get_example(cls):
-                
+    def get_example(cls) -> 'Doc':
+        """Create and return a sample document with various element types.
+
+        Returns a Doc containing markdown text, verbatim code blocks, LaTeX, a table,
+        and an embedded base64 image. Useful for testing and documentation examples.
+
+        Returns:
+            Doc: A sample document instance.
+        """
         doc = cls()
 
         content = """## Some Example Text
@@ -2016,11 +2456,10 @@ function metamorphose(protagonist,author){
     if( protagonist.name.first === 'Gregor' && author.name.last === 'Kafka' ){
         protagonist.species = 'insect';
     }
-}
-        """)
+}""")
         doc.add_tex("\\textit{This is some dummy LaTeX text.}")
 
-        doc.add_md("this is how to embed a table:")
+        doc.add_md("This is how to embed a table:")
 
         header = ['Name', 'Age', 'City']
         table = [
@@ -2031,14 +2470,25 @@ function metamorphose(protagonist,author){
         doc.add_table(table, header=header, borders=True, caption='This is my example table')
 
         doc.add('And this is how to embed an Image:')
-        doc.add_image(image="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEYAAAAUCAAAAAAVAxSkAAABrUlEQVQ4y+3TPUvDQBgH8OdDOGa+oUMgk2MpdHIIgpSUiqC0OKirgxYX8QVFRQRpBRF8KShqLbgIYkUEteCgFVuqUEVxEIkvJFhae3m8S2KbSkcFBw9yHP88+eXucgH8kQZ/jSm4VDaIy9RKCpKac9NKgU4uEJNwhHhK3qvPBVO8rxRWmFXPF+NSM1KVMbwriAMwhDgVcrxeMZm85GR0PhvGJAAmyozJsbsxgNEir4iEjIK0SYqGd8sOR3rJAGN2BCEkOxhxMhpd8Mk0CXtZacxi1hr20mI/rzgnxayoidevcGuHXTC/q6QuYSMt1jC+gBIiMg12v2vb5NlklChiWnhmFZpwvxDGzuUzV8kOg+N8UUvNBp64vy9q3UN7gDXhwWLY2nMC3zRDibfsY7wjEkY79CdMZhrxSqqzxf4ZRPXwzWJirMicDa5KwiPeARygHXKNMQHEy3rMopDR20XNZGbJzUtrwDC/KshlLDWyqdmhxZzCsdYmf2fWZPoxCEDyfIvdtNQH0PRkH6Q51g8rFO3Qzxh2LbItcDCOpmuOsV7ntNaERe3v/lP/zO8yn4N+yNPrekmPAAAAAElFTkSuQmCC")
+        doc.add_image(image=make_png_imageblob(b64_data.example_image), caption="This is an example image.")
         
         return doc
     
 
     
-def _construct(v):
-    """internal function"""
+def _construct(v: Any) -> Any:
+    """Recursively construct document part dicts from nested structures.
+
+    Converts lists of dicts by recursively calling construct on each dict element.
+    List elements not containing dicts are recursively processed.
+    String elements are returned as-is.
+
+    Args:
+        v: A value that may be a string, list, or dict representing a document part.
+
+    Returns:
+        The constructed value (string, list, or dict).
+    """
     if isinstance(v, str):
         return v
     elif isinstance(v, list):
@@ -2046,14 +2496,29 @@ def _construct(v):
     elif isinstance(v, dict):
         return construct(**v)
     else:
-        TypeError(f'{type(v)=} is of unknown type only dataclass, str, list, and dict is allowed!')
+        raise TypeError(f'{type(v)=} is of unknown type. Only dataclass, str, list, and dict are allowed!')
 
-def construct(typ:str, **kwargs):
-    """construct a document-part dict from the given typ and some kwargs"""
+def construct(typ: str, **kwargs: Any) -> Dict[str, Any]:
+    """Construct a document-part dict from the given type name and keyword arguments.
+
+    Looks up the constructor in the `constr` class (using typalias for name resolution).
+    Recursively constructs nested 'children' content before calling the constructor.
+
+    Args:
+        typ: The document part type (e.g., 'markdown', 'text', 'verbatim', 'latex', 'image', 'table', 'iter').
+        **kwargs: Arguments passed to the constructor function.
+
+    Returns:
+        A dict representing the document part, or the typ string directly if no constructor and no kwargs.
+
+    Raises:
+        AssertionError: If typ is not a string.
+        TypeError: If the type is unknown.
+    """
     assert isinstance(typ, str)
     typ = constr.typalias.get(typ, typ)
     if not kwargs and not hasattr(constr, typ):
-        return typ
+        return typ  # type: ignore
     elif hasattr(constr, typ):
         children = kwargs.get('children')
         if children:
@@ -2061,20 +2526,27 @@ def construct(typ:str, **kwargs):
         constructor = getattr(constr, typ)
         return constructor(**kwargs)
     else:
-        TypeError(f'{typ=} is of unknown type only dataclass, str, list, and dict is allowed!')
+        raise TypeError(f'{typ=} is of unknown type. Only dataclass, str, list, and dict are allowed!')
 
 
-def load(doc:List[dict]):
-    """Loads a document from a list of dictionaries, a file path, or a stream-like object.
+def load(doc: Union[List[Dict[str, Any]], str, bytes, BinaryIO, TextIO]) -> 'Doc':
+    """Loads a document from a list of dictionaries, JSON string, file path, or stream.
+
+    Accepts:
+        - A list of doc-part dicts
+        - A JSON string starting with '['
+        - A file path string
+        - A binary or text file-like object with read() and seek() methods
 
     Args:
-        doc (List[dict] | str | BinaryIO | TextIO]): The document data, file path, or stream-like object.
+        doc: Document data as a list of dicts, JSON string, file path, or stream.
 
     Returns:
         Doc: A Doc object representing the loaded document.
 
     Raises:
-        ValueError: If the document is not a list, file path, or stream-like object, or if the file or stream cannot be loaded.
+        AssertionError: If doc is not a list after parsing.
+        ValueError: If the file or stream cannot be loaded.
     """
     if isinstance(doc, bytes):
         doc = doc.decode()
@@ -2098,12 +2570,12 @@ def load(doc:List[dict]):
     
 
 
-def print_to_pdf(file_path, output_pdf_path):
-    """Prints a file to a PDF file using the appropriate platform-specific command using subprocess
+def print_to_pdf(file_path: str, output_pdf_path: str) -> None:
+    """Prints a file to a PDF file using platform-specific subprocess commands.
 
-    WARNING: This function only works on posix like operating systems and requires a PDF printer to be installed 
-    and set as default printer. It will not work on windows or macos since they do not have a command line 
-    interface for printing to PDF. Use with caution and make sure to test it on your system before using it in production!
+    WARNING: This function only works on POSIX-like operating systems and requires a PDF printer
+    to be installed and set as default printer. It will not work on Windows or macOS.
+    The resulting PDF quality may be lower than proper PDF engines.
 
     WARNING II: The resulting PDF file will not be of the same quality as a PDF file generated by a proper PDF engine like 
     pdflatex, typst, or word. It is recommended to use this function only as a last resort if no other PDF engine is 
@@ -2111,11 +2583,12 @@ def print_to_pdf(file_path, output_pdf_path):
 
     
     Args:
-        file_path (str): The path to the file to print.
-        output_pdf_path (str): The path to the output PDF file.
+        file_path: Path to the input file (typically an HTML file).
+        output_pdf_path: Path for the output PDF file.
 
     Raises:
-        ValueError: If the platform is not supported.
+        ValueError: If the platform is not POSIX, or paths don't exist.
+        subprocess.CalledProcessError: If the print command fails.
     """
 
     p = Path(file_path).resolve()

@@ -6,7 +6,8 @@ import io
 import base64
 from typing import List
 import warnings
-
+import gc
+import time
 
 import tempfile
 import os
@@ -303,10 +304,20 @@ class DocxFileW32:
     def close(self):
         # Close the document and quit Word
         if self.worddoc:
-            self.worddoc.Close()
+            try:
+                self.worddoc.Close()
+            except Exception:
+                pass
         # Quit the Word application if it was created by this script
         if self.word and self._created_word_app:
-            self.word.Quit()
+            try:
+                self.word.Quit()
+            except Exception:
+                pass
+            # Force garbage collection to release COM references
+            gc.collect()
+            # Small delay to let Word shut down and release file locks
+            time.sleep(0.2)
         return self
     
     def __exit__(self, exc_type, exc_value, traceback):
@@ -317,7 +328,8 @@ class DocxFileW32:
             exc_value: Exception value (if any) that occurred during execution.
             traceback: Traceback object (if any) that occurred during execution.
         """
-        self.save()
+        if not exc_type:
+            self.save()
         self.close()
 
 
@@ -551,7 +563,7 @@ def convert_pandoc(doc:List[dict]) -> bytes:
         
 
 
-def convert(doc:List[dict], template = None, template_params=None, use_w32=False, as_pdf=False, compress_images=False, filename=None, allow_pandoc=True, **kwargs) -> bytes:
+def convert(doc:List[dict], template = None, template_params=None, use_w32=False, as_pdf=False, compress_images=False, filename=None, allow_pandoc=True, allow_failed_w32=False, **kwargs) -> bytes:
     """
     Convert a list of document sections into a DOCX or PDF (via docx) file using a specified template.
 
@@ -564,6 +576,7 @@ def convert(doc:List[dict], template = None, template_params=None, use_w32=False
     - compress_images (bool, optional): Whether to compress images in the document using win32com. Defaults to False.
     - filename (str, optional): The optional filename to give the document in case saving it as a tempfile is necessary. Default will try to get from metadata and if not found use tempfile.docx.
     - allow_pandoc (bool, optional): whether or not to allow the usage of pandoc instead of python-docx (usually pandoc creates nicer documents!)
+    - allow_failed_w32(bool, optional): whether or not to allow and skip errors when trying to use the w32 library.
     - **kwargs: only used to check if invalid keyword arguments were passed.
 
     Returns:
@@ -605,21 +618,32 @@ def convert(doc:List[dict], template = None, template_params=None, use_w32=False
 
         if use_w32 and DocxFileW32.is_installed():
             with tempfile.TemporaryDirectory() as td:
-                filepath = os.path.join(td, f'{filename}.docx')
+                filepath = str(Path(os.path.join(td, f'{filename}.docx')).resolve())
                 docxfile.save(filepath)
-                with DocxFileW32(filepath) as docxw32:
-                    docxw32.update_fields()
-                    if compress_images:
-                        docxw32.compress_images()
-                    if as_pdf:
-                        out = os.path.join(td, f'{filename}.pdf')
-                        docxw32.export(out, optimize_for_screen=compress_images)
-                        with open(out, 'rb') as fp:
-                            bts = fp.read()
+                try:
+                    with DocxFileW32(filepath) as docxw32:
 
-                if not as_pdf: # read back in
-                    with open(filepath, 'rb') as fp:
-                        bts = fp.read()
+                        docxw32.update_fields()
+
+                        if compress_images:
+                            docxw32.compress_images()
+                        if as_pdf:
+                            out = str(Path(os.path.join(td, f'{filename}.pdf')).resolve())
+                            docxw32.export(out, optimize_for_screen=compress_images)
+                            with open(out, 'rb') as fp:
+                                bts = fp.read()
+
+                    if not as_pdf: # read back in
+                        with open(filepath, 'rb') as fp:
+                            bts = fp.read()
+                            
+                except Exception as err:
+                    if allow_failed_w32:
+                        log.error(err, exc_info=1)
+                        bts = docxfile.save()
+                    else:
+                        raise
+                    
         elif not use_w32 and as_pdf and libreoffice_api.can_use_libreoffice():
             with tempfile.TemporaryDirectory() as td:
                 filepath = os.path.join(td, f'{filename}.docx')
