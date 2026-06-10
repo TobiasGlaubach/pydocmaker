@@ -11,3 +11,4 @@ Examples
    s03_template_examples
    s04_redmine_examples
    s05_detailed_examples
+   s06_library_configuration
