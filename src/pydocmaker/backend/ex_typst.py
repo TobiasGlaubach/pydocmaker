@@ -348,22 +348,10 @@ def convert(doc:List[dict], template = None, template_params=None, ret_attachmen
     kw = copy.deepcopy(template_params)
     libraries = kw.pop("libraries", [])
     libraries.extend(formatter.libraries)
-
+    kw = util.remove_undefined(kw)
     if not 'logo_b64_pydocmaker' in kw and (not expected_variables or 'logo_b64_pydocmaker' in expected_variables):
-        kw['logo_b64_pydocmaker'] = b64_data.logo_b64_pydocmaker    
+        kw['logo_b64_pydocmaker'] = b64_data.logo_b64_pydocmaker
 
-
-    terms = list(template_params.get('applicables', {})) + list(template_params.get('references', {})) + list(template_params.get('acronyms', {}))
-
-    if terms:
-        if "terms" in kw:
-            kw['terms'].extend(terms)
-        else:
-            kw['terms'] = terms
-    
-    if 'terms' in kw:
-        # ensure all terms are properly escaped etc. for typst
-        kw['terms'] = [json.dumps(term, cls=util.CommonJSONEncoder) for term in set(kw['terms'])]
 
 
     assert not ('body' in kw), f'the "body" keyword is an invalid keyword for templates as it is reserved for the document body.'
