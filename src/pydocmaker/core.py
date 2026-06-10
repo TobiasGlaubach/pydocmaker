@@ -1139,19 +1139,35 @@ class Doc(UserList):
         return self
     
 
-    def dump(self) -> List[Dict]:
-        """dump this document to a basic list of dicts for document parts
+    def dump(self) -> List[Dict[str, Any]]:
+        """Dump this document to a basic list of dicts (deep copy).
 
         Returns:
-            list: the individual parts of the document
+            List[Dict[str, Any]]: The individual parts of the document as a list of deep-copied dictionaries.
         """
         return [copy.deepcopy(v) for v in self]
     
-    def _ret(self, m, path_or_stream):
-        """internal method to return or write data"""
-        
+    def _ret(self, m: Union[str, bytes], path_or_stream: Optional[Union[str, Path, IO[Any]]]) -> Union[str, bytes, bool, None]:
+        """Internal method to return or write data to a path, stream, or return the value.
 
-        if path_or_stream and isinstance(path_or_stream, str):
+        Args:
+            m: The data to write (string or bytes).
+            path_or_stream: Path string, Path object, or file-like object to write to.
+                If None, returns the data directly.
+
+        Returns:
+            The written data (str or bytes) if path_or_stream is None.
+            True if written to a path/stream.
+        """
+        
+        if path_or_stream and isinstance(path_or_stream, Path):
+            if isinstance(m, str):
+                path_or_stream.write_text(m)
+            else:
+                path_or_stream.write_bytes(m)
+            return True
+
+        elif path_or_stream and isinstance(path_or_stream, str):
             mode = 'w' if isinstance(m, str) else 'wb'
             encoding = 'utf-8' if isinstance(m, str) else None
 
