@@ -6,11 +6,17 @@ from typing import List, Union
 import json
 import tempfile
 
+
 try:
-    from pydocmaker.backend.baseformatter import BaseFormatter, _handle_template
+    from pydocmaker.backend.baseformatter import BaseFormatter
 except Exception as err:
-    from .baseformatter import BaseFormatter, _handle_template
-    
+    from .baseformatter import BaseFormatter
+
+try:
+    from pydocmaker.templating import handle_template
+except Exception as err:
+    from ..templating import handle_template
+
 try:
     from pydocmaker import util
 except Exception as err:
@@ -20,6 +26,11 @@ try:
     from pydocmaker import templating
 except Exception as err:
     from .. import templating
+
+try:
+    from pydocmaker import util
+except Exception as err:
+    from .. import util
 
     
 try:
@@ -33,17 +44,7 @@ try:
 except Exception as err:
     from .pandoc_api import can_run_pandoc, pandoc_convert, pandoc_convert_file
 
-import logging
-
-# Configure once
-logging.basicConfig(
-    level=logging.INFO,
-    format='[%(asctime)s | %(levelname)-8s | %(filename)-15s:%(lineno)3d] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-
-log = logging.getLogger(__name__)
-
+log = util.log
 
 __default_template = """
 
@@ -143,7 +144,8 @@ def _compile(verb, on_warning, **kw):
         needs_temp = any(not isinstance(v, Path) for v in inp.values())
         
         if needs_temp:
-            logging.info('found non-path content in input dict, compiling typst in temporary directory...')
+            if verb:
+                log.info('found non-path content in input dict, compiling typst in temporary directory...')
             with tempfile.TemporaryDirectory() as tempdir:
                 p = Path(tempdir)
                 # copy everything to tempdir
@@ -197,8 +199,8 @@ def _compile(verb, on_warning, **kw):
 
     try:
         if verb:
-            logging.info(f'Compiling typst document to {kw.get("output", "N/A")} format {kw.get("format", "N/A")} with typst compiler...')
-        
+            log.info(f'Compiling typst document to {kw.get("output", "N/A")} format {kw.get("format", "N/A")} with typst compiler...')
+
         if verb:
             res, warns = typst.compile_with_warnings(**kw)
             if warns:
@@ -219,7 +221,7 @@ def _compile(verb, on_warning, **kw):
                 elif on_warning == 'print':
                     print(s)
                 else:
-                    logging.info(f'Compiling typst document... success')
+                    log.info(f'Compiling typst document... success')
         else:
             res = typst.compile(**kw)
             warns = []
@@ -318,7 +320,7 @@ def compile_with_typst(typst_code: Union[str, List[dict]], output: str = None, v
 #     compiler = typst.Compiler()
 #     compiler.compile(input="hello.typ", format="png", ppi=144.0)
 
-def convert(doc:List[dict], template = None, template_params=None, ret_attachments=False, **kwargs):
+def convert(doc:List[dict], template = None, template_params=None, ret_attachments=False, verb=0, **kwargs):
 
     if not template_params:
         template_params = {}
@@ -332,14 +334,15 @@ def convert(doc:List[dict], template = None, template_params=None, ret_attachmen
     tmp = list(doc.values()) if isinstance(doc, dict) else doc
     body = formatter.digest(tmp)
 
-    template_obj, attachments, template_str = _handle_template(template, __default_template)
+    template_obj, attachments, template_str = handle_template(template, __default_template, tformat='typ')
     
+
     try:
-        dt = templating.DocTemplate(template_str)
-        expected_variables = dt.find_undeclared_variables()
+        tds = templating.TemplateDirSource(None, tformat='typ')
+        expected_variables = tds.get_params(template_str if template_str else template_obj)
     except Exception as err:
         log.warning(f'failed to extract expected_variables from template: {err} will continue without expected_variables')
-        expected_variables = set()
+        expected_variables = {}
 
 
     kw = copy.deepcopy(template_params)
@@ -360,7 +363,7 @@ def convert(doc:List[dict], template = None, template_params=None, ret_attachmen
     
     if 'terms' in kw:
         # ensure all terms are properly escaped etc. for typst
-        kw['terms'] = [json.dumps(term) for term in set(kw['terms'])]
+        kw['terms'] = [json.dumps(term, cls=util.CommonJSONEncoder) for term in set(kw['terms'])]
 
 
     assert not ('body' in kw), f'the "body" keyword is an invalid keyword for templates as it is reserved for the document body.'
@@ -376,6 +379,15 @@ def convert(doc:List[dict], template = None, template_params=None, ret_attachmen
     #     kw['applicables'] = {i:v for i, v in enumerate(kw['applicables'].values(), 1)} 
     # if 'references' in kw:
     #     kw['references'] = {i:v for i, v in enumerate(kw['references'].values(), 1)} 
+
+    kw = util.remove_undefined(kw)
+    if verb > 1:
+        log.info(f'"typst" backend creating ".typ" document with')
+        log.info(f'   template={util.limit_len(template_obj, 30)!r}') 
+        log.info(f'      -> str: {util.limit_len(template_str, 30)!r}') 
+        log.info(f'   {kw.keys()=}')
+        log.info(f'   {attachments.keys()=}')
+    
 
     try:
         doc_typst = template_obj.render(**kw)
@@ -437,7 +449,7 @@ class DocumentTypstFormatter(BaseFormatter):
         if s is None:
             self.libraries.add('#import "@preview/cmarker:0.1.8"')
             self.libraries.add('#import "@preview/mitex:0.2.6": mitex')
-            safe_markdown = json.dumps(children) # escape all chars etc. and put quotes around it
+            safe_markdown = json.dumps(children, cls=util.CommonJSONEncoder) # escape all chars etc. and put quotes around it
             s = f'#cmarker.render({safe_markdown}, math: mitex)'
             
         return self._handle_color(s, **kwargs)

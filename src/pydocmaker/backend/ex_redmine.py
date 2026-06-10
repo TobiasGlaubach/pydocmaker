@@ -2,6 +2,12 @@ import base64, time, io, copy, json, traceback, hashlib, markdown, re
 from typing import List
 
 try:
+    from pydocmaker import util
+except Exception as err:
+    from .. import util
+
+    
+try:
     from pydocmaker.backend.baseformatter import BaseFormatter
 except Exception as err:
     from .baseformatter import BaseFormatter
@@ -20,7 +26,7 @@ def convert(doc:List[dict], with_attachments=True, aformat_redmine=False):
         if aformat_redmine:
             attachments = [v for v in formatter.attachments]
         else:
-            attachments = {'doc.json': json.dumps(doc, indent=2)}
+            attachments = {'doc.json': json.dumps(doc, cls=util.CommonJSONEncoder, indent=2)}
             for path, content in formatter.attachments:
                 attachments[path] = content
         return text, attachments

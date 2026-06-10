@@ -14,6 +14,12 @@ import base64
 
 from typing import List
 
+try:
+    from pydocmaker import util
+except Exception as err:
+    from .. import util
+
+    
 
 try:
     from pydocmaker.backend.baseformatter import BaseFormatter
@@ -244,4 +250,4 @@ class ipynb_renderer(BaseFormatter):
         self.cells.clear()
         self.digest(obj)
         dc = make_doc(squash_md(self.cells))
-        return dc if as_dict else json.dumps(dc, indent=2)
+        return dc if as_dict else json.dumps(dc, cls=util.CommonJSONEncoder, indent=2)

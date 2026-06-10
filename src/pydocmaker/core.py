@@ -18,7 +18,7 @@ import os
 
 import shlex
 
-from .util import flatten_list, split_camel_case, upload_report_to_redmine
+from .util import flatten_list, split_camel_case, upload_report_to_redmine, CommonJSONEncoder, MyJSONDecoder, limit_len, log
 
 
 from .backend.ex_html import convert as to_html
@@ -36,9 +36,11 @@ from .backend.ex_tex import auto_escape_latex
 from .backend.pdf_maker_tex import make_pdf_from_tex, config_latex_compiler_get, config_latex_compiler_set
 from .backend import ex_docx
 
-from .templating import DocTemplate
+from .templating import DocTemplate, TemplateDirSource, _remove_template_ext, determine_engine_from_template, _remove_template_ext_match
 
 from .backend.pandoc_api import can_run_pandoc, pandoc_convert, pandoc_to_pdf
+
+ALLOWED_ENGINES_PDF = 'tex latex typst typ word libreoffice pandoc'.split()
 
 np = None
 gImage = None
@@ -48,16 +50,6 @@ chapter_level = 1 # this is the level of heading to use for chapters which is eq
 _pdf_engine = None
 _renderer_default = 'auto'
 
-import logging
-
-# Configure once
-logging.basicConfig(
-    level=logging.INFO,
-    format='[%(asctime)s | %(levelname)-8s | %(filename)-15s:%(lineno)3d] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-
-log = logging.getLogger(__name__)
 
 
 def config_renderer_default_set(choice:str='auto'):
@@ -539,7 +531,7 @@ class Doc(UserList):
             TypeError: If the loaded JSON object is not of type list.
         """
         if hasattr(path, 'read'): # test file pointer
-            lst = json.load(path)
+            lst = json.load(path, cls=MyJSONDecoder)
         if isinstance(path, str) and path.startswith("http"): # test url
             import requests
             r = requests.get(path)
@@ -549,13 +541,13 @@ class Doc(UserList):
                 lst = r.json()
             except ValueError:
                 try:
-                    lst = json.loads(r.text)
+                    lst = json.loads(r.text, cls=MyJSONDecoder)
                 except json.JSONDecodeError:
                     raise ValueError("Response is not valid JSON")
 
         else:
             with open(path, 'r') as fp:
-                lst = json.load(fp)
+                lst = json.load(fp, cls=MyJSONDecoder)
         if not isinstance(lst, list):
             warnings.warn(f'The loaded json object is not of type list, but instead of type ({type(lst)=})')
         return Doc(lst)
@@ -737,7 +729,7 @@ class Doc(UserList):
 
     
 
-    def set_template_to_meta(self, template_id:str, with_params=True, with_assets=True, test_found=True, on_exist='fail', template_params:dict=None) -> dict:
+    def set_template_to_meta(self, template_id:str, with_params=True, with_assets=True, test_found=True, on_exist='fail', template_params:dict=None, tformat=None) -> dict:
         """
         Sets a template by a given template_id to the document metadata.
 
@@ -757,46 +749,57 @@ class Doc(UserList):
         Returns:
             dict: the meta elements data (content)
         """
-        if (test_found or with_params or with_assets) and not DocTemplate.test_tid_exists(template_id):
-            available_tids = DocTemplate.get_available_tids()
-            raise FileNotFoundError(f'The template with the ID {template_id=} could not be found in {available_tids=}')
-
+        if (test_found or with_params or with_assets) and not DocTemplate.test_tid_exists(template_id, tformat=tformat):
+            available_tids = TemplateDirSource(None).get_template_ids()
+            raise FileNotFoundError(f'The template with the ID {template_id=} and format {tformat=} could not be found in {available_tids=}')
+        
+        params = {}
+        files_to_upload = {}
         if with_params or with_assets:
-            template = DocTemplate.from_tid(template_id)
+            template = DocTemplate.from_tid(template_id, tformat=tformat)
 
-        params = template.params if with_params else {}
-        files_to_upload = template.attachments if with_assets else {}
-        files_to_upload = {k:base64.b64encode(v).decode() if isinstance(v, bytes) else v for k, v in files_to_upload.items()}
+            params = template.params if with_params else {}
+            files_to_upload = template.attachments if with_assets else {}
+            files_to_upload = {k:base64.b64encode(v).decode() if isinstance(v, bytes) else v for k, v in files_to_upload.items()}
 
         meta = self.get_meta({}).get("data", {})
 
         if template_params:
             params.update(template_params)
-
+        
+        # if the key "files_to_upload" for some reason exists in params --> remove it and put all content into files_to_upload
+        files_to_upload.update(params.pop('files_to_upload', {}))
+        
+        
         if on_exist == 'fail':
             if files_to_upload:
                 assert not "files_to_upload" in meta or not meta.get("files_to_upload", None), f'Overwrite Protection! found "files_to_upload" key in meta, but this would be overwritten by assets from template. If this is what you want set on_exist="overwrite".'
+
             if params:
                 existing_keys = [k for k in params if k in meta]
                 assert not existing_keys, f'Overwrite Protection! found {existing_keys=} in meta, but this would be overwritten by params from template. If this is what you want set on_exist="overwrite".'
-            if not 'files_to_upload' in meta:
-                meta['files_to_upload'] = {}
-            meta["files_to_upload"].update(files_to_upload)
-            meta.update(params)
+            
+
+        elif on_exist == "skip":
+            if meta.get("files_to_upload", None): # if already given skip upload
+                files_to_upload = {}
+            
+            if params:
+                params = {k:v for k, v in params.items() if not k in meta}
 
         elif on_exist == 'overwrite':
-            if not 'files_to_upload' in meta:
+            if files_to_upload and 'files_to_upload' in meta:
                 meta['files_to_upload'] = {}
-            meta["files_to_upload"].update(files_to_upload)
-            meta.update(params)
-        elif on_exist == "skip":
-            if not 'files_to_upload' in meta:
-                meta['files_to_upload'] = {}
-            meta["files_to_upload"].update(files_to_upload)
-            meta.update(params)
+
         else:
             raise ValueError(f'Unknown key for {on_exist=} allowed is only "fail", "overwrite", or "skip"')
         
+        meta.update(params)
+
+        if not 'files_to_upload' in meta:
+            meta["files_to_upload"] = {}
+        meta["files_to_upload"].update(files_to_upload)
+
         meta['template_id'] = template_id
 
         return self.update_meta(meta)
@@ -1168,7 +1171,11 @@ class Doc(UserList):
             return True
         else:
             return m
-        
+    
+    def dumps(self, path_or_stream=None) -> str:
+        """alias for self.to_json"""
+        return self.to_json(path_or_stream)
+
     def to_json(self, path_or_stream=None) -> str:
         """
         Converts the current object to a JSON file.
@@ -1179,7 +1186,7 @@ class Doc(UserList):
         Returns:
             str: The JSON data as string, or True if the data was saved successfully to a file or stream.
         """
-        return self._ret(json.dumps(self.dump(), indent=2), path_or_stream)
+        return self._ret(json.dumps(self.dump(), cls=CommonJSONEncoder, indent=2), path_or_stream)
 
     def to_markdown(self, path_or_stream=None, embed_images=True) -> str:
         """
@@ -1338,46 +1345,62 @@ class Doc(UserList):
         params = {}
         meta = self.get_meta(default={}).get('data', {})
         if engine is None:
-            engine = config_pdf_engine_get()
+            engine = determine_engine_from_template(template)
+            if not engine is None and verb:
+                log.info(f'Inferred {engine=} from provided template={limit_len(template, 30)!r}')
 
-        if not engine:
-            raise ImportError("No engine to convert to PDF is available. Make sure you either have pdflatex, Microsoft Word, or Libreoffice installed")
+        if engine is None:
+            tformat = None
+        elif not template is None:
+            tformat = determine_engine_from_template(template, engine)
+        else:
+            tformat = 'tex' if engine.endswith('tex') else ('typ' if engine.startswith('typ') else 'html')
 
-        if verb:
-            log.info(f'using engine "{engine}" to convert to pdf')
-
-        tformat = 'tex' if engine == 'tex' else ('typ' if engine == 'typst' else 'html')
-
-        try:
-            mytemplate = self.get_template_from_meta(tformat=tformat, raise_on_error=True)    
-        except KeyError as err:
-            # fall back to check if any template with that given id exists
-            mytemplate = self.get_template_from_meta(raise_on_error=False)    
-
-        if not mytemplate is None and mytemplate.tformat and mytemplate.tformat != tformat:
-            newengine = 'tex' if mytemplate.tformat == 'tex' else ('typst' if mytemplate.tformat == 'typ' else 'html')
-            log.warning(f'The requested template {mytemplate.template_id} is of format "{mytemplate.tformat}" while the current engine is "{engine}" which requires "{tformat}" for templates. Will switch over to a new engine ("{newengine}") now in order to handle this. ')
-            tformat = mytemplate.tformat
-            engine = newengine
+        mytemplate = None
+        if template is None:
+            try:
+                mytemplate = self.get_template_from_meta(tformat=tformat, raise_on_error=True)    
+            except KeyError as err:
+                if not tformat is None: # fall back to check if any template with that given id exists
+                    mytemplate = self.get_template_from_meta(raise_on_error=False)    
 
 
-        if template is None and not mytemplate is None:
-            template = mytemplate.template
         if not mytemplate is None:
-            if verb:
-                log.info(f'found template "{mytemplate.template_id}"')
+            template = mytemplate.template
+            tformat = mytemplate.tformat
             params_from_meta = mytemplate.params
-            if verb:
-                log.info(f'found params: "{params_from_meta.keys()=}"')
             files_to_upload = {**mytemplate.attachments, **files_to_upload}
-            if verb:
-                log.info(f'found attachments: "{files_to_upload.keys()=}"')
         else:
             params_from_meta = {k:v for k, v in meta.items() if not k in ["template_id", "files_to_upload", "additional_files"]}
+
         params.update(params_from_meta)
 
         if template_params:
             params.update(template_params)
+
+        if engine is None and tformat:
+            engine = tformat
+        elif engine is None:
+            engine = config_pdf_engine_get()
+
+        if engine is None:
+            raise ValueError(f"engine could not be determined either from template of pydocmaker.config")
+
+        if engine.startswith('typ'):
+            engine = 'typ' 
+        elif engine.endswith('tex'):
+            engine = 'tex'
+
+        # make sure my template format matches my engine
+        if template and tformat and engine != tformat:
+            raise ValueError(f'The requested {template=} is of format "{tformat!r}" while the current engine is "{engine}" which requires "{engine}" for templates.')
+            
+        if verb:
+            log.info(f'making PDF with {engine=}')
+        if verb > 1:
+            log.info(f'   {template=}')
+            log.info(f'   {params.keys()=}')
+            log.info(f'   {files_to_upload.keys()=}')
 
         if engine.startswith('typ'):
 
@@ -1403,10 +1426,10 @@ class Doc(UserList):
                 # Only pass root if base_dir is set to avoid Windows error 123
                 root_kw = {'root': base_dir} if base_dir else {}
                 bulk_kw = {k: v for k, v in kwargs.items() if k not in ('on_warning', 'attachments')}
-                return to_pdf_typst(s, on_warning=on_warning, attachments=attachments, **root_kw, **bulk_kw)
+                return to_pdf_typst(s, verb=verb, on_warning=on_warning, attachments=attachments, **root_kw, **bulk_kw)
 
             fun = _to_pdf_typst
-        elif engine == 'tex':
+        elif engine == 'tex' or engine == 'latex' or engine.endswith('tex'):
             
             if do_escape_template_params == 'auto':
                 params = auto_escape_latex(params)
@@ -1481,7 +1504,7 @@ class Doc(UserList):
 
 
         else:
-            raise ValueError("unknown engine, Engine must be one of 'tex', 'word', 'libreoffice'")
+            raise ValueError(f"unknown engine, Engine must be one of {ALLOWED_ENGINES_PDF!r} but was {engine=}")
         
 
         r = self._ret(fun(self.dump(), **kwargs), path_or_stream)
@@ -2057,14 +2080,14 @@ def load(doc:List[dict]):
         doc = doc.decode()
 
     if isinstance(doc, str) and doc.strip().startswith('['):
-        doc = json.loads(doc)
+        doc = json.loads(doc, cls=MyJSONDecoder)
 
     if isinstance(doc, str):
         with open(doc, 'r') as fp:
-            doc = json.load(fp)
+            doc = json.load(fp, cls=MyJSONDecoder)
     
     if hasattr(doc, 'read') and hasattr(doc, 'seek'):
-        doc = json.load(fp)
+        doc = json.load(fp, cls=MyJSONDecoder)
 
     assert isinstance(doc, list), f'doc must be list but was {type(doc)=} {doc=}'
     return Doc(doc)

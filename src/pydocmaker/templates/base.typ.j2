@@ -1,0 +1,59 @@
+
+#set page("a4")
+
+#show link: set text(fill: blue, weight: 700)
+#show link: underline
+
+// code blocks
+#let code-border = luma(0)
+#show raw.where(block: false): set text(weight: "semibold")
+#show raw.where(block: true): set text(size: 0.8em)
+#show raw.where(block: true): it => {
+    block(
+        width:100%,
+        inset: 10pt,
+        radius: 4pt,
+        stroke: 0.1pt + code-border,
+        it,
+    )
+}
+
+#set figure(numbering: "1")
+#set figure.caption(separator: " - ") // With a nice separator
+#set math.equation(numbering: "(1)", supplement: "Eq.")
+
+
+{% macro render_kvtable(mydict, prefix=None) %}
+table(
+  columns: (auto, 1fr),
+  stroke: none,
+{% for key, value in mydict.items() %}
+   [*{% if prefix %}{{ prefix }}{{loop.index}}{% else %}{{ key }}{% endif %}* <{{ key }}>], [{{ value }}],
+{% endfor %}
+)
+{% endmacro %}
+
+
+{% if title %}
+#set document(title: [ {{ title }} ])
+#title()
+{% endif %}
+
+{% if acronyms %}
+heading(level: 1, outlined: false)[List of Acronyms]
+{{ render_kvtable(acronyms, prefix=None) }}
+{% endif %}
+
+
+{% if applicables %}
+heading(level: 1, outlined: false)[List of Applicable Documents]
+{{ render_kvtable(applicables, prefix="AD") }}
+{% endif %}
+
+{% if references %}
+heading(level: 1, outlined: false)[List of Reference Documents]
+{{ render_kvtable(references, prefix="RD") }}
+{% endif %}
+
+
+{{ body }}

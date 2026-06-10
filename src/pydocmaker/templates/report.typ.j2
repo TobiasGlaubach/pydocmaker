@@ -13,7 +13,6 @@
   doc-title,
   author,
   logo,
-  heading-font,             // the heading-font is also used for all text on the titlepage
   heading-color,            // heading-color applies as well for the title
   info-size,                // used throughout the document for "info text"
   datetime-fmt,
@@ -40,11 +39,11 @@
   // ----- Title Category & Title ------------------------
   align(
     left,                   // 1 x 14pt + 2 x 36pt ≈ 2 x 1.5 cm
-    text(font: heading-font, weight: "regular", size: 14pt, 
+    text(weight: "regular", size: 14pt, 
       doc-category),
   )
 
-  text(font: heading-font, weight: "light", size: 36pt,  fill: heading-color,
+  text(weight: "light", size: 36pt,  fill: heading-color,
     doc-title,
   )
 
@@ -71,7 +70,7 @@
   place(
     bottom + left,
     text(
-      font: heading-font, weight: "regular", size: info-size, fill: black,
+      weight: "regular", size: info-size, fill: black,
       grid(
         columns: (auto, auto),
         align: (right, left),
@@ -106,7 +105,6 @@
   doc-title,
   author,
   logo,
-  heading-font,             // the heading-font is also used for all text on the titlepage
   heading-color,            // heading-color applies as well for the title
   info-size,                // used throughout the document for "info text"
   body-size,
@@ -116,17 +114,17 @@
   stack(
       v(1.5cm - 0.6cm),     // 3.6cm top-margin -0.6cm + 1.5cm = 4.5cm 
       box(height: 1.5cm, 
-        text(font: heading-font, size: 1 * body-size, 
+        text(size: 1 * body-size, 
           top-edge: "ascender",
           doc-category) ),
       box(height: 6cm,
         par(leading: 0.5em,
-          text(font: heading-font, weight: "bold",
+          text(weight: "bold",
             size: 2 * body-size, fill: luma(40%).mix(heading-color),
             top-edge: "ascender",
             hyphenate: false,
                 doc-title) + "\n\n") +
-        text(font: heading-font, size: label-size,
+        text(size: label-size,
           author + "\n" + 
           {% if affiliation %} "{{ affiliation }}, " + {% endif %}
           datetime.today().display(datetime-fmt)
@@ -146,8 +144,6 @@
   show-outline: true,
   compact-mode: false,
   heading-color: black,
-  heading-font: "Ubuntu", // recommended alternatives: "Fira Sans", "Lato", "Source Sans Pro"
-  body-font: "Vollkorn",
   datetime-fmt: "[year]-[month]-[day]",
   body,
 ) = {
@@ -182,7 +178,6 @@
       doc-title,
       author,
       logo,
-      heading-font,
       heading-color,
       info-size,
       datetime-fmt,
@@ -192,11 +187,7 @@
   // ----- Basic Text- and Page-Setup ------------------------
 
   set text(
-    font: body-font,
     size: body-size,
-    // Vollkorn has a broader stroke than other fonts; in order to adapt the grey value (Grauwert)
-    // of the page the font gets printed in a dark grey (instead of completely black)
-    fill: if body-font == "Vollkorn" {luma(50)} else {luma(0)}
   )
 
   set par(
@@ -217,8 +208,8 @@
             columns: (auto, auto),
             align: (left, right),
             row-gutter: 0.5em,
-            text(font: heading-font, size: label-size,[{{ header_str_left | default("") }}]),
-            text(font: heading-font, size: label-size,[{{ header_str_right | default("") }}]),          
+            text(size: label-size,[{{ header_str_left | default("") }}]),
+            text(size: label-size,[{{ header_str_right | default("") }}]),          
             grid.cell(colspan: 2, line(length: 100%, stroke: 0.5pt)),
         )
     }
@@ -233,9 +224,9 @@
           align: (left, center, right),
           row-gutter: 0.5em,
           grid.cell(colspan: 3, line(length: 100%, stroke: 0.5pt)),
-          text(font: heading-font, size: label-size,[{{ footer_str_left | default("") }}]),
+          text(size: label-size,[{{ footer_str_left | default("") }}]),
           
-          text(font: heading-font, size: label-size, 
+          text(size: label-size, 
             number-type: "lining",
             {if in-outline.get() {
                 let current = counter(page).display("i")
@@ -246,7 +237,7 @@
               }
             }
           ),
-          text(font: heading-font, size: label-size,[{{ footer_str_right | default("") }}]),
+          text(size: label-size,[{{ footer_str_right | default("") }}]),
         )   
     }
   )
@@ -342,13 +333,13 @@ heading(level: 1, outlined: false)[List of Reference Documents]
   // ----- Headings & Numbering Schemes ------------------------
 
   set heading(numbering: "1.")
-  show heading: set text(font: heading-font, fill: heading-color)
+  show heading: set text(fill: heading-color)
   show heading: set par(justify: false)
 
 
   set figure(numbering: "1")
   show figure.caption: it => {
-    set text(font: heading-font, size: label-size)
+    set text(size: label-size)
     block(it)
   }
 
@@ -361,7 +352,6 @@ heading(level: 1, outlined: false)[List of Reference Documents]
       doc-title,
       author,
       logo,
-      heading-font,             
       heading-color,            
       info-size,                
       body-size,
