@@ -12,6 +12,7 @@ import random
 import string
 from enum import Enum
 import re
+from dataclasses import asdict, is_dataclass
 
 from jinja2 import Undefined
 UNDEFINED_PREFIX = '__jinja2.Undefined'
@@ -352,7 +353,9 @@ class CommonJSONEncoder(json.JSONEncoder):
             return obj.to_dict()
         if isinstance(obj, Undefined):
             return undefined_name2str(obj.name)
-        
+        if is_dataclass(obj) and not isinstance(obj, type):
+            return asdict(obj)
+
         return super().default(obj)
 
 
@@ -365,4 +368,19 @@ def limit_len(k, n_max =10, LR='L'):
         return k if len(k) < n_max else k[:n_max]+'...'
     else:
         return k if len(k) < n_max else '...' + k[-n_max:]
+    
+
+
+
+def make_png_imageblob(im_bytes: str) -> str:
+    """Prepends the data URI prefix for PNG images.
+
+    Args:
+        im_bytes: Base64-encoded PNG image data.
+
+    Returns:
+        str: The complete data URI string.
+    """
+    imageblob = 'data:image/png;base64,' + im_bytes
+    return imageblob
     
