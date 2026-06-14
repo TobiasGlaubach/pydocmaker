@@ -1,3 +1,12 @@
+
+The current way of deploy is github workflows 
+which automatically run tests (on push to main) 
+and deploy (on new tags/ releases).
+
+
+THE BELOW IS OLD AND OUTDATED. 
+
+
 cd into my folder
 
 # OLD python setup.py sdist
