@@ -7,7 +7,7 @@ name = "pydocmaker"
 dynamic = ["version", "dependencies"]
 description = "A minimal python document maker to create and show reports (including figures and tables) from within python and export them to markdown, pdf, html, and word."
 readme = { file="README.md", content-type="text/markdown" }
-license = { file = "LICENSE" }
+license = "MIT"
 
 authors = [
     { name="Tobias Glaubach" }
