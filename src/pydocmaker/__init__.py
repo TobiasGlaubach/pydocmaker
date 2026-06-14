@@ -1,4 +1,4 @@
-__version__ = '2.6.10'
+__version__ = '2.6.11'
 
 
 from pydocmaker.core import Doc, construct, constr, buildingblocks, print_to_pdf, make_pdf_from_tex, show_pdf, is_notebook

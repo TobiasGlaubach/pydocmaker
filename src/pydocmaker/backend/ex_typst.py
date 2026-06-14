@@ -414,15 +414,25 @@ class DocumentTypstFormatter(BaseFormatter):
 
     def digest_latex(self, children: str, **kwargs):
         s = None
+        err = ''
         if can_run_pandoc():
             try:
                 s = pandoc_convert(children, 'latex', 'typst')
                 return self._handle_color(s, **kwargs)
             except Exception as err:
-                s = 'Can not convert latex to typst! Embedding the latex code verbatim...\n\n'
+                err = 'Can not convert latex to typst! Embedding the latex code verbatim...\n\n'
         else:
-            s = 'Pandoc is not available to convert latex to typst! Embedding the latex code verbatim...\n\n'
+            err = 'Pandoc is not available to convert latex to typst! Embedding the latex code verbatim...\n\n'
         
+        
+        if s is None:
+            self.libraries.add('#import "@preview/cmarker:0.1.8"')
+            self.libraries.add('#import "@preview/mitex:0.2.7": *')
+            safe_latex = json.dumps(children, cls=util.CommonJSONEncoder) # escape all chars etc. and put quotes around it
+            s = f'#mitext({safe_latex})'
+            return s
+        
+        s = err
         s += self.digest_verbatim(children=children, lang='latex', **kwargs)
         return self._handle_color(s, 'orange')
 
