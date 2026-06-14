@@ -32,6 +32,8 @@ Documentation = "https://pydocmaker.readthedocs.io"
 where = ["src"]
 include = ["pydocmaker*"]
 
+[tool.setuptools.package-data]
+"pydocmaker" = ["templates/**"]
 
 [tool.setuptools.dynamic]
 version = {attr = "pydocmaker.__version__"}
