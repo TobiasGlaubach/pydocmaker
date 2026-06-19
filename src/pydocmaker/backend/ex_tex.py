@@ -110,6 +110,10 @@ RD[{{ i }}] & {{ value }} \\
 """
 
 
+latex_pattern = re.compile(r'\\[a-zA-Z]+|\\$|\\{|\\}|\\[|\\]|\\(\\)|\\^|\\_|\\~|\\&|\\%|\\#|\\{\\}|\\$\\$|\\begin\\{.*?\\}|\\end\\{.*?\\}')
+
+def contains_latex(text):
+    return bool(latex_pattern.search(text))
 
 def escape(s):
     if latex is None:
@@ -120,10 +124,17 @@ def escape(s):
         return latex.escape(s)
     else:
         return s
+    
 
 def auto_escape_latex(params):
     if isinstance(params, str):
-        return params if params.startswith('%%latex') or params.startswith('%latex') or params.startswith('%tex') else escape(params)
+        p = params.strip()
+        if p.startswith('%%latex') or p.startswith('%latex') or p.startswith('%tex') or p.startswith('\\'):
+            return params
+        if contains_latex(p):
+            return params
+        return escape(params)
+    
     elif isinstance(params, dict):
         return {k:auto_escape_latex(v) for k, v in params.items()}
     elif isinstance(params, list):
