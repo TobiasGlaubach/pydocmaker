@@ -271,6 +271,25 @@ def _is_chapter(dc: Dict[str, Any]) -> str:
     
 
 
+
+def load_file_b64(path:Union[str, BinaryIO, TextIO, Path]):
+    """
+    Load an image from a file path or file-like object and return its base64-encoded string representation.
+    """
+    assert path, 'need to give a path!'
+
+    if hasattr(path, 'read'):
+        bts = path.read()
+    else:
+        with open(path, 'rb') as fp:
+            bts = fp.read()
+    
+    assert bts and isinstance(bts, bytes), f'the loaded content needs to be of type bytes but was {bts=}'
+
+    b64str = base64.b64encode(bts).decode('utf-8')
+    return b64str
+    
+
 class constr:
     """This is the basic schema for the main building blocks for a document.
 
@@ -558,23 +577,15 @@ class constr:
         Raises:
             AssertionError: If path is empty or read content is not bytes.
         """
-        assert path, 'need to give a path!'
+        imageblob = load_file_b64(path)
 
-        if hasattr(path, 'read'):
-            bts = path.read()
-        else:
-            with open(path, 'rb') as fp:
-                bts = fp.read()
-        
-        assert bts and isinstance(bts, bytes), f'the loaded content needs to be of type bytes but was {bts=}'
-        
         if not children:
             children = os.path.basename(path)
         
         if not caption and children:
             caption = children
 
-        imageblob = base64.b64encode(bts).decode('utf-8')
+
         return constr.image(imageblob=imageblob, children=children, caption=caption, width=width, color=color, end=end)
         
 
