@@ -102,6 +102,7 @@ DATA_URI_IMAGE_RE = re.compile(
     r'^\s*data:image/(?P<mime>[A-Za-z0-9.+-]+)\s*;\s*base64\s*,\s*(?P<data>[A-Za-z0-9+/=\s]+)\s*$',
     re.IGNORECASE,
 )
+DO_REPLACE_HORIZONTALRULE = True
 
 def test_typst_installed():
     try:
@@ -382,6 +383,9 @@ def convert(doc:List[dict], template = None, template_params=None, ret_attachmen
         # {{ body }} was not part of the template... just append it to the end
         if not b in doc_typst:
             doc_typst += '\n\n' + b
+
+        if DO_REPLACE_HORIZONTALRULE:
+            doc_typst = doc_typst.replace('#horizontalrule', '#line(length: 100%, stroke: 0.5pt)')
 
     except Exception as err:
         s = f'Error while rendering the typst template: {err}'
