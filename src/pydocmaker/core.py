@@ -1484,7 +1484,7 @@ class Doc(UserList):
                 path_or_stream.write_bytes(m)
             return True
 
-        elif path_or_stream and isinstance(path_or_stream, str):
+        elif path_or_stream and isinstance(path_or_stream, (str, Path)):
             mode = 'w' if isinstance(m, str) else 'wb'
             encoding = 'utf-8' if isinstance(m, str) else None
 
