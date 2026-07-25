@@ -12,8 +12,16 @@ from pydocmaker.backend import pandoc_api
 from pydocmaker.util import log
 
 
-def _ms(s):
-    """Convert a string or list of strings to a single string."""
+def _ms(s: Any) -> str:
+    """Convert a string or list of strings to a single string.
+
+    Args:
+        s: The input object, which can be a string, bytes, iterable of strings, 
+            or any other object with a string representation.
+
+    Returns:
+        A single unified string.
+    """
     if hasattr(s, '__iter__') and not isinstance(s, (str, bytes)):
         return "".join([_ms(item) for item in s])
     elif isinstance(s, bytes):
@@ -27,7 +35,17 @@ def _ms(s):
 # PX_TO_CM = 0.0265 
 # PX_TO_PERC = lambda px: (px * PX_TO_CM) / 21.0
 
-def get_between_pre(s, starter='<', ender='>'):
+def get_between_pre(s: str, starter: str = '<', ender: str = '>') -> str:
+    """Extract content from inside a HTML pre-tag or standard delimiters.
+
+    Args:
+        s: The input string to parse.
+        starter: The opening delimiter character.
+        ender: The closing delimiter character.
+
+    Returns:
+        The processed string with pre-tags stripped or text between delimiters.
+    """
     ss = s.strip()
 
     if ss.startswith("<pre") and ss.endswith("</pre>"):
@@ -43,7 +61,17 @@ def get_between_pre(s, starter='<', ender='>'):
     return s
 
 # slow but works
-def get_between(s, starter='<', ender='>'):
+def get_between(s: str, starter: str = '<', ender: str = '>') -> tuple:
+    """Find the start and end indices of balanced delimiters within a string.
+
+    Args:
+        s: The input string to search.
+        starter: The opening delimiter character.
+        ender: The closing delimiter character.
+
+    Returns:
+        A tuple of (istart, iend) representing the indices of the matched block.
+    """
     istart = None
     cnt = 0
     for i, el in enumerate(s, 1):
@@ -58,12 +86,27 @@ def get_between(s, starter='<', ender='>'):
     return istart, i-1
 
 
-def html2md(s:str) -> Doc:
-    
+def html2md(s: str) -> Doc:
+    """Convert an HTML string to a Markdown document using Pandoc.
+
+    Args:
+        s: The HTML content string.
+
+    Returns:
+        A Doc object containing the cleaned Markdown conversion.
+    """
     md = pandoc_api.pandoc_convert(s, "html", "markdown")
     return clean_md(md)
 
-def clean_md(md:str) -> Doc:
+def clean_md(md: str) -> Doc:
+    """Clean and parse raw Markdown, extracting embedded base64 images and cleaning tags.
+
+    Args:
+        md: The raw Markdown string.
+
+    Returns:
+        A Doc object containing the structured document elements.
+    """
     doc = Doc()
     md = md.replace("<div>", "").replace("</div>", "")
     lines = md.split('\n')
@@ -102,35 +145,29 @@ def clean_md(md:str) -> Doc:
 class IpynbLoader:
     """Load a Jupyter notebook and return its contents as a pydocmaker document."""
 
-    # whether to include input cells as code blocks in the output document
     include_input_cells: bool = True
     source_as_markdown : bool = True
-    
     add_cell_numbers: bool = True
-
     source_language: str = 'python'
-    
     plainout_as_raw : bool = False
-
-    # a list of output types to exclude from the output document (e.g. "text/plain", "image/png") (can be Regex patterns)
     exclude_output_type_filters: List[str] = None
-
-    # a list of output types to include in the output document (e.g. "text/plain", "image/png") (can be Regex patterns)
     include_output_type_filters: List[str] = None
-
-    # whether to include metadata in the output document
     include_metadata_in_doc: bool = True
-
     include_metadata_in_docmeta: bool = True
-
-    # whether to include the notebook version in the output document
     add_nb_version: bool = True
-
     make_output_blue: bool = True
-
     verb: bool = False
 
-    def load_notebook(self, file_content:str, file_name="") -> Doc:
+    def load_notebook(self, file_content: Union[str, dict], file_name: str = "") -> Doc:
+        """Load a Jupyter notebook from string or dictionary contents.
+
+        Args:
+            file_content: The notebook content as a JSON string or dictionary.
+            file_name: Optional name of the notebook file.
+
+        Returns:
+            A Doc object representing the parsed notebook document.
+        """
         if not isinstance(file_content, dict):
             dc = json.loads(file_content)
 
@@ -183,15 +220,25 @@ class IpynbLoader:
 
 
     
-    def parse_output_data_part(self, doc:Doc, mimetype:str, data: Any, **kw) -> str:
-        """Parse a data dictionary and return its contents as a string."""
+    def parse_output_data_part(self, doc: Doc, mimetype: str, data: Any, **kw) -> "IpynbLoader":
+        """Parse a specific MIME-type output data part and append it to the document.
+
+        Args:
+            doc: The target Doc object to add the output to.
+            mimetype: The MIME type of the output data.
+            data: The output data payload.
+            **kw: Additional keyword arguments.
+
+        Returns:
+            The current IpynbLoader instance for method chaining.
+        """
         s = _ms(data)
 
         if s.startswith("<IPython.core") and mimetype == "text/plain":
             return self
         
         if self.verb:
-            log.info(f"         data part of {mimetype=} {type(data)=} data={util.limit_len(str(data), 30)}")
+            log.info(f"        data part of {mimetype=} {type(data)=} data={util.limit_len(str(data), 30)}")
 
         color = 'blue' if self.make_output_blue else None
         if mimetype == "text/plain":
@@ -223,19 +270,34 @@ class IpynbLoader:
         
         return self
     
-    def _filtoutp(self, key):
+    def _filtoutp(self, key: str) -> bool:
+        """Determine whether an output type should be included based on filters.
+
+        Args:
+            key: The output MIME type key.
+
+        Returns:
+            True if the output type should be included, False otherwise.
+        """
         if self.exclude_output_type_filters and any([re.search(pattern, key) for pattern in self.exclude_output_type_filters]):
             return False
         if self.include_output_type_filters and not any([re.search(pattern, key) for pattern in self.include_output_type_filters]):
             return False
         return True
     
-    def parse_output_data(self, data: dict, doc:Doc) -> List[str]:
-        """Parse a data dictionary and return its contents as a list of strings."""
-        
+    def parse_output_data(self, data: dict, doc: Doc) -> "IpynbLoader":
+        """Parse an output data dictionary, filtering keys and delegating to parts.
+
+        Args:
+            data: A dictionary containing MIME types mapping to data payloads.
+            doc: The target Doc object.
+
+        Returns:
+            The current IpynbLoader instance for method chaining.
+        """
         temp = {k:v for k, v in data.items() if self._filtoutp(k)}
         if self.verb:
-            log.info(f"      output data list with n={len(data)} elements and {len(temp)} elements after filtering")
+            log.info(f"   output data list with n={len(data)} elements and {len(temp)} elements after filtering")
         if len(temp) == 2 and "text/html" in temp and "text/plain" in temp:
             self.parse_output_data_part(doc, "text/html", temp["text/html"])
         else:    
@@ -243,8 +305,16 @@ class IpynbLoader:
                 self.parse_output_data_part(doc, k, v)
         return self
             
-    def parse_output_error(self, data: dict, doc:Doc) -> str:
-        """Parse an error dictionary and return its contents as a string."""
+    def parse_output_error(self, data: dict, doc: Doc) -> "IpynbLoader":
+        """Parse an execution error dictionary and add it to the document.
+
+        Args:
+            data: A dictionary containing error details (ename, evalue, traceback).
+            doc: The target Doc object.
+
+        Returns:
+            The current IpynbLoader instance for method chaining.
+        """
         ename = data.get("ename", "")
         evalue = data.get("evalue", "")
         traceback = data.get("traceback", [])
@@ -256,9 +326,16 @@ class IpynbLoader:
 
         return self
 
-    def cell_parse_output(self, cell: Union[dict, list], doc:Doc) -> list:
-        """Parse an output cell and return its contents as a string."""
-        
+    def cell_parse_output(self, cell: Union[dict, list, tuple], doc: Doc) -> "IpynbLoader":
+        """Parse an output cell or collection of cells and add outputs to the document.
+
+        Args:
+            cell: A dictionary representing a notebook cell or an iterable of cells.
+            doc: The target Doc object.
+
+        Returns:
+            The current IpynbLoader instance for method chaining.
+        """
         if isinstance(cell, (list, tuple)):
             for c in cell:
                 self.cell_parse_output(c, doc)
@@ -301,9 +378,16 @@ class IpynbLoader:
             return self
 
         
-    def cell_parse_source(self, cell: dict, doc:Doc) -> str:
-        """Parse a source cell and return its contents as a string."""
+    def cell_parse_source(self, cell: dict, doc: Doc) -> "IpynbLoader":
+        """Parse a source cell and add its content as code or markdown to the document.
 
+        Args:
+            cell: A dictionary representing a notebook cell.
+            doc: The target Doc object.
+
+        Returns:
+            The current IpynbLoader instance for method chaining.
+        """
         cell_number = cell.get("execution_count", "")
         if self.verb :
             log.info(f"   source cell {cell_number} of type {cell['cell_type']}")
@@ -330,7 +414,7 @@ class IpynbLoader:
     
 
 
-def load_notebook(file_path: str, 
+def load_notebook(file_path: Union[str, dict], 
     include_input_cells: bool = True,
     source_as_markdown : bool = True,
     add_cell_numbers: bool = True,
@@ -344,7 +428,26 @@ def load_notebook(file_path: str,
     verb: bool = False, 
     **kw
     ) -> Doc:
+    """Load a Jupyter notebook from a file path, raw JSON string, or dictionary.
 
+    Args:
+        file_path: Path to the notebook file, a JSON string, or a dictionary.
+        include_input_cells: Whether to include input cells as code blocks.
+        source_as_markdown: Whether to format source code as markdown code blocks.
+        add_cell_numbers: Whether to add cell execution counts/numbers.
+        source_language: The programming language for syntax highlighting.
+        plainout_as_raw: Whether to render plain text output as raw text.
+        exclude_output_type_filters: List of output types/regex patterns to exclude.
+        include_output_type_filters: List of output types/regex patterns to include.
+        include_metadata_in_doc: Whether to include notebook metadata in the body.
+        include_metadata_in_docmeta: Whether to include metadata in document metadata.
+        add_nb_version: Whether to add notebook format version info.
+        verb: Verbosity flag for logging.
+        **kw: Additional keyword arguments passed to IpynbLoader.
+
+    Returns:
+        A Doc object containing the parsed document.
+    """
     file_name = ""
     if isinstance(file_path, str) and not os.path.isfile(file_path):
         file_content = file_path
@@ -393,5 +496,3 @@ if __name__ == "__main__":
         doc.to_pdf(fn.with_suffix(".pdf"), verb=2)
 
     # import pydocmaker as pyd
-
-    
