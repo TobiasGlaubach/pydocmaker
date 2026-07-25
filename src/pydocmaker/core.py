@@ -271,6 +271,25 @@ def _is_chapter(dc: Dict[str, Any]) -> str:
     
 
 
+
+def load_file_b64(path:Union[str, BinaryIO, TextIO, Path]):
+    """
+    Load an image from a file path or file-like object and return its base64-encoded string representation.
+    """
+    assert path, 'need to give a path!'
+
+    if hasattr(path, 'read'):
+        bts = path.read()
+    else:
+        with open(path, 'rb') as fp:
+            bts = fp.read()
+    
+    assert bts and isinstance(bts, bytes), f'the loaded content needs to be of type bytes but was {bts=}'
+
+    b64str = base64.b64encode(bts).decode('utf-8')
+    return b64str
+    
+
 class constr:
     """This is the basic schema for the main building blocks for a document.
 
@@ -316,7 +335,7 @@ class constr:
 
         Args:
             children: The markdown text content.
-            color: Color for rendering (for HTML/LaTeX backends).
+            color: Color for rendering (not supported by all backends).
             end: Custom line ending.
 
         Returns:
@@ -335,7 +354,7 @@ class constr:
 
         Args:
             children: The plain text content.
-            color: Color for rendering (for HTML/LaTeX backends).
+            color: Color for rendering (not supported by all backends).
             end: Custom line ending.
 
         Returns:
@@ -354,7 +373,7 @@ class constr:
 
         Args:
             children: The text content for this line.
-            color: Color for rendering (for HTML/LaTeX backends).
+            color: Color for rendering (not supported by all backends).
             end: Custom line ending (default '\n').
 
         Returns:
@@ -388,13 +407,14 @@ class constr:
     
 
     @staticmethod
-    def verbatim(children: str = '', color: str = '', end: Optional[str] = None) -> Dict[str, Any]:
+    def verbatim(children: str = '', color: str = '', end: Optional[str] = None, lang:str='') -> Dict[str, Any]:
         """Create a verbatim (pre-formatted text) document part dict.
 
         Args:
             children: The verbatim text content.
-            color: Color for rendering (for HTML/LaTeX backends).
+            color: Color for rendering (not supported by all backends).
             end: Custom line ending.
+            lang: the (code)language of that formatted block (not supported by most backends)
 
         Returns:
             dict: Document part dict with typ='verbatim'.
@@ -403,6 +423,7 @@ class constr:
             'typ': 'verbatim',
             'children': children,
             'color': color,
+            'lang': lang,
             'end': end
         }
     
@@ -414,7 +435,7 @@ class constr:
 
         Args:
             children: List of document parts to iterate over.
-            color: Color for rendering (for HTML/LaTeX backends).
+            color: Color for rendering (not supported by all backends).
             end: Custom line ending.
 
         Returns:
@@ -435,7 +456,7 @@ class constr:
 
         Args:
             children: Matrix (list of lists) with formatable elements.
-            color: Color for rendering (for HTML/LaTeX backends).
+            color: Color for rendering (not supported by all backends).
             end: Custom line ending.
             header: Header row as a list of formatable elements.
             caption: Caption text to place under/above the table.
@@ -468,7 +489,7 @@ class constr:
             caption: Caption text for the image.
             children: Internal name/id for the image file. Auto-generated if empty.
             width: Display width for the image in the document.
-            color: Color for rendering (for HTML/LaTeX backends).
+            color: Color for rendering (not supported by all backends).
             end: Custom line ending.
 
         Returns:
@@ -500,7 +521,7 @@ class constr:
             caption: Caption text for the image. Derived from filename if empty.
             children: Internal name/id for the image file. Derived from URL if empty.
             width: Display width for the image in the document.
-            color: Color for rendering (for HTML/LaTeX backends).
+            color: Color for rendering (not supported by all backends).
             end: Custom line ending.
 
         Returns:
@@ -549,7 +570,7 @@ class constr:
             children: Internal name/id for the image file. Derived from filename if empty.
             caption: Caption text for the image. Derived from children if empty.
             width: Display width for the image in the document.
-            color: Color for rendering (for HTML/LaTeX backends).
+            color: Color for rendering (not supported by all backends).
             end: Custom line ending.
 
         Returns:
@@ -558,23 +579,15 @@ class constr:
         Raises:
             AssertionError: If path is empty or read content is not bytes.
         """
-        assert path, 'need to give a path!'
+        imageblob = load_file_b64(path)
 
-        if hasattr(path, 'read'):
-            bts = path.read()
-        else:
-            with open(path, 'rb') as fp:
-                bts = fp.read()
-        
-        assert bts and isinstance(bts, bytes), f'the loaded content needs to be of type bytes but was {bts=}'
-        
         if not children:
             children = os.path.basename(path)
         
         if not caption and children:
             caption = children
 
-        imageblob = base64.b64encode(bts).decode('utf-8')
+
         return constr.image(imageblob=imageblob, children=children, caption=caption, width=width, color=color, end=end)
         
 
@@ -589,7 +602,7 @@ class constr:
             width: The width for the image to have in the document. None lets the individual formatter determine the width.
             children: A specific name/id to give to the image (will be auto generated if None).
             fig: The matplotlib figure object (or the current figure if None).
-            color: Color for rendering (for HTML/LaTeX backends).
+            color: Color for rendering (not supported by all backends).
             end: Custom line ending.
             bbox_inches: Bounding box for the figure save (passed to matplotlib.savefig).
             **kwargs: Additional keyword arguments passed to matplotlib.savefig.
@@ -634,7 +647,7 @@ class constr:
             caption: The caption to give to the image.
             width: The width for the image to have in the document. None lets the formatter determine width.
             children: A specific name/id for the image (auto-generated if None).
-            color: Color for rendering (for HTML/LaTeX backends).
+            color: Color for rendering (not supported by all backends).
             end: Custom line ending.
 
         Returns:
@@ -642,20 +655,20 @@ class constr:
         """
         global np, gImage
 
-        if np is None:
-            import numpy 
-            np = numpy
-
-        if gImage is None:
-            from PIL import Image
-            gImage = Image
-
+    
         # 2D matrix as lists --> make nummpy array
         if isinstance(img, list) and img and img[0] and isinstance(img[0], list):
+            if np is None:
+                import numpy 
+                np = numpy
             img = np.array(img)
 
         # numpy array --> make PIL image
         if hasattr(img, 'shape') and len(img.shape) == 2:
+            if gImage is None:
+                from PIL import Image
+                gImage = Image
+    
             img = gImage.fromarray(img)
         
         # PIL image --> make filelike
@@ -1192,6 +1205,8 @@ class Doc(UserList):
     def add(self, part: Optional[Union[Dict[str, Any], str]] = None, index: Optional[int] = None,
             chapter: Optional[Union[str, int]] = None, color: str = '', end: Optional[str] = None) -> 'Doc':
         """Appends a new document part to the given location or end of this document.
+        
+        (also works with lists or tuples of parts, which are added in order).
 
         If part is a string, it is automatically converted to a 'text' type document part.
         If chapter is given, the part is inserted at the end of that chapter (or the chapter is created).
@@ -1212,6 +1227,12 @@ class Doc(UserList):
             AssertionError: If part is empty, both index and chapter are specified,
                 or index is out of bounds.
         """
+        if isinstance(part, (tuple, list, Doc)):
+            for p in part:
+                if p:
+                    self.add(p, index=index, chapter=chapter, color=color, end=end)
+            return self
+        
         assert part, f'need to give an element_to_add!, but got {type(part)=} {part=}'
         
         if isinstance(part, str):
@@ -1257,7 +1278,7 @@ class Doc(UserList):
             children: The content for this element. Either a string directly or a list of other document parts.
             index: The list index where to insert the part. If None, appends to the end.
             chapter: The chapter name or zero-based chapter index. If None, appends to the end.
-            color: Color for rendering (for HTML/LaTeX backends).
+            color: Color for rendering (not supported by all backends).
             end: Custom line ending.
             **kwargs: Additional keyword arguments passed to the document part constructor.
 
@@ -1276,7 +1297,7 @@ class Doc(UserList):
             children: The text content or list of items.
             index: The list index where to insert. If None, appends to end.
             chapter: Chapter name or index for insertion. If None, appends to end.
-            color: Color for rendering (for HTML/LaTeX backends).
+            color: Color for rendering (not supported by all backends).
             **kwargs: Additional keyword arguments for the text element.
 
         Returns:
@@ -1314,7 +1335,7 @@ class Doc(UserList):
             children: The markdown content or list of items.
             index: The list index where to insert. If None, appends to end.
             chapter: Chapter name or index for insertion. If None, appends to end.
-            color: Color for rendering (for HTML/LaTeX backends).
+            color: Color for rendering (not supported by all backends).
             end: Custom line ending.
             **kwargs: Additional keyword arguments for the markdown element.
 
@@ -1335,7 +1356,7 @@ class Doc(UserList):
             children: Matrix (list of lists) with formatable elements.
             index: The list index where to insert. If None, appends to end.
             chapter: Chapter name or index for insertion. If None, appends to end.
-            color: Color for rendering (for HTML/LaTeX backends).
+            color: Color for rendering (not supported by all backends).
             end: Custom line ending.
             header: Header row as a list of formatable elements.
             caption: Caption text to place at/under the table.
@@ -1357,6 +1378,7 @@ class Doc(UserList):
     
     def add_pre(self, children: Optional[Union[str, List[Any]]] = None, index: Optional[int] = None,
                 chapter: Optional[Union[str, int]] = None, color: str = '', end: Optional[str] = None,
+                lang:str='',
                 **kwargs: Any) -> 'Doc':
         """Add a verbatim (pre-formatted) document part to this document.
 
@@ -1364,14 +1386,15 @@ class Doc(UserList):
             children: The verbatim text content or list of items.
             index: The list index where to insert. If None, appends to end.
             chapter: Chapter name or index for insertion. If None, appends to end.
-            color: Color for rendering (for HTML/LaTeX backends).
+            color: Color for rendering (not supported by all backends).
             end: Custom line ending.
+            lang: the (code)language of that formatted block (not supported by most backends)
             **kwargs: Additional keyword arguments for the verbatim element.
 
         Returns:
             Doc: self (for method chaining).
         """
-        self.add(construct('verbatim', children=children, color=color, end=end, **kwargs), index=index, chapter=chapter)
+        self.add(construct('verbatim', children=children, color=color, end=end, lang=lang, **kwargs), index=index, chapter=chapter)
         return self
     
 
@@ -1389,7 +1412,7 @@ class Doc(UserList):
             children: Specific name/id for the image (auto-generated if None).
             index: The list index where to insert. If None, appends to end.
             chapter: Chapter name or index for insertion. If None, appends to end.
-            color: Color for rendering (for HTML/LaTeX backends).
+            color: Color for rendering (not supported by all backends).
             end: Custom line ending.
             **kwargs: Additional keyword arguments passed to matplotlib.savefig.
 
@@ -1422,7 +1445,7 @@ class Doc(UserList):
             children: Specific name/id for the image (auto-generated if None).
             index: The list index where to insert. If None, appends to end.
             chapter: Chapter name or index for insertion. If None, appends to end.
-            color: Color for rendering (for HTML/LaTeX backends).
+            color: Color for rendering (not supported by all backends).
             end: Custom line ending.
             **kwargs: Additional keyword arguments.
 
@@ -1471,15 +1494,15 @@ class Doc(UserList):
                 path_or_stream.write_text(m)
             else:
                 path_or_stream.write_bytes(m)
-            return True
+            return os.path.exists(path_or_stream)
 
-        elif path_or_stream and isinstance(path_or_stream, str):
+        elif path_or_stream and isinstance(path_or_stream, (str, Path)):
             mode = 'w' if isinstance(m, str) else 'wb'
             encoding = 'utf-8' if isinstance(m, str) else None
 
             with open(path_or_stream, mode, encoding=encoding) as f:
                 f.write(m)
-            return True
+            return os.path.exists(path_or_stream)
         
         elif hasattr(path_or_stream, 'write'):
             try:

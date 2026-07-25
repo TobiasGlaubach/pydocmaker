@@ -46,6 +46,13 @@ except Exception as err:
 
 log = util.log
 
+CODLY_LIBS = """#import "@preview/codly:1.3.0": *
+#import "@preview/codly-languages:0.1.1": *
+#show: codly-init.with()
+#codly(languages: codly-languages)
+#codly(zebra-fill: none)
+#codly(number-format: none) """
+
 __default_template = """
 
 #set page("a4")
@@ -102,6 +109,8 @@ DATA_URI_IMAGE_RE = re.compile(
     r'^\s*data:image/(?P<mime>[A-Za-z0-9.+-]+)\s*;\s*base64\s*,\s*(?P<data>[A-Za-z0-9+/=\s]+)\s*$',
     re.IGNORECASE,
 )
+DO_REPLACE_HORIZONTALRULE = True
+USE_CODELY = True
 
 def test_typst_installed():
     try:
@@ -239,6 +248,18 @@ def _compile(verb, on_warning, **kw):
             s += '\nTrace:\n' + '\n'.join(err.trace)
         log.error(s, exc_info=1)
         err.context = util.get_inp_context('main.typ', context=context, **kw)
+        if int(verb) >= 2:
+
+            log.info(f'here is the info from typst compilation:')
+            for k, v in kw.items():
+                v:bytes = v
+                if isinstance(v, bytes):
+                    s = v.decode('ascii', errors='replace').splitlines()
+                else:
+                    s = v.splitlines()
+                s = [f'{i} | {l}' for i, l in enumerate(s, 1)]
+                s = '\n'.join(s)
+                log.info(f'---\n{k}\n{s}')
         raise 
     except Exception as err:
         err.context = util.get_inp_context('main.typ', context=context, **kw)
@@ -383,6 +404,9 @@ def convert(doc:List[dict], template = None, template_params=None, ret_attachmen
         if not b in doc_typst:
             doc_typst += '\n\n' + b
 
+        if DO_REPLACE_HORIZONTALRULE:
+            doc_typst = doc_typst.replace('#horizontalrule', '#line(length: 100%, stroke: 0.5pt)')
+
     except Exception as err:
         s = f'Error while rendering the typst template: {err}'
         log.error(s)
@@ -404,7 +428,7 @@ class DocumentTypstFormatter(BaseFormatter):
         self.libraries = set()
 
 
-    def _handle_color(self, part, color=None, **kwargs):
+    def _handle_color(self, part, color=None, **kwargs) -> str:
         if color:
             s = '#text(fill: ' + color + ')[\n' + str(part) + '\n]\n'
             return s
@@ -498,6 +522,9 @@ class DocumentTypstFormatter(BaseFormatter):
         imageblob = kwargs.get('imageblob')
         name = kwargs.get('name', filename)
         width = kwargs.get('width', None)
+
+        if not imageblob:
+            return ''
         
         if name:
             name = util.filename2identifier(name)
@@ -546,20 +573,26 @@ class DocumentTypstFormatter(BaseFormatter):
     def digest_verbatim(self, children='', **kwargs) -> list:
         lang = kwargs.pop('lang', kwargs.get('language', None))
 
-        if lang is None:
+        if not lang:
             lang = ''
         else:
-            lang = f'"{str(lang).strip()}"'
+            lang = f'{str(lang).strip()}'
+            if USE_CODELY:
+                self.libraries.add(CODLY_LIBS)
+        
 
 
         if isinstance(children, str):
             txt = children.strip('\n') # to_typst_string(children) #.strip('\n')
         else:
             txt = self.digest(children)
-        
-        s = f"""```{lang}\n{txt}\n```"""
+            
+        s = f"""````{lang}\n{txt}\n````"""
         # s = f'\n#raw(`{}`, block: true, lang: {lang})\n\n'
-        
+        # if USE_CODELY and not lang:
+        #     s = f'#no-codly[\n{s}\n]'
+                
+
         return self._handle_color(s, **kwargs)
     
         
