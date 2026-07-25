@@ -1,4 +1,4 @@
-__version__ = '2.6.11'
+__version__ = '2.6.12'
 
 
 from pydocmaker.core import Doc, construct, constr, buildingblocks, print_to_pdf, make_pdf_from_tex, show_pdf, is_notebook, load_file_b64
@@ -32,6 +32,8 @@ except ImportError:
 from pydocmaker.backend.libreoffice_api import config_libreoffice_path_get, config_libreoffice_path_set, config_libreoffice_path_find, config_libreoffice_path_testset
 from pydocmaker.core import config_pdf_engine_get, config_pdf_engine_set, config_pdf_engine_scan, config_pdf_engine_test, config_renderer_default_get, config_renderer_default_set, test_typst_installed, compile_with_typst
 from pydocmaker.backend.pdf_maker_tex import config_latex_compiler_scan, config_latex_compiler_get, config_latex_compiler_set, config_latex_compiler_testset
+
+from pydocmaker.ipynb_loader import load_notebook
 
 try:
     # tests and caches already if pandoc is installed when import is used, so its faster later when we want to use it (or not)
