@@ -407,13 +407,14 @@ class constr:
     
 
     @staticmethod
-    def verbatim(children: str = '', color: str = '', end: Optional[str] = None) -> Dict[str, Any]:
+    def verbatim(children: str = '', color: str = '', end: Optional[str] = None, lang:str='') -> Dict[str, Any]:
         """Create a verbatim (pre-formatted text) document part dict.
 
         Args:
             children: The verbatim text content.
             color: Color for rendering (not supported by all backends).
             end: Custom line ending.
+            lang: the (code)language of that formatted block (not supported by most backends)
 
         Returns:
             dict: Document part dict with typ='verbatim'.
@@ -422,6 +423,7 @@ class constr:
             'typ': 'verbatim',
             'children': children,
             'color': color,
+            'lang': lang,
             'end': end
         }
     
@@ -653,20 +655,20 @@ class constr:
         """
         global np, gImage
 
-        if np is None:
-            import numpy 
-            np = numpy
-
-        if gImage is None:
-            from PIL import Image
-            gImage = Image
-
+    
         # 2D matrix as lists --> make nummpy array
         if isinstance(img, list) and img and img[0] and isinstance(img[0], list):
+            if np is None:
+                import numpy 
+                np = numpy
             img = np.array(img)
 
         # numpy array --> make PIL image
         if hasattr(img, 'shape') and len(img.shape) == 2:
+            if gImage is None:
+                from PIL import Image
+                gImage = Image
+    
             img = gImage.fromarray(img)
         
         # PIL image --> make filelike
@@ -1225,7 +1227,7 @@ class Doc(UserList):
             AssertionError: If part is empty, both index and chapter are specified,
                 or index is out of bounds.
         """
-        if isinstance(part, (tuple, list)):
+        if isinstance(part, (tuple, list, Doc)):
             for p in part:
                 if p:
                     self.add(p, index=index, chapter=chapter, color=color, end=end)
@@ -1376,6 +1378,7 @@ class Doc(UserList):
     
     def add_pre(self, children: Optional[Union[str, List[Any]]] = None, index: Optional[int] = None,
                 chapter: Optional[Union[str, int]] = None, color: str = '', end: Optional[str] = None,
+                lang:str='',
                 **kwargs: Any) -> 'Doc':
         """Add a verbatim (pre-formatted) document part to this document.
 
@@ -1385,12 +1388,13 @@ class Doc(UserList):
             chapter: Chapter name or index for insertion. If None, appends to end.
             color: Color for rendering (not supported by all backends).
             end: Custom line ending.
+            lang: the (code)language of that formatted block (not supported by most backends)
             **kwargs: Additional keyword arguments for the verbatim element.
 
         Returns:
             Doc: self (for method chaining).
         """
-        self.add(construct('verbatim', children=children, color=color, end=end, **kwargs), index=index, chapter=chapter)
+        self.add(construct('verbatim', children=children, color=color, end=end, lang=lang, **kwargs), index=index, chapter=chapter)
         return self
     
 
