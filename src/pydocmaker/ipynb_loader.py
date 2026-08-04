@@ -248,6 +248,8 @@ class IpynbLoader:
                 doc.add_pre(s, color=color)
         elif mimetype == "text/markdown":    
             doc.add(clean_md(s))
+        elif mimetype == "text/latex":    
+            doc.add_tex(s)
         elif mimetype == "text/json":    
             doc.add_pre(json.dumps(data, indent=2), color=color)
         elif mimetype == "text/html":
