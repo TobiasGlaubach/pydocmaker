@@ -155,6 +155,7 @@ class IpynbLoader:
     include_output_type_filters: List[str] = None
     include_metadata_in_doc: bool = True
     include_metadata_in_docmeta: bool = True
+    skip_single_matplotlib_output: bool = True
     add_nb_version: bool = True
     make_output_blue: bool = True
     verb: bool = False
@@ -237,8 +238,13 @@ class IpynbLoader:
         """
         s = _ms(data)
 
-        if s.startswith("<IPython.core") and mimetype == "text/plain":
-            return self
+        if mimetype == "text/plain":
+            if s.startswith("<IPython.core"):
+                return self
+            if self.skip_single_matplotlib_output and s.startswith("<matplotlib") and s.endswith(">"):
+                return self
+            if self.skip_single_matplotlib_output and s.startswith("<Figure ") and s.endswith(">"):
+                return self
         
         if self.verb:
             log.info(f"        data part of {mimetype=} {type(data)=} data={util.limit_len(str(data), 30)}")
@@ -430,6 +436,7 @@ def load_notebook(file_path: Union[str, dict],
     include_metadata_in_doc: bool = True,
     include_metadata_in_docmeta: bool = True,
     add_nb_version: bool = True,
+    skip_single_matplotlib_output: bool = True,
     verb: bool = False, 
     **kw
     ) -> Doc:
@@ -447,6 +454,7 @@ def load_notebook(file_path: Union[str, dict],
         include_metadata_in_doc: Whether to include notebook metadata in the body.
         include_metadata_in_docmeta: Whether to include metadata in document metadata.
         add_nb_version: Whether to add notebook format version info.
+        skip_single_matplotlib_output: Whether to skip single matplotlib outputs.
         verb: Verbosity flag for logging.
         **kw: Additional keyword arguments passed to IpynbLoader.
 
@@ -472,6 +480,7 @@ def load_notebook(file_path: Union[str, dict],
                          include_metadata_in_doc=include_metadata_in_doc,
                          include_metadata_in_docmeta=include_metadata_in_docmeta,
                          add_nb_version=add_nb_version,
+                        skip_single_matplotlib_output=skip_single_matplotlib_output,
                          verb=verb, **kw)
     
     return loader.load_notebook(file_content, file_name)
