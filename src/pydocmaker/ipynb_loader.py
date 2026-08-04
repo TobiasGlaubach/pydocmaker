@@ -171,6 +171,8 @@ class IpynbLoader:
         """
         if not isinstance(file_content, dict):
             dc = json.loads(file_content)
+        else:
+            dc = file_content
 
         doc = Doc()
 
