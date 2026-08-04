@@ -341,7 +341,7 @@ heading(level: 1, outlined: false)[List of Reference Documents]
   set heading(numbering: "1.")
   show heading: set text(fill: heading-color)
   show heading: set par(justify: false)
-  show heading: set block(below: 20em)
+  show heading: set block(below: 2em)
 
   set figure(numbering: "1")
   show figure.caption: it => {
@@ -365,11 +365,22 @@ heading(level: 1, outlined: false)[List of Reference Documents]
 #show link: set text(fill: blue, weight: 500)
 #show link: underline
 //#show table.cell.where(y: 0): set text(weight: "bold")
+#show table.cell: set text(size: 0.7em)
+
 
 // code blocks
-// #let code-border = luma(0)
-//#show raw.where(block: true): set text(size: 0.7em)
+#let code-border = luma(0)
 
+#show raw.where(block: true): set text(size: 0.7em)
+#show raw.where(block: true): it => {
+    block(
+        width:100%,
+        inset: 10pt,
+        radius: 4pt,
+        stroke: 0.1pt + code-border,
+        it,
+    )
+}
 
 
 #set figure(numbering: "1")

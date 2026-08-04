@@ -924,7 +924,8 @@ class Doc(UserList):
             DocTemplate if a template is found in metadata, None otherwise or on unresolved error.
         """
         meta = copy.deepcopy(self.get_meta({}).get("data", {}))
-        template_id = meta.get("template_id", None)
+        # remove template_id from the metadata copy so it is not passed as a template param
+        template_id = meta.pop("template_id", None)
 
         attachments = meta.pop("files_to_upload", {})
         attachments.update(meta.pop("attachments", {}))
