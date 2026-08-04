@@ -136,7 +136,8 @@ def clean_md(md: str) -> Doc:
             continue
         else:
             block.append(l)
-
+    if block:
+        doc.add_md('\n'.join(block)) # add 
     return doc
 
 
