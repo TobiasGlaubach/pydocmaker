@@ -1,3 +1,4 @@
+import datetime
 import io
 import re
 import json, os, sys
@@ -212,6 +213,9 @@ class IpynbLoader:
         if file_name:
             s += f'\n- Notebook name: "{file_name}"'
         if s:
+            now = datetime.datetime.now().astimezone().isoformat(sep=' ', timespec='seconds')
+            s += f'\n- Notebook loaded / converted at: `{now}`'
+
             doc.add_md(s)
 
         if self.include_metadata_in_docmeta:
