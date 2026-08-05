@@ -17,6 +17,9 @@ docx-mailmerge
 rich
 rich-pixels
 
+beautifulsoup4
+
+
 
 # legacy LaTeX support. Works, but slow and cumbersome
 latex
