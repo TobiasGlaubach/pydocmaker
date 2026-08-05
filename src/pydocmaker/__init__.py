@@ -1,4 +1,4 @@
-__version__ = '2.6.13'
+__version__ = '2.7.0'
 
 
 from pydocmaker.core import Doc, construct, constr, buildingblocks, print_to_pdf, make_pdf_from_tex, show_pdf, is_notebook, load_file_b64
@@ -33,7 +33,7 @@ from pydocmaker.backend.libreoffice_api import config_libreoffice_path_get, conf
 from pydocmaker.core import config_pdf_engine_get, config_pdf_engine_set, config_pdf_engine_scan, config_pdf_engine_test, config_renderer_default_get, config_renderer_default_set, test_typst_installed, compile_with_typst
 from pydocmaker.backend.pdf_maker_tex import config_latex_compiler_scan, config_latex_compiler_get, config_latex_compiler_set, config_latex_compiler_testset
 
-from pydocmaker.ipynb_loader import load_notebook
+from pydocmaker.io.ipynb_loader import load_notebook
 
 try:
     # tests and caches already if pandoc is installed when import is used, so its faster later when we want to use it (or not)
@@ -117,19 +117,38 @@ def get_example():
 
 
 def load(path):
-    """Load a JSON file and return a Doc object.
-
+    """Load a compatible pydocmaker document and return a Doc object.
+    
     Args:
-        path (str or file-like object): The path to the JSON file, a http(s) link, or a file-like object.
+        file_path_or_string: A file path, URL string, or file-like object containing
+            HTML, JSON, or IPYNB document content.
 
     Returns:
-        Doc: A Doc object initialized with the loaded JSON data.
+        Doc: A Doc object initialized from the loaded document.
 
     Raises:
-        json.JSONDecodeError: If the JSON file is not valid.
-        TypeError: If the loaded JSON object is not of type list.
+        json.JSONDecodeError: If the JSON content is invalid.
+        ValueError: If the content is not a supported pydocmaker document.
     """
-    return Doc.load_json(path)
+    return Doc.load(path)
+
+def save(doc:Doc, file_path: str=None, format: str='html'):
+    """Save the current document to a pydocmaker-supported file.
+
+    Args:
+        file_path: Destination file path. If omitted, the method returns self.
+        format: Default format used when `file_path` has no suffix.
+
+    Returns:
+        bool: True if the file was written successfully.
+        Doc: self when no file path is provided.
+
+    Raises:
+        ValueError: If the requested file format is unsupported.
+    """
+    if not isinstance(doc, Doc):
+        doc = Doc(doc)
+    return doc.save(file_path, format=format)
 
 def md2tex(children='', **kwargs):
     """convenience function to quickly convert markdown to tex

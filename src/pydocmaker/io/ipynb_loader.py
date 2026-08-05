@@ -8,6 +8,7 @@ import base64
 import string
 
 from pydocmaker import util
+from pydocmaker.backend.ex_ipynb import ipynb_renderer
 from pydocmaker.core import Doc
 from pydocmaker.backend import pandoc_api
 from pydocmaker.util import log
@@ -175,6 +176,12 @@ class IpynbLoader:
             dc = json.loads(file_content)
         else:
             dc = file_content
+
+        # shortcut if the notebook already contains a pydocmaker payload (was written by pydocmaker itself)
+        pyd_data = dc.get("metadata", {}).get("pydocmaker-payload", [])
+
+        if pyd_data:
+            return Doc(pyd_data)
 
         doc = Doc()
 
@@ -489,9 +496,48 @@ def load_notebook(file_path: Union[str, dict],
     
     return loader.load_notebook(file_content, file_name)
 
+def io_check_ipynb(doc_content: str, **kwargs) -> Doc:
+    """Test loading a Jupyter notebook and return the parsed document.
 
+    Args:
+        doc_content: The content of the notebook file or a raw JSON string.
+        **kwargs: Additional keyword arguments passed to load_notebook.
+    """
+    
+    if not doc_content:
+        return False
+    if not isinstance(doc_content, str):
+        return False
+    if not doc_content.strip().startswith("{"):
+        return False
+    if not '"cells"' in doc_content:
+        return False
+    
+    return True
 
+def io_deserialize_ipynb(doc_content: str, **kwargs) -> Doc:
+    """Load a Jupyter notebook from a file path or raw JSON string.
 
+    Args:
+        doc_content: The content of the notebook file or a raw JSON string.
+        **kwargs: Additional keyword arguments passed to load_notebook.
+    """
+    return load_notebook(doc_content, **kwargs)
+
+def io_serialize_ipynb(doc: Doc) -> str:
+    """Serialize a pydocmaker document to a Jupyter notebook JSON string.
+
+    NOTE: Will save the pydocmaker document as a payload in the notebook metadata 
+    for lossless round-trip.
+
+    Args:
+        doc: The pydocmaker Doc object to serialize.
+
+    Returns:
+        A JSON string representing the Jupyter notebook.
+    """
+
+    return ipynb_renderer(add_pyd_as_metadata=True).render(doc.dump(), False)
 
 if __name__ == "__main__":
 

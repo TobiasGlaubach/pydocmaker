@@ -384,3 +384,22 @@ def make_png_imageblob(im_bytes: str) -> str:
     imageblob = 'data:image/png;base64,' + im_bytes
     return imageblob
     
+
+
+def loadfile_str(path:str):
+    """Loads a file from a given path, URL, or file-like object and returns its content as a string.
+    """
+    if hasattr(path, 'read'): # test file pointer
+        return path.read(), ''
+    if isinstance(path, str) and path.startswith("http"): # test url
+        import requests
+        r = requests.get(path)
+        r.raise_for_status()
+        return r.text, ''
+    elif os.path.exists(path):
+        with open(path, 'r') as fp:
+            return fp.read(), str(path)
+    elif isinstance(path, bytes):
+        return path.decode(), ''
+    elif isinstance(path, str):
+        return path, ''

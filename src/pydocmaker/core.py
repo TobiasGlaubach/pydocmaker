@@ -756,6 +756,88 @@ class Doc(UserList):
             warnings.warn(f'The loaded json object is not of type list, but instead of type ({type(lst)=})')
         return Doc(lst)
     
+    @staticmethod
+    def load(file_path_or_string: Union[str, Path, BinaryIO, TextIO], filename: str = None) -> 'Doc':
+        """Load a compatible pydocmaker document and return a Doc object.
+
+        Args:
+            file_path_or_string: A file path, URL string, or file-like object containing
+                HTML, JSON, or IPYNB document content.
+            filename: The name of the file being loaded.
+
+        Returns:
+            Doc: A Doc object initialized from the loaded document.
+
+        Raises:
+            json.JSONDecodeError: If the JSON content is invalid.
+            ValueError: If the content is not a supported pydocmaker document.
+        """
+                
+        from .io.html_loader import io_serialize_html, io_deserialize_html, io_check_html
+        from .io.ipynb_loader import io_serialize_ipynb, io_deserialize_ipynb, io_check_ipynb
+        from .util import loadfile_str
+
+
+        str_content, f = loadfile_str(file_path_or_string)
+        if f:
+            filename = f
+
+        if io_check_html(str_content):
+            doc = io_deserialize_html(str_content)
+        elif io_check_ipynb(str_content):
+            doc = io_deserialize_ipynb(str_content)
+        elif str_content.strip().startswith("[") or str_content.strip().startswith("{"):
+            doc = Doc(json.loads(str_content, cls=MyJSONDecoder))
+        else:
+            raise ValueError(f"The provided {filename if filename else 'file'}, starting with '{limit_len(str_content, n_max=50)}', does not appear to be a valid pydocmaker document (HTML, JSON, or IPYNB).")
+        
+        return doc
+
+
+    def save(self, file_path: str=None, format: str='html'):
+        """Save the current document to a pydocmaker-supported file.
+
+        Args:
+            file_path: Destination file path. If omitted, the method returns self.
+            format: Default format used when `file_path` has no suffix.
+
+        Returns:
+            bool: True if the file was written successfully.
+            Doc: self when no file path is provided.
+
+        Raises:
+            ValueError: If the requested file extension is unsupported.
+        """
+
+        from .io.html_loader import io_serialize_html, io_deserialize_html, io_check_html
+        from .io.ipynb_loader import io_serialize_ipynb, io_deserialize_ipynb, io_check_ipynb
+
+        format = format.lower()
+        if file_path and isinstance(file_path, (str, Path)):
+            p = Path(file_path)
+            if p.suffix:
+                format = p.suffix.lower()
+            else:
+                file_path = f"{file_path}.{format}"
+
+
+        if not format.startswith('.'):
+            format = '.' + format
+            
+        if format.endswith(".html") or format.endswith(".pyd") or format.endswith(".pydoc"):
+            txt = io_serialize_html(self)
+        elif format.endswith(".ipynb"):
+            txt = io_serialize_ipynb(self)
+        elif format.endswith(".json"):
+            txt = self.to_json(None)
+        else:
+            raise ValueError(f"Unsupported file extension {format}. Please use .html, .pyd, .pydoc, .ipynb, or .json for saving pydocmaker documents.")
+
+        return self._ret(txt, file_path)
+
+
+
+
     def __init__(self, initial_data: Optional[List[Dict[str, Any]]] = None) -> None:
         """Initialize a Doc with optional initial list of document parts.
 
@@ -1468,7 +1550,14 @@ class Doc(UserList):
         self.add(docpart, index=index, chapter=chapter)
         return self
     
+    def copy(self) -> 'Doc':
+        """Creates a deep copy of this document.
 
+        Returns:
+            Doc: A new Doc instance that is a deep copy of the current document.
+        """
+        return Doc(copy.deepcopy(self.data))
+    
     def dump(self) -> List[Dict[str, Any]]:
         """Dump this document to a basic list of dicts (deep copy).
 

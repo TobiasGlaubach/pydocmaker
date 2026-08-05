@@ -172,3 +172,8 @@ examples/testing.ipynb
 local_scripts*
 
 .vscode/*
+
+temp.*
+doc.pdf
+
+req_*
