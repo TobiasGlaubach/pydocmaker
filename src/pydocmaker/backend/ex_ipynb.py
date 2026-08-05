@@ -99,8 +99,8 @@ def make_html(html_text):
   }
 
 
-def make_doc(cells):
-    return {
+def make_doc(cells, obj:list=None):
+    dc = {
  "cells": cells,
 "metadata": {
   "kernelspec": {
@@ -125,6 +125,12 @@ def make_doc(cells):
  "nbformat_minor": 2
 }
 
+
+    dc['metadata']['generator'] = "pydocmaker"
+    if obj: 
+        dc['metadata']['pydocmaker-payload'] = obj
+    
+    return dc
 
 
 """
@@ -247,8 +253,8 @@ class ipynb_renderer(BaseFormatter):
         self.cells += [make_html(txt)]
         return ''
         
-    def render(self, obj, as_dict=False):
+    def render(self, obj:List[dict], as_dict=False):
         self.cells.clear()
         self.digest(obj)
-        dc = make_doc(squash_md(self.cells), self.add_pyd_as_metadata)
+        dc = make_doc(squash_md(self.cells), obj if self.add_pyd_as_metadata else None)
         return dc if as_dict else json.dumps(dc, cls=util.CommonJSONEncoder, indent=2)
