@@ -66,7 +66,7 @@ class TestDocTemplate(unittest.TestCase):
         bts1 = self.doc.to_pdf(template=template_id, template_params=template_params)
         self.doc.set_template_to_meta(template_id=template_id, template_params=template_params)
         bts2 = self.doc.to_pdf()
-        pattern = re.compile(rb'\/CreationDate \(D:[0-9]*Z\)')
+        pattern = re.compile(rb'/CreationDate\s*\(D:\d+Z\)')
         bts1 = pattern.sub(b'', bts1)
         bts2 = pattern.sub(b'', bts2)
                            
