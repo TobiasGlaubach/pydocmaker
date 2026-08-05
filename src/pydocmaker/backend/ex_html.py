@@ -235,7 +235,7 @@ class html_renderer(BaseFormatter):
         
     def digest_image(self, **kwargs):
         imageblob = kwargs.get('imageblob', None)
-        children = kwargs.get('children', '')
+        imgname = kwargs.get('children', '')
         width = kwargs.get('width', 0.8)
         caption = kwargs.get('caption', "")
 
@@ -249,7 +249,7 @@ class html_renderer(BaseFormatter):
         if not s.startswith('data:image'):
             s = 'data:image/png;base64,' + s
         
-        children = [f"<div style=\"width: 100%; text-align: center;\"><img src=\"{s}\" style=\"max-width:{int(width*100)}%;display: inline-block;\"></img></div>"]
+        children = [f"<div style=\"width: 100%; text-align: center;\"><img class=\"pyd-image\" data-img-no=\"{self.cnt_img}\" data-img-name=\"{imgname}\" src=\"{s}\" style=\"max-width:{int(width*100)}%;display: inline-block;\"></img></div>"]
 
         if caption:
             self.cnt_img += 1
