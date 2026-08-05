@@ -117,19 +117,38 @@ def get_example():
 
 
 def load(path):
-    """Load a JSON file and return a Doc object.
-
+    """Load a compatible pydocmaker document and return a Doc object.
+    
     Args:
-        path (str or file-like object): The path to the JSON file, a http(s) link, or a file-like object.
+        file_path_or_string: A file path, URL string, or file-like object containing
+            HTML, JSON, or IPYNB document content.
 
     Returns:
-        Doc: A Doc object initialized with the loaded JSON data.
+        Doc: A Doc object initialized from the loaded document.
 
     Raises:
-        json.JSONDecodeError: If the JSON file is not valid.
-        TypeError: If the loaded JSON object is not of type list.
+        json.JSONDecodeError: If the JSON content is invalid.
+        ValueError: If the content is not a supported pydocmaker document.
     """
-    return Doc.load_json(path)
+    return Doc.load(path)
+
+def save(doc:Doc, file_path: str=None, format: str='html'):
+    """Save the current document to a pydocmaker-supported file.
+
+    Args:
+        file_path: Destination file path. If omitted, the method returns self.
+        format: Default format used when `file_path` has no suffix.
+
+    Returns:
+        bool: True if the file was written successfully.
+        Doc: self when no file path is provided.
+
+    Raises:
+        ValueError: If the requested file format is unsupported.
+    """
+    if not isinstance(doc, Doc):
+        doc = Doc(doc)
+    return doc.save(file_path, format=format)
 
 def md2tex(children='', **kwargs):
     """convenience function to quickly convert markdown to tex
