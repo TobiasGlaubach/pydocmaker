@@ -12,3 +12,4 @@ Examples
    s04_redmine_examples
    s05_detailed_examples
    s06_library_configuration
+   s07_saving_and_loading
