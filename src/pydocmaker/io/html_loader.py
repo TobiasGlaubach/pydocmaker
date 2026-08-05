@@ -1,4 +1,5 @@
 import json
+from typing import Union
 from bs4 import BeautifulSoup
 from jinja2 import Template
 from pathlib import Path
@@ -104,7 +105,7 @@ def io_check_html(doc_content: str) -> bool:
 
     return True
 
-def io_serialize_html(doc: Doc|list, only_store_images_once: bool=ONLY_STORE_IMGS_ONCE) -> str:
+def io_serialize_html(doc: Union[Doc, list], only_store_images_once: bool=ONLY_STORE_IMGS_ONCE) -> str:
     """Serializes the pydocmaker node structure into a self-contained HTML file."""
     if isinstance(doc, list):
         doc = Doc(doc)
