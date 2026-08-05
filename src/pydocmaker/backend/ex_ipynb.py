@@ -34,7 +34,7 @@ except Exception as err:
 
 def txt2lines(txt):
     if isinstance(txt, str):
-        txt = txt.split('\n')
+        txt = txt.splitlines()
 
     return [s + '\n' if not s.endswith('\n') else s for s in txt]
 
@@ -159,8 +159,9 @@ def convert(doc:List[dict], as_dict=False):
 
 class ipynb_renderer(BaseFormatter):
 
-    def __init__(self) -> None:
+    def __init__(self, add_pyd_as_metadata: bool = False) -> None:
         self.cells = []
+        self.add_pyd_as_metadata = add_pyd_as_metadata
 
     def digest_text(self,**kwargs):
         content = kwargs.get('content', kwargs.get('children'))
@@ -249,5 +250,5 @@ class ipynb_renderer(BaseFormatter):
     def render(self, obj, as_dict=False):
         self.cells.clear()
         self.digest(obj)
-        dc = make_doc(squash_md(self.cells))
+        dc = make_doc(squash_md(self.cells), self.add_pyd_as_metadata)
         return dc if as_dict else json.dumps(dc, cls=util.CommonJSONEncoder, indent=2)
