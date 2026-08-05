@@ -136,6 +136,36 @@ doc.to_ipynb('path/to/my_file.ipynb') # will write a ipynb file
 doc.to_json('path/to/doc.json') # saves the document
 ```
 
+### Saving and Loading (Minimal)
+
+A minimal example showing how to save and load `Doc` objects. `Doc.save` accepts a file path (string or `pathlib.Path`) or a file-like object. When no path is provided it returns the rendered content (HTML by default). `Doc.load` accepts a JSON string/bytes, a path, or a stream.
+
+```python
+import pydocmaker as pyd
+
+doc = pyd.get_example()
+
+# save to common formats (case-insensitive suffixes are supported)
+doc.save('report.html')      # writes HTML
+doc.save('report.json')      # writes JSON
+doc.save('report.ipynb')     # writes an ipynb (may depend on environment)
+
+doc2 = pyd.load('report.json') # load back in (should now be same as doc)
+
+json_str = doc.save(format='json') # save as in-memory string in given format
+loaded = pyd.load(json_str) # and load back
+
+
+```
+
+Supported save/load formats for `Doc.save`/`Doc.load`:
+
+- `.html`, `.pyd`, `.pydoc`  — HTML serialization/serialization used by pydocmaker
+- `.ipynb`                    — Jupyter notebook (may require additional environment support)
+- `.json`                     — Raw document JSON (recommended for round-trip fidelity)
+
+**Note**: Saving and Loading is fundamentally different from exporting a report (e.G. to_html), since save/load allows round trip loading and saving, while exporting makes nice documents to view in other other software and not load again.  
+
 
 ### Configuring Options:
 
