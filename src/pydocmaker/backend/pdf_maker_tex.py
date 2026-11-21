@@ -29,7 +29,7 @@ def test_latex_compiler(compiler):
 # Define a global variable to store the latex compiler
 _latex_compiler = None
 
-_allowed_compilers = 'pdflatex lualatex xelatex'.split()
+_allowed_compilers = 'pdflatex tectonic lualatex xelatex'.split()
 
 def config_latex_compiler_scan():
     return [c for c in _allowed_compilers if test_latex_compiler(c)]
@@ -193,6 +193,11 @@ def make_pdf_from_tex(input_latex_text, attachments_dc=None, docname='', out_for
             
         if verb: log.info(f'Running with {latex_compiler=}')
 
+        if r"\providecommand{\tightlist}" not in input_latex_text and r"\tightlist" in input_latex_text:
+            if verb: log.warning(r'found "\tightlist" in tex source but no "\providecommand{\tightlist}" will replace all occurances')
+            input_latex_text = input_latex_text.replace(r"\tightlist", "")
+
+
         # open a temp folder at base dir which will be deleted after completion
         with tempfile.TemporaryDirectory(dir=base_dir) as od:
             output_dir = Path(od).resolve() # should remove tilde
@@ -215,17 +220,20 @@ def make_pdf_from_tex(input_latex_text, attachments_dc=None, docname='', out_for
                     fp.write(file_content_bytes)
 
             # Convert the TeX document to a PDF using the selected latex compiler
-            for i in range(n_times_make):
-                i1 = i+1
-                ir = True if (i1 < n_times_make) or ignore_error else False # only assure the last run did not fail if requested
-                if verb: log.info(f'Compilation run {i1}')
-                if latex_compiler == 'pandoc':
-                    _procrun(['pandoc', '-o', out_path_pdf, out_path_tex], verb=verb, ignore_error=ir,  cwd=output_dir)
-                elif latex_compiler in ['pdflatex', 'lualatex', 'xelatex']:
+
+            if latex_compiler == 'pandoc':
+                _procrun(['pandoc', '-o', out_path_pdf, out_path_tex], verb=verb, ignore_error=ignore_error,  cwd=output_dir)
+            elif latex_compiler in ["tectonic"]:
+                chatter =  "default" if verb else "minimal"
+                _procrun([latex_compiler, "--chatter", chatter, "--reruns", str(n_times_make), out_file_tex], verb=verb, ignore_error=ignore_error, cwd=output_dir)
+            elif latex_compiler in _allowed_compilers:
+                for i in range(1, n_times_make+1):
+                    ir = ignore_error or (i < n_times_make) # only assure the last run did not fail if requested
+                    if verb: log.info(f'Compilation run {i}')
                     _procrun([latex_compiler, "-interaction", "nonstopmode", out_file_tex], verb=verb, ignore_error=ir, cwd=output_dir)
-                else:
-                    raise ValueError(f'Need to specify a valid latex compiler! Either "pdflatex", "lualatex", "xelatex", or "pandoc". Given was {latex_compiler=}')
-            
+            else:
+                raise ValueError(f'Given was {latex_compiler=}. But need to specify a valid latex compiler! allowed are {_allowed_compilers!r}, or "pandoc".')
+        
             if out_format.lower() == 'zip':
                 if verb: log.info(f'Zipping folder to bytes: {output_dir}')
                 return zip_folder(output_dir)
