@@ -227,7 +227,7 @@ def make_pdf(doc:List[dict], files_to_upload=None, template = None, template_par
     latex_str, attachments_dc = convert(doc, files_to_upload=files_to_upload, template=template, template_params=template_params, do_escape_template_params=do_escape_template_params, with_attachments=True, verb=verb)
     if verb > 1:
         log.info(f'"tex" backend creating ".tex" document from latex string {util.limit_len(latex_str, 30)!r} and attachments {attachments_dc.keys()!r}')        
-    return pdf_maker_tex.make_pdf_from_tex(input_latex_text=latex_str, attachments_dc=attachments_dc, docname=docname, out_format='pdf', **kwargs)
+    return pdf_maker_tex.make_pdf_from_tex(input_latex_text=latex_str, attachments_dc=attachments_dc, docname=docname, out_format='pdf', verb=verb, **kwargs)
 
     
 def make_pdf_zip(doc:List[dict], files_to_upload=None, template = None, template_params=True, do_escape_template_params=False, docname=None, verb=0, **kwargs):
