@@ -516,6 +516,50 @@ buildingblocks = 'text markdown image verbatim iter line latex meta'.split()
 
 
 
+def _resolve_template_from_param(template_str, tformat, verb=0):
+    """Helper to resolve a template parameter value to an actual template.
+
+    If template_str is a template_id string (rather than raw template content),
+    this function looks it up in the template registry and returns the resolved
+    returns (None, template_str) unchanged.
+
+    Returns: (resolved_doctemplate_or_None, resolved_template_string)
+    """
+    if template_str is None:
+        return None, template_str
+
+    if not isinstance(template_str, str):
+        return None, template_str
+
+    # Skip if it looks like raw template content
+    stripped = template_str.strip()
+    if stripped.startswith('%') or stripped.startswith('<!DOCTYPE'):
+        return None, template_str
+
+    from .templating import DocTemplate
+
+    # Try multiple candidate ID formats since users may pass 'default', 'default.tex', 'default.tex.j2'.
+    # We call from_tid directly on each candidate rather than checking test_tid_exists first,
+    # because resolve_template_id only strips one trailing extension. Calling from_tid with
+    # various stripped variants covers the common patterns.
+    candidates = [template_str]
+    if '.' in template_str:
+        candidates.append(template_str.rsplit('.', 1)[0])  # strip extension
+    if template_str.count('.') >= 2:
+        candidates.append(template_str.rsplit('.', 2)[0])  # strip .ext.j2
+
+    for candidate in candidates:
+        try:
+            tmpl = DocTemplate.from_tid(candidate, tformat)
+            if verb:
+                log.info(f'resolved template parameter from template_id candidate "{candidate}"')
+            return tmpl, tmpl.template
+        except KeyError:
+            continue
+
+    return None, template_str
+
+
 class Doc(UserList):
             
     """a collection of document parts to make a document (can be used like a list)"""
@@ -1242,8 +1286,14 @@ class Doc(UserList):
             str: The data as string, or True if the data was saved successfully to a file or stream.
         """
         params = {}
+        tformat = 'html'
         meta = self.get_meta(default={}).get('data', {})
-        mytemplate = self.get_template_from_meta(tformat='html')
+        mytemplate = self.get_template_from_meta(tformat=tformat)
+        tmptmp, tmplres = _resolve_template_from_param(template, tformat, self)
+        if tmptmp is not None and (mytemplate is None or mytemplate.template is None):
+            mytemplate = tmptmp
+            template = tmplres
+
         if template is None and not mytemplate is None:
             template = mytemplate.template
         if not mytemplate is None:
@@ -1276,8 +1326,14 @@ class Doc(UserList):
             str: The data as string, or True if the data was saved successfully to a file or stream.
         """
         params = {}
+        tformat = 'typ'
         meta = self.get_meta(default={}).get('data', {})
-        mytemplate = self.get_template_from_meta(tformat='typ')
+        mytemplate = self.get_template_from_meta(tformat=tformat)
+        tmptmp, tmplres = _resolve_template_from_param(template, tformat)
+        if tmptmp is not None and (mytemplate is None or mytemplate.template is None):
+            mytemplate = tmptmp
+            template = tmplres
+
         if template is None and not mytemplate is None:
             template = mytemplate.template
         if not mytemplate is None and mytemplate.params:
@@ -1360,6 +1416,11 @@ class Doc(UserList):
             tformat = mytemplate.tformat
             engine = newengine
 
+
+        tmptmp, tmplres = _resolve_template_from_param(template, tformat, verb=verb)
+        if tmptmp is not None and (mytemplate is None or mytemplate.template is None):
+            mytemplate = tmptmp
+            template = tmplres
 
         if template is None and not mytemplate is None:
             template = mytemplate.template
@@ -1515,8 +1576,14 @@ class Doc(UserList):
             additional_files = {}
 
         params = {}
+        tformat = 'tex'
         meta = self.get_meta(default={}).get('data', {})
-        mytemplate = self.get_template_from_meta(tformat='tex')
+        mytemplate = self.get_template_from_meta(tformat=tformat)
+        tmptmp, tmplres = _resolve_template_from_param(template, tformat)
+        if tmptmp is not None and (mytemplate is None or mytemplate.template is None):
+            mytemplate = tmptmp
+            template = tmplres
+
         if template is None and not mytemplate is None:
             template = mytemplate.template
         if not mytemplate is None:
