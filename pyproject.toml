@@ -21,6 +21,15 @@ classifiers = [
 ]
 requires-python = ">=3.8"
 
+[tool.pytest.ini_options]
+markers = [
+    "templating_extensive: extensive templating integration tests (opt-in via PYDOCMAKER_TEST_TEMPLATING=1 or PYDOCMAKER_TESTFULL=1)",
+]
+
+[project.scripts]
+pydocmaker = "pydocmaker.cli:main"
+pydocmaker-blocktmpl = "pydocmaker.blocktmpl.cli:main"
+
 
 [project.urls]
 Homepage = "https://pydocmaker.readthedocs.io"

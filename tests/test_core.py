@@ -73,6 +73,50 @@ class TestDocTemplate(unittest.TestCase):
         self.assertLess(len(diff_indices), limit, "should show the same document / use the same template, but does not")
 
 
+class TestTexTemplateParamEscaping(unittest.TestCase):
+    """LaTeX template parameters must survive the render round-trip unharmed.
+
+    Regression tests: the template's own default values (e.g. a ``\\today``
+    date macro) are already LaTeX and must not be (pre-)escaped when they are
+    copied into the document metadata and written back on render, while
+    plain-text user overrides must be escaped exactly once by the block engine.
+    """
+
+    def _render(self, **meta_params):
+        doc = Doc().add_text('hello world')
+        doc.set_template_to_meta('base.tex', on_exist='overwrite')
+        if meta_params:
+            doc.update_meta(meta_params)
+        return doc.to_tex(text_only=True)
+
+    def test_template_default_latex_macro_survives_meta_round_trip(self):
+        out = self._render()
+        self.assertIn(r'\providecommand{\pDate}{\today}', out)
+        self.assertNotIn('textbackslash', out)
+
+    def test_template_default_latex_macro_survives_explicit_template(self):
+        doc = Doc().add_text('hello world')
+        out = doc.to_tex(text_only=True, template='base.tex')
+        self.assertIn(r'\providecommand{\pDate}{\today}', out)
+        self.assertNotIn('textbackslash', out)
+
+    def test_plain_text_override_escaped_exactly_once(self):
+        out = self._render(pTitle='100% done & more')
+        self.assertIn(r'\providecommand{\pTitle}{100\% done \& more}', out)
+        self.assertNotIn('textbackslash', out)
+
+    def test_jinja_template_still_auto_escapes_plain_text(self):
+        doc = Doc().add_text('hello world')
+        tmpl = ('\\documentclass{article}\n'
+                '\\begin{document}\n'
+                '{{ pTitle }}\n'
+                '\\end{document}\n')
+        out = doc.to_tex(text_only=True, template=tmpl,
+                         template_params={'pTitle': '100% done & more'})
+        self.assertIn(r'100\% done \& more', out)
+        self.assertNotIn('textbackslash', out)
+
+
 class TestDocSaveLoad(unittest.TestCase):
     def setUp(self):
         self.doc = Doc.get_example()

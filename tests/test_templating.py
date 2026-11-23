@@ -27,9 +27,9 @@ class TestFindUndeclaredVariables(unittest.TestCase):
     def test_str_filename_resolved_from_env(self):
         source = self._make_source(_DEFAULT_TEMPLATE_DIR)
         result = source("base.tex")
-        self.assertIn("title", result)
+        self.assertIn("pTitle", result)
         self.assertIn("body", result)
-        self.assertIn("applicables", result)
+        self.assertIn("pApplicables", result)
 
     def test_str_filename_with_jinja2_extension(self):
         source = self._make_source(_DEFAULT_TEMPLATE_DIR)
@@ -40,7 +40,7 @@ class TestFindUndeclaredVariables(unittest.TestCase):
     def test_str_stripped_plain_filename(self):
         source = self._make_source(_DEFAULT_TEMPLATE_DIR)
         result = source("  base.html  ")
-        self.assertIn("title", result)
+        self.assertIn("pTitle", result)
         self.assertIn("body", result)
         self.assertNotIn("  ", result)
 

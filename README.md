@@ -185,6 +185,97 @@ print(pyd.options.pdf_engine_get())
 ```
 
 
+### Block Templates (comment-delimited, standalone-compilable)
+
+Besides the classic Jinja2 templates (`.j2` files), pydocmaker supports **block templates**: plain
+`.html`, `.tex` and `.typ` files that carry `pydocmaker:` markers inside comments. These files stay
+valid and compilable standalone (the native compilers ignore the parameter constructs and show the
+body placeholder) while pydocmaker can render, scaffold and update them without ever modifying the
+file on disk during render.
+
+````latex
+% pydocmaker:parameters:begin
+% pydocmaker:param:title
+\providecommand{\title}{My Report}
+% pydocmaker:param:acronyms
+\newcommand{\acronyms}{%
+\begin{description}
+\item{SNR}{Signal-to-Noise Ratio}
+\end{description}
+}
+% pydocmaker:parameters:end
+
+\begin{document}
+% pydocmaker:body:begin
+placeholder text
+% pydocmaker:body:end
+\end{document}
+````
+
+````typst
+// pydocmaker:parameters:begin
+// pydocmaker:param:title
+#let title = "My Report"
+// pydocmaker:param:acronyms
+#let acronyms = (SNR: "Signal-to-Noise Ratio")
+// pydocmaker:parameters:end
+
+// pydocmaker:body:begin
+placeholder text
+// pydocmaker:body:end
+````
+
+````html
+<!-- pydocmaker:parameters:begin -->
+<!-- pydocmaker:param:title -->
+<meta name="pydocmaker:param:title" content="My Report">
+<!-- pydocmaker:parameters:end -->
+<body>
+<!-- pydocmaker:body:begin -->
+placeholder text
+<!-- pydocmaker:body:end -->
+</body>
+````
+
+Engine selection is automatic (markers in the template source select the block engine) and can be
+forced with the `template_engine` argument (`'auto'` (default), `'jinja2'` or `'blocks'`) on
+`Doc.to_html`, `Doc.to_typst` and `Doc.to_pdf`:
+
+```python
+import pydocmaker as pyd
+
+doc = pyd.Doc().add_text('Hello Block Templates')
+
+# auto-detection: marked sources render through the block engine
+out = doc.to_typst(template='my_template.typ', template_params={'title': 'Rendered'})
+
+# explicit override
+out = doc.to_typst(template='my_template.typ', template_engine='blocks')
+out = doc.to_typst(template='my_template.typ', template_engine='jinja2')
+```
+
+The `pydocmaker.blocktmpl` subpackage exposes the engine directly:
+
+```python
+from pydocmaker import blocktmpl
+
+blocktmpl.detect(source)                    # True if block markers are present
+blocktmpl.parse(source, tformat='typ')      # parse into a BlockDocument
+blocktmpl.scaffold(source, tformat='typ', params={'title': 'V1'})   # insert missing blocks
+blocktmpl.update_params(source, {'title': 'V2'})                    # write values back (idempotent)
+blocktmpl.render(source, body='...', params={'title': 'V2'})        # replace body + apply params
+```
+
+When resolved from a template directory, an **exact file name** (`'base.tex'`) resolves to the block
+file even when a `base.tex.j2` twin exists; **short IDs** (`'base'`) keep preferring the `.j2` file
+for backward compatibility. Shipped examples: `base.tex`, `base.html`, `base.typ` in
+`src/pydocmaker/templates/`.
+
+NOTE for LaTeX templates: parameter names that collide with LaTeX kernel macros (`title`, `author`,
+`date`) produce inert `\providecommand` definitions; use names such as `reporttitle` when the value
+shall be displayed in the document body.
+
+
 ### Install Optional Requirements
 
 

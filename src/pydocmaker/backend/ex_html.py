@@ -112,7 +112,7 @@ def mk_tpl(id_, label=None, pth='show', p0='uib', v='v1', **kwargs):
     return f"/{p0}/{v}/{pth}/{urllib.parse.quote_plus(id_)}", label if label else id_
 
 
-def convert(doc:List[dict], template = None, template_params=None, **kwargs):
+def convert(doc:List[dict], template = None, template_params=None, template_engine='auto', **kwargs):
 
     if not template_params:
         template_params = {}
@@ -125,12 +125,19 @@ def convert(doc:List[dict], template = None, template_params=None, **kwargs):
     tmp = list(doc.values()) if isinstance(doc, dict) else doc
     body = html_renderer().format(tmp)
 
-    template_obj, attachments, template_str = handle_template(template, __default_template, tformat='html')
+    template_obj, attachments, template_str = handle_template(template, __default_template, tformat='html', template_engine=template_engine)
     
     kw = copy.deepcopy(template_params)
 
     assert not ('body' in kw), f'the "body" keyword is an invalid keyword for templates as it is reserved for the document body.'
     kw['body'] = body
+    
+    if 'applicables' in kw and isinstance(kw['applicables'], str):
+        kw['applicables'] = {}
+    if 'references' in kw and isinstance(kw['references'], str):
+        kw['references'] = {}
+    if 'acronyms' in kw and isinstance(kw['acronyms'], str):
+        kw['acronyms'] = {}
     
     if 'applicables' in kw:
         kw['applicables'] = {i:v for i, v in enumerate(kw['applicables'].values(), 1)} 

@@ -1,0 +1,65 @@
+\documentclass[a4paper]{article}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{listings}
+
+\lstset{
+  frame=single,
+  rulecolor=\color{black},
+  breaklines=true,
+  breakatwhitespace=false,
+  postbreak=\mbox{\textcolor{gray}{$\hookrightarrow$}\space},
+  basicstyle=\ttfamily\small,
+  columns=fullflexible,
+  keywordstyle=\color{Blue}\bfseries,
+  stringstyle=\color{ForestGreen},
+  commentstyle=\color{Gray}\itshape
+}
+
+\makeatletter
+\newcommand{\pydifempty}[1]{%
+\if\relax\detokenize\expandafter{#1}\relax
+\expandafter\@firstoftwo
+\else
+\expandafter\@secondoftwo
+\fi
+}
+\makeatother
+
+% pydocmaker:parameters:begin
+% NOTE: parameter names use a leading "p" (pTitle, pAuthor, ...) so the derived
+% LaTeX macros (\pTitle, ...) never collide with LaTeX kernel macros.
+% pydocmaker:param:pTitle
+\providecommand{\pTitle}{My Report}
+% pydocmaker:param:pAuthor
+\providecommand{\pAuthor}{Automatically Generated via pydocmaker}
+% pydocmaker:param:pDate
+\providecommand{\pDate}{\today}
+% pydocmaker:param:pAcronyms
+\providecommand{\pAcronyms}{}
+% pydocmaker:param:pApplicables
+\providecommand{\pApplicables}{}
+% pydocmaker:param:pReferences
+\providecommand{\pReferences}{}
+% pydocmaker:parameters:end
+
+\begin{document}
+
+\pydifempty\pTitle{}{\begin{center}{\LARGE \textbf{\pTitle}}\end{center}}
+
+\pydifempty\pAuthor{}{\begin{center}{\large \pAuthor}\end{center}}
+
+\pydifempty\pDate{}{\begin{center}{\pDate}\end{center}}
+
+\pydifempty\pAcronyms{}{\section*{List of Acronyms}\pAcronyms}
+
+\pydifempty\pApplicables{}{\section*{Applicable Documents}\pApplicables}
+
+\pydifempty\pReferences{}{\section*{Reference Documents}\pReferences}
+
+% pydocmaker:body:begin
+Document body placeholder
+% pydocmaker:body:end
+
+\end{document}

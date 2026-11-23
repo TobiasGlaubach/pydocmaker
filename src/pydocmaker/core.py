@@ -37,12 +37,12 @@ from .backend.ex_tex import make_pdf as to_pdf_tex
 from .backend.ex_tex import make_pdf_zip as to_pdf_zip
 from .backend.ex_rich import convert as print_rich
 from .backend.ex_typst import convert as to_typst, compile_with_typst as to_pdf_typst, test_typst_installed, compile_with_typst
-from .backend.ex_tex import auto_escape_latex
 
 from .backend.pdf_maker_tex import make_pdf_from_tex, config_latex_compiler_get, config_latex_compiler_set
 from .backend import ex_docx
 
-from .templating import DocTemplate, TemplateDirSource, _remove_template_ext, determine_engine_from_template, _remove_template_ext_match
+from .templating import (DocTemplate, BlockDocTemplate, TemplateDirSource, _remove_template_ext,
+                         determine_engine_from_template, _remove_template_ext_match, detect_block_template)
 
 from .backend.pandoc_api import can_run_pandoc, pandoc_convert, pandoc_to_pdf
 
@@ -1016,6 +1016,8 @@ class Doc(UserList):
         if template_id is None:
             template_str = meta.pop("template", None)
             if template_str:
+                if detect_block_template(template_str):
+                    return BlockDocTemplate(template_str, attachments=attachments, tformat=tformat or None)
                 return DocTemplate(template_str, attachments=attachments)
             else:
                 return None    
@@ -1695,7 +1697,8 @@ class Doc(UserList):
     
     def to_html(self, path_or_stream: Optional[Union[str, Path, IO[str]]] = None,
                 template: Optional[Any] = None,
-                template_params: Optional[Dict[str, Any]] = None) -> str:
+                template_params: Optional[Dict[str, Any]] = None,
+                template_engine: str = 'auto') -> str:
         """
         Converts the current document to a HTML file/string.
 
@@ -1707,6 +1710,9 @@ class Doc(UserList):
                 If None, a default template or one from document metadata is used.
             template_params: Dictionary of parameters for the HTML template, passed to Jinja2's render method.
                 Merged with template parameters from document metadata.
+            template_engine: Template engine selection: 'auto' (default; comment-delimited
+                block markers in the template source select the block engine), 'jinja2'
+                (force the legacy Jinja2 engine) or 'blocks' (force the block engine).
 
         Returns:
             str: The HTML content if path_or_stream is None.
@@ -1731,11 +1737,12 @@ class Doc(UserList):
         # argument silently dropped parameters set via set_template_to_meta()
         # or stored in document metadata, causing templates to render with
         # missing fields (e.g. empty <title>, missing references table).
-        return self._ret(to_html(self.dump(), template=template, template_params=params), path_or_stream)
+        return self._ret(to_html(self.dump(), template=template, template_params=params, template_engine=template_engine), path_or_stream)
 
     def to_typst(self, path_or_stream: Optional[Union[str, Path, IO[str]]] = None,
                  template: Optional[Union[str, jinja2.Template]] = None,
-                 template_params: Optional[Dict[str, Any]] = None) -> str:
+                 template_params: Optional[Dict[str, Any]] = None,
+                 template_engine: str = 'auto') -> str:
         """
         Converts the current document to a Typst file/string.
 
@@ -1747,6 +1754,9 @@ class Doc(UserList):
                 If None, a default template or one from document metadata is used.
             template_params: Dictionary of parameters for the Typst template, passed to Jinja2's render method.
                 Merged with template parameters from document metadata.
+            template_engine: Template engine selection: 'auto' (default; comment-delimited
+                block markers in the template source select the block engine), 'jinja2'
+                (force the legacy Jinja2 engine) or 'blocks' (force the block engine).
 
         Returns:
             str: The Typst source if path_or_stream is None.
@@ -1766,7 +1776,7 @@ class Doc(UserList):
         if template_params:
             params.update(template_params)
 
-        return self._ret(to_typst(self.dump(), template=template, template_params=params), path_or_stream)
+        return self._ret(to_typst(self.dump(), template=template, template_params=params, template_engine=template_engine), path_or_stream)
         
 
     def to_pdf(self, 
@@ -1782,6 +1792,7 @@ class Doc(UserList):
                template:Union[str, jinja2.Template, None]=None, 
                template_params:Union[Dict[str,Any],None]=None, 
                do_escape_template_params:str='auto', 
+               template_engine:str='auto',
                **kwargs) -> Union[str, bytes, bool]:
         """Converts the current object to a PDF file or zipped LaTeX project folder.
 
@@ -1809,8 +1820,13 @@ class Doc(UserList):
                 If not provided, a default template will be used based on the detected format or configured engine.
             template_params (dict, optional): A dictionary containing parameters for the document template, passed to the "render" method of Jinja2.
             do_escape_template_params (str | bool, optional): Only valid for LaTeX templates. Whether to escape the template parameters.
-                "auto" will scan for %%latex at the start of a string to determine if it's a LaTeX string.
+                "auto" escapes plain-text parameter values for plain Jinja2 LaTeX templates (strings starting with
+                %%latex pass through raw); comment-delimited block templates are never pre-escaped since the block
+                engine escapes parameter values itself when writing the macro assignments.
                 Defaults to 'auto'.
+            template_engine (str, optional): Template engine selection: 'auto' (default; comment-delimited
+                block markers in the template source select the block engine), 'jinja2' (force the
+                legacy Jinja2 engine) or 'blocks' (force the block engine). Defaults to 'auto'.
 
         Returns:
             Union[str, bytes, bool]: If path_or_stream is a file path, returns True on success or False on failure.
@@ -1899,7 +1915,7 @@ class Doc(UserList):
         if engine.startswith('typ'):
 
             def _to_pdf_typst(*ar, **kw):
-                s, attachments = to_typst(*ar, template=template, template_params=params, ret_attachments=True)
+                s, attachments = to_typst(*ar, template=template, template_params=params, ret_attachments=True, template_engine=template_engine)
 
                 on_warning = kw.pop("on_warning", None)
                 if on_warning is None:
@@ -1924,17 +1940,13 @@ class Doc(UserList):
 
             fun = _to_pdf_typst
         elif engine == 'tex' or engine == 'latex' or engine.endswith('tex'):
-            
-            if do_escape_template_params == 'auto':
-                params = auto_escape_latex(params)
-                do_escape_template_params = False
-
 
             kwargs = {
                 "files_to_upload": files_to_upload,
                 "template": template,
                 "template_params": params,
                 'do_escape_template_params': do_escape_template_params,
+                "template_engine": template_engine,
                 "docname": docname,
                 "base_dir": base_dir,
                 "latex_compiler": latex_compiler,
@@ -1989,7 +2001,7 @@ class Doc(UserList):
                 with tempfile.TemporaryDirectory() as td:
                     out = os.path.join(td, f'out.pdf')
                     inp = os.path.join(td, f'inp.html')
-                    doc.to_html(inp, template=template, template_params=params)
+                    doc.to_html(inp, template=template, template_params=params, template_engine=template_engine)
                     pandoc_to_pdf(inp, out)
                     with open(out, 'rb') as fp:
                         bts = fp.read()
@@ -2016,19 +2028,26 @@ class Doc(UserList):
                do_escape_template_params: Union[str, bool] = 'auto',
                template_params: Optional[Dict[str, Any]] = None,
                text_only: bool = False) -> Union[bool, str, Tuple[str, Dict[str, bytes]], Tuple[bytes, Dict[str, bytes]]]:
-        """Converts the current document to a TEX file (and attachments) as a ZIP archive.
+        """Converts the current document to a LaTeX source file or a zipped LaTeX project.
 
-        The output is always a ZIP file containing doc.json, main.tex, and any attachment files.
+        The output is a ZIP file containing doc.json, main.tex, and any attachment files,
+        unless the destination asks for the plain LaTeX source: paths ending in ".tex" or
+        ".latex" (and the literal string "tex") produce the plain LaTeX source, while paths
+        ending in ".zip" (and the literal string "zip") produce the zipped project folder.
         If saving to a file or stream, returns True on success.
         If not saving, returns a tuple of (tex_as_bytes, files_dict) by default,
         or just the tex string if text_only=True.
 
         Args:
-            path_or_stream: Path string, Path object, or file-like object to write the ZIP to.
+            path_or_stream: Path string, Path object, or file-like object to write to.
+                A ".tex"/".latex" suffix writes the plain LaTeX source; anything else
+                (including ".zip" and streams) gets the zipped project folder.
             additional_files: Extra files to include in the ZIP (e.g., images, logos).
             template: The LaTeX template (Jinja2) to use. If None, uses one from document metadata.
             do_escape_template_params: Whether to escape LaTeX special chars in template params.
-                'auto' detects LaTeX templates automatically.
+                'auto' (the default) escapes plain-text values for plain Jinja2 LaTeX templates (strings starting
+                with %%latex pass through raw); block templates are never pre-escaped since the block engine escapes
+                parameter values itself when writing the macro assignments.
             template_params: Additional parameters to pass to the LaTeX template.
             text_only: If True and path_or_stream is None, returns the raw tex string instead of ZIP bytes.
 
@@ -2056,17 +2075,17 @@ class Doc(UserList):
         if template_params:
             params.update(template_params)
 
-        if do_escape_template_params == 'auto':
-            params = auto_escape_latex(params)
-            do_escape_template_params = False
-
         # Pass the fully-merged `params` (meta defaults + caller overrides) to the
         # backend renderer, not the raw `template_params` argument. Using the raw
         # argument silently dropped parameters set via set_template_to_meta()
         # or stored in document metadata, so LaTeX templates rendered without
-        # their configured defaults.
+        # their configured defaults. `do_escape_template_params='auto'` is
+        # resolved inside the backend, where the template engine is known (the
+        # block engine escapes parameter values itself and must not be
+        # pre-escaped, Jinja2 templates interpolate values verbatim).
         tex, files = to_tex(self.dump(), with_attachments=True, template=template, files_to_upload=additional_files, do_escape_template_params=do_escape_template_params, template_params=params)
 
+        # zipped LaTeX project folder (doc.json, main.tex, attachments)
         with io.BytesIO() as in_memory_zip:
             with zipfile.ZipFile(in_memory_zip, 'w') as zipf:
                 zipf.writestr('doc.json', self.to_json())
@@ -2076,9 +2095,18 @@ class Doc(UserList):
             in_memory_zip.seek(0)
             m = in_memory_zip.getvalue()
 
-        if isinstance(path_or_stream, str):
-            with open(path_or_stream, "wb") as f:
-                f.write(m)
+        # literal "zip"/"tex" strings return the payload without writing a file
+        if isinstance(path_or_stream, str) and path_or_stream in ('zip', 'tex'):
+            return m if path_or_stream == 'zip' else tex
+
+        if isinstance(path_or_stream, (str, os.PathLike)):
+            if str(path_or_stream).lower().endswith(('.tex', '.latex')):
+                # a ".tex" destination gets the plain LaTeX source, not the zip
+                with open(path_or_stream, "w", encoding='utf-8') as f:
+                    f.write(tex)
+            else:
+                with open(path_or_stream, "wb") as f:
+                    f.write(m)
             return True
         elif hasattr(path_or_stream, 'write'):
             path_or_stream.write(m)
@@ -2117,7 +2145,7 @@ class Doc(UserList):
             in_memory_zip.seek(0)
             m = in_memory_zip.getvalue()
 
-        if isinstance(path_or_stream, str):
+        if isinstance(path_or_stream, (str, os.PathLike)):
             with open(path_or_stream, "wb") as f:
                 f.write(m)
             return True

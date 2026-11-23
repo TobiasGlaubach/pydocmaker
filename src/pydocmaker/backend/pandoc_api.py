@@ -1,6 +1,7 @@
 import base64
 import os
 import random
+import re
 import shlex
 import time
 import traceback
@@ -24,10 +25,18 @@ from pydocmaker.util import log
 allow_pandoc = True
 
 _is_pandoc_installed = None
+PANDOC_VERSION = 0.0
 
 def test_is_pandoc_installed():
+    global PANDOC_VERSION
     try:
-        subprocess.check_output(['pandoc', '--version'])
+        out = subprocess.check_output(["pandoc", "--version"], text=True)
+        match = re.search(r"pandoc(?:\.exe)?\s+(\d+)\.(\d+)", out)
+        if not match:
+            PANDOC_VERSION = 0.0
+        else:
+            PANDOC_VERSION = float(match.group(1)) + float(match.group(2))/10.0
+
         return True
     except (subprocess.CalledProcessError, FileNotFoundError):
         return False
@@ -42,7 +51,7 @@ def can_run_pandoc(force_retest=False):
     return _is_pandoc_installed
 
 
-def pandoc_convert(input_string, input_format, output_format, is_binary=False, *args):
+def pandoc_convert(input_string, input_format, output_format, is_binary=False, is_code=False, *args):
     """
     Convert text between different formats using Pandoc.
     
@@ -72,6 +81,11 @@ def pandoc_convert(input_string, input_format, output_format, is_binary=False, *
     if input_format == output_format:
         return input_string # pandoc would just return the same anyways
     
+    if is_code:
+        uses_new_flag = PANDOC_VERSION >= 3.8
+        args += ("-s", "--syntax-highlighting=idiomatic") if uses_new_flag else ("--listings",)
+    
+    args = tuple(set(args))
     argss = [shlex.quote(arg) for arg in args]
     inp = ['pandoc'] + argss + ['--wrap=none', '--from', input_format, '--to', output_format]
     

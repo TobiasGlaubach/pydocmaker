@@ -31,6 +31,56 @@ _latex_compiler = None
 
 _allowed_compilers = 'pdflatex tectonic lualatex xelatex'.split()
 
+#: latex source patterns that reference external files (group 1 = the reference)
+_LATEX_FILE_REF_RES = (
+    re.compile(r'\\includegraphics\*?(?:\[[^\]]*\])?\{([^{}]+)\}'),
+    re.compile(r'\\(?:input|include|lstinputlisting|bibliography|addbibresource)\{([^{}]+)\}'),
+)
+
+
+def _copy_missing_file_refs(input_latex_text, output_dir):
+    """Copy files referenced by the latex source into the compile folder.
+
+    Document content converted from markdown may reference local files by
+    their bare name (``\\includegraphics{icon.png}``). The latex compiler runs
+    inside the (temporary) output folder, so files that exist next to the
+    caller (in the working directory) would not be found. This copies every
+    referenced file that is not already in the output folder from the
+    working directory so the references resolve.
+
+    Args:
+        input_latex_text (str | bytes): the latex source to scan.
+        output_dir (str): the compile folder (copy destination).
+    """
+    if isinstance(input_latex_text, bytes):
+        try:
+            input_latex_text = input_latex_text.decode('utf-8', 'replace')
+        except Exception:
+            return
+    if not isinstance(input_latex_text, str):
+        return
+    refs = []
+    for pattern in _LATEX_FILE_REF_RES:
+        refs += pattern.findall(input_latex_text)
+    for ref in dict.fromkeys(r.strip() for r in refs):
+        if not ref or ref.startswith('http') or '\\' in ref or '{{' in ref:
+            continue
+        dst = os.path.join(output_dir, ref)
+        if os.path.exists(dst):
+            continue  # already provided with the attachments
+        src = ref if os.path.isabs(ref) else os.path.join(os.getcwd(), ref)
+        if not os.path.isfile(src):
+            continue
+        parent = os.path.dirname(dst)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        try:
+            shutil.copy2(src, dst)
+        except OSError as err:
+            log.warning(f'could not copy referenced file {src!r} into the '
+                        f'latex compile folder: {err}')
+
+
 def config_latex_compiler_scan():
     return [c for c in _allowed_compilers if test_latex_compiler(c)]
 
@@ -215,9 +265,17 @@ def make_pdf_from_tex(input_latex_text, attachments_dc=None, docname='', out_for
                 assert isinstance(filename, str) and isinstance(file_content_bytes, (bytes, str)), f'attachments_dc must only contain path:bytes pairs but given was {filename=} with content type {type(file_content_bytes)}'
                 if verb: log.info(f'Writing file: {filename}')
                 out_path = os.path.join(output_dir, filename)
-                
+                # attachment keys may contain subpaths (e.g. "images/logo.png")
+                if os.path.dirname(filename):
+                    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
                 with open(out_path, 'wb' if isinstance(file_content_bytes, bytes) else 'w') as fp:
                     fp.write(file_content_bytes)
+
+            # bring along files that are referenced by the source but are not
+            # part of the attachments (e.g. local images referenced by
+            # markdown-converted document content)
+            _copy_missing_file_refs(input_latex_text, output_dir)
 
             # Convert the TeX document to a PDF using the selected latex compiler
 

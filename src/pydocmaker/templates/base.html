@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>My Report</title>
+<!-- pydocmaker:parameters:begin -->
+<!-- pydocmaker:param:pTitle -->
+<meta name="pydocmaker:param:pTitle" content="My Report">
+<!-- pydocmaker:param:pAuthor -->
+<meta name="pydocmaker:param:pAuthor" content="Automatically Generated via pydocmaker">
+<!-- pydocmaker:param:pDate -->
+<meta name="pydocmaker:param:pDate" content="">
+<!-- pydocmaker:param:pAcronyms -->
+<script type="application/json" data-pydocmaker-param="pAcronyms">{"SNR": "Signal-to-Noise Ratio", "FFT": "Fast Fourier Transform"}</script>
+<!-- pydocmaker:param:pApplicables -->
+<script type="application/json" data-pydocmaker-param="pApplicables">{}</script>
+<!-- pydocmaker:param:pReferences -->
+<script type="application/json" data-pydocmaker-param="pReferences">{}</script>
+<!-- pydocmaker:parameters:end -->
+<style>
+    body { font-family: sans-serif; margin: 2em auto; max-width: 800px; }
+    table { border-collapse: collapse; }
+    td, th { border: 1px solid #999; padding: 4px 10px; text-align: left; }
+</style>
+</head>
+<body>
+<h1 id="pTitle">My Report</h1>
+<div id="pAuthor"></div>
+<div id="pDate"></div>
+<div id="pAcronyms"></div>
+<div id="pApplicables"></div>
+<div id="pReferences"></div>
+<script>
+    (function() {
+        var get_scalar = function(name) {
+            var el = document.querySelector('meta[name="pydocmaker:param:' + name + '"]');
+            return el ? el.content : null;
+        };
+        var get = function(name) {
+            var el = document.querySelector('script[data-pydocmaker-param="' + name + '"]');
+            return el ? JSON.parse(el.textContent) : null;
+        };
+        var render_kv = function(d) {
+            var rows = Object.keys(d).map(function(k) {
+                return '<tr><td><b>' + k + '</b></td><td>' + d[k] + '</td></tr>';
+            }).join('');
+            return '<table>' + rows + '</table>';
+        };
+        var title = get_scalar('pTitle');
+        if (title) {
+            document.title = title;
+            document.getElementById('pTitle').textContent = title;
+        }
+        var author = get_scalar('pAuthor');
+        if (author) {
+            document.getElementById('pAuthor').textContent = author;
+        }
+        var date = get_scalar('pDate');
+        if (date) {
+            document.getElementById('pDate').textContent = date;
+        }
+        var headings = {pAcronyms: 'List of Acronyms', pApplicables: 'Applicable Documents', pReferences: 'Reference Documents'};
+        ['pAcronyms', 'pApplicables', 'pReferences'].forEach(function(name) {
+            var d = get(name);
+            if (d && Object.keys(d).length) {
+                document.getElementById(name).innerHTML = '<h2>' + headings[name] + '</h2>' + render_kv(d);
+            }
+        });
+    })();
+</script>
+
+<!-- pydocmaker:body:begin -->
+<p>Document body placeholder</p>
+<!-- pydocmaker:body:end -->
+</body>
+</html>

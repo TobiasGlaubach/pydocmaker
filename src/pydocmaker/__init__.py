@@ -1,4 +1,4 @@
-__version__ = '2.7.0'
+__version__ = '2.8.0'
 
 
 from pydocmaker.core import Doc, construct, constr, buildingblocks, print_to_pdf, make_pdf_from_tex, show_pdf, is_notebook, load_file_b64
@@ -21,6 +21,14 @@ from pydocmaker.templating import (DocTemplate, TemplateDirSource, register_new_
                                    get_registered_template_dirs, get_available_template_ids, 
                                    test_template_exists, remove_from_template_dir, 
                                    get_template_params, resolve_template_id)
+
+from pydocmaker import blocktmpl
+from pydocmaker.blocktmpl import (BlockDocTemplate as BlockTemplate,
+                                  parse as parse_block_template,
+                                  scaffold as scaffold_block_template,
+                                  update_params as update_block_params,
+                                  render as render_block_template,
+                                  detect as detect_block_template)
 
 
 try:

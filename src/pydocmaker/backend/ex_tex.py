@@ -46,9 +46,9 @@ except Exception as err:
     from .baseformatter import BaseFormatter
 
 try:
-    from pydocmaker.templating import handle_template
+    from pydocmaker.templating import handle_template, BlockDocTemplate
 except Exception as err:
-    from ..templating import handle_template
+    from ..templating import handle_template, BlockDocTemplate
 
 try:
     from pydocmaker.backend import pdf_maker_tex
@@ -78,48 +78,75 @@ color_map = {
 }
 
 __default_template = r"""
+
+
 \documentclass[a4paper]{article}
 \usepackage{hyperref}
 \usepackage{graphicx}
 \usepackage[dvipsnames]{xcolor}
 \usepackage{listings}
 
-{% if title %}\title {{ title }}{% endif %}
-{% if author %}\author {{ author }}{% endif %}
-{% if date %}\date {{ date }}{% endif %}
+\lstset{
+  frame=single,
+  rulecolor=\color{black},
+  breaklines=true,
+  breakatwhitespace=false,
+  postbreak=\mbox{\textcolor{gray}{$\hookrightarrow$}\space},
+  basicstyle=\ttfamily\small,
+  columns=fullflexible,
+  keywordstyle=\color{Blue}\bfseries,
+  stringstyle=\color{ForestGreen},
+  commentstyle=\color{Gray}\itshape
+}
 
-{% if applicables or references or acronyms %}
-\section*{References}
-{% endif %}
-{% if acronyms %}
-\subsection*{List of Acronyms}
-\begin{tabular}{l@{\hspace{3cm}}l}
-{% for key, value in acronyms.items() %}
-{{ key }} & {{ value }} \\
-{% endfor %}
-\end{tabular}
-{% endif %}
-{% if applicables %}
-\subsection*{Applicable Documents}
-\begin{tabular}{l@{\hspace{1cm}}p{13cm}}
-{% for i, value in applicables.items() %}
-AD[{{ i }}] & {{ value }} \\
-{% endfor %}
-\end{tabular}
-{% endif %}
-{% if references %}
-\subsection*{Reference Documents}
-\begin{tabular}{l@{\hspace{1cm}}p{13cm}}
-{% for i, value in references.items() %}
-RD[{{ i }}] & {{ value }} \\
-{% endfor %}
-\end{tabular}
-{% endif %}
 
+
+\makeatletter
+\newcommand{\pydifempty}[1]{%
+\if\relax\detokenize\expandafter{#1}\relax
+\expandafter\@firstoftwo
+\else
+\expandafter\@secondoftwo
+\fi
+}
+\makeatother
+
+
+
+% pydocmaker:parameters:begin
+% NOTE: parameter names use a leading "p" (pTitle, pAuthor, ...) so the derived
+% LaTeX macros (\pTitle, ...) never collide with LaTeX kernel macros.
+% pydocmaker:param:pTitle
+\providecommand{\pTitle}{My Report}
+% pydocmaker:param:pAuthor
+\providecommand{\pAuthor}{Automatically Generated via pydocmaker}
+% pydocmaker:param:pDate
+\providecommand{\pDate}{\today}
+% pydocmaker:param:pAcronyms
+\providecommand{\pAcronyms}{}
+% pydocmaker:param:pApplicables
+\providecommand{\pApplicables}{}
+% pydocmaker:param:pReferences
+\providecommand{\pReferences}{}
+% pydocmaker:parameters:end
 
 \begin{document}
 
-{{ body }}
+\pydifempty\pTitle{}{\begin{center}{\LARGE \textbf{\pTitle}}\end{center}}
+
+\pydifempty\pAuthor{}{\begin{center}{\large \pAuthor}\end{center}}
+
+\pydifempty\pDate{}{\begin{center}{\pDate}\end{center}}
+
+\pydifempty\pAcronyms{}{\section*{List of Acronyms}\pAcronyms}
+
+\pydifempty\pApplicables{}{\section*{Applicable Documents}\pApplicables}
+
+\pydifempty\pReferences{}{\section*{Reference Documents}\pReferences}
+
+% pydocmaker:body:begin
+Document body placeholder
+% pydocmaker:body:end
 
 \end{document}
 """
@@ -137,6 +164,8 @@ def escape(s):
         return s
 
 def auto_escape_latex(params):
+    """Auto-escape plain-text parameter values for LaTeX; strings starting with
+    the ``%%latex`` / ``%latex`` / ``%tex`` marker pass through unchanged."""
     if isinstance(params, str):
         return params if params.startswith('%%latex') or params.startswith('%latex') or params.startswith('%tex') else escape(params)
     elif isinstance(params, dict):
@@ -148,7 +177,7 @@ def auto_escape_latex(params):
 
 
 
-def convert(doc:List[dict], with_attachments=True, files_to_upload=None, template = None, do_escape_template_params=False, template_params=None, verb=0):
+def convert(doc:List[dict], with_attachments=True, files_to_upload=None, template = None, do_escape_template_params=False, template_params=None, verb=0, template_engine='auto', **kwargs):
 
     if not files_to_upload:
         files_to_upload = {}
@@ -171,18 +200,34 @@ def convert(doc:List[dict], with_attachments=True, files_to_upload=None, templat
 
     body = '\n'.join(s) if isinstance(s, list) else s
 
-    template_obj, attachments, template_str = handle_template(template, __default_template, tformat='tex')
+    template_obj, attachments, template_str = handle_template(template, __default_template, tformat='tex', template_engine=template_engine)
     
     if template == '':
         s = 'It seems you have provided an empty template to use. This will most likely fail, since LaTeX actually needs imports etc. to work. I will try anyways though.'
         log.warning(s)
     
     kw = copy.deepcopy(template_params)
+    if do_escape_template_params == 'auto':
+        # The block templating engine escapes parameter values itself when it
+        # serializes the macro assignments, so pre-escaping here would
+        # double-escape them (a "\today" default would come out as
+        # "\textbackslash\{\}today"). Only plain Jinja2 LaTeX templates
+        # interpolate values verbatim and need plain-text values pre-escaped.
+        if not isinstance(template_obj, BlockDocTemplate):
+            kw = auto_escape_latex(kw)
+        do_escape_template_params = False
     if do_escape_template_params:
         kw = {k:escape(v) for k, v in kw.items()}
 
     assert not ('body' in kw), f'the "body" keyword is an invalid keyword for templates as it is reserved for the document body.'
     kw['body'] = body
+    
+    if 'applicables' in kw and isinstance(kw['applicables'], str):
+        kw['applicables'] = {}
+    if 'references' in kw and isinstance(kw['references'], str):
+        kw['references'] = {}
+    if 'acronyms' in kw and isinstance(kw['acronyms'], str):
+        kw['acronyms'] = {}
     
     if 'applicables' in kw:
         kw['applicables'] = {i:escape(v) for i, v in enumerate(kw['applicables'].values(), 1)} 
@@ -206,7 +251,7 @@ def convert(doc:List[dict], with_attachments=True, files_to_upload=None, templat
         return doc_tex
     
 
-def make_pdf(doc:List[dict], files_to_upload=None, template = None, template_params=True, do_escape_template_params=False, docname=None, verb=0, **kwargs):
+def make_pdf(doc:List[dict], files_to_upload=None, template = None, template_params=True, do_escape_template_params=False, docname=None, verb=0, template_engine='auto', **kwargs):
     """
     Generate a PDF document from a list of dictionaries.
 
@@ -218,19 +263,20 @@ def make_pdf(doc:List[dict], files_to_upload=None, template = None, template_par
         template_footer (str, optional): A string containing the LaTeX code for the document footer.
             If not provided, a default footer will be used.
         docname (str, optional): The name of the document.
+        template_engine (str, optional): Template engine selection ('auto', 'jinja2', 'blocks').
         **kwargs: Additional keyword arguments to be passed to the PDF maker.
 
     Returns:
         bytes: A bytes object containing the PDF data.
     """
 
-    latex_str, attachments_dc = convert(doc, files_to_upload=files_to_upload, template=template, template_params=template_params, do_escape_template_params=do_escape_template_params, with_attachments=True, verb=verb)
+    latex_str, attachments_dc = convert(doc, files_to_upload=files_to_upload, template=template, template_params=template_params, do_escape_template_params=do_escape_template_params, with_attachments=True, verb=verb, template_engine=template_engine)
     if verb > 1:
         log.info(f'"tex" backend creating ".tex" document from latex string {util.limit_len(latex_str, 30)!r} and attachments {attachments_dc.keys()!r}')        
     return pdf_maker_tex.make_pdf_from_tex(input_latex_text=latex_str, attachments_dc=attachments_dc, docname=docname, out_format='pdf', verb=verb, **kwargs)
 
     
-def make_pdf_zip(doc:List[dict], files_to_upload=None, template = None, template_params=True, do_escape_template_params=False, docname=None, verb=0, **kwargs):
+def make_pdf_zip(doc:List[dict], files_to_upload=None, template = None, template_params=True, do_escape_template_params=False, docname=None, verb=0, template_engine='auto', **kwargs):
     """
     Generates a PDF zip file from a list of dictionaries.
 
@@ -251,7 +297,7 @@ def make_pdf_zip(doc:List[dict], files_to_upload=None, template = None, template
     if not files_to_upload:
         files_to_upload = {}
     files_to_upload['doc.json'] = json.dumps(doc, cls=util.CommonJSONEncoder, indent=2)
-    latex_str, attachments_dc = convert(doc, files_to_upload=files_to_upload, template=template, template_params=template_params, do_escape_template_params=do_escape_template_params, with_attachments=True, verb=verb)
+    latex_str, attachments_dc = convert(doc, files_to_upload=files_to_upload, template=template, template_params=template_params, do_escape_template_params=do_escape_template_params, with_attachments=True, verb=verb, template_engine=template_engine)
     return pdf_maker_tex.make_pdf_from_tex(input_latex_text=latex_str, attachments_dc=attachments_dc, docname=docname, out_format='zip', **kwargs)
 
     
@@ -389,7 +435,7 @@ class LatexElementFormatter(BaseFormatter):
     @handle_color
     def digest_markdown(self, children='', **kwargs) -> str:
         if can_run_pandoc():
-            return pandoc_convert(replace_bcolors(children), 'markdown', 'latex')
+            return pandoc_convert(replace_bcolors(children), 'markdown', 'latex', is_binary=False, is_code=True)
         else:
             tex = md.convert(replace_bcolors(children)).lstrip('<root>').rstrip('</root>')
         return str(tex)

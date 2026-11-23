@@ -49,6 +49,7 @@ Links
    tldr
    examples
    datamodel
+   blocktemplating
 ..    high_level
 
 
