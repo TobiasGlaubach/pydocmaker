@@ -160,7 +160,24 @@ class IpynbLoader:
     skip_single_matplotlib_output: bool = True
     add_nb_version: bool = True
     make_output_blue: bool = True
+    nocode: bool = False
     verb: bool = False
+
+    def _cell_has_code(self, cell: dict) -> bool:
+        """Check whether a cell contains code source content.
+
+        Args:
+            cell: A dictionary representing a notebook cell.
+
+        Returns:
+            True if the cell is a code cell with non-empty source, False otherwise.
+        """
+        if cell.get("cell_type") == "code":
+            source = cell.get("source", [])
+            if isinstance(source, list):
+                source = "".join(source)
+            return bool(source.strip())
+        return False
 
     def load_notebook(self, file_content: Union[str, dict], file_name: str = "") -> Doc:
         """Load a Jupyter notebook from string or dictionary contents.
@@ -414,6 +431,9 @@ class IpynbLoader:
         if self.verb :
             log.info(f"   source cell {cell_number} of type {cell['cell_type']}")
 
+        if self.nocode and cell.get("cell_type") == "code":
+            return self
+
         s = _ms(cell["source"])
 
         if cell["cell_type"] == "code":
@@ -448,6 +468,7 @@ def load_notebook(file_path: Union[str, dict],
     include_metadata_in_docmeta: bool = True,
     add_nb_version: bool = True,
     skip_single_matplotlib_output: bool = True,
+    nocode: bool = False,
     verb: bool = False, 
     **kw
     ) -> Doc:
@@ -466,6 +487,7 @@ def load_notebook(file_path: Union[str, dict],
         include_metadata_in_docmeta: Whether to include metadata in document metadata.
         add_nb_version: Whether to add notebook format version info.
         skip_single_matplotlib_output: Whether to skip single matplotlib outputs.
+        nocode: Whether to exclude all code cells from the document.
         verb: Verbosity flag for logging.
         **kw: Additional keyword arguments passed to IpynbLoader.
 
@@ -491,7 +513,8 @@ def load_notebook(file_path: Union[str, dict],
                          include_metadata_in_doc=include_metadata_in_doc,
                          include_metadata_in_docmeta=include_metadata_in_docmeta,
                          add_nb_version=add_nb_version,
-                        skip_single_matplotlib_output=skip_single_matplotlib_output,
+                         skip_single_matplotlib_output=skip_single_matplotlib_output,
+                         nocode=nocode,
                          verb=verb, **kw)
     
     return loader.load_notebook(file_content, file_name)
