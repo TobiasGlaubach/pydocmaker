@@ -26,7 +26,6 @@ from .adapter_typ import TypstFormatAdapter
 from .parser import parse
 from .inference import scaffold
 from .render import render, update_params, BlockDocTemplate
-from . import cli
 
 detect = detect_block_template
 
