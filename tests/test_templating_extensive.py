@@ -43,7 +43,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = REPO_ROOT / 'src' / 'pydocmaker' / 'templates'
 README_PATH = REPO_ROOT / 'README.md'
 
-EXTENSIVE = True # bool(os.environ.get('PYDOCMAKER_TEST_TEMPLATING') or os.environ.get('PYDOCMAKER_TESTFULL'))
+EXTENSIVE = bool(os.environ.get('PYDOCMAKER_TEST_TEMPLATING') or os.environ.get('PYDOCMAKER_TESTFULL'))
 
 pytestmark = pytest.mark.templating_extensive
 extensive = unittest.skipUnless(
