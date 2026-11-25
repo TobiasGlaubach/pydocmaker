@@ -44,6 +44,8 @@ from .backend import ex_docx
 from .templating import (DocTemplate, BlockDocTemplate, TemplateDirSource, _remove_template_ext,
                          determine_engine_from_template, _remove_template_ext_match, detect_block_template)
 
+from .param_mapping import map_legacy_params
+
 from .backend.pandoc_api import can_run_pandoc, pandoc_convert, pandoc_to_pdf
 
 from . import b64_data
@@ -1732,6 +1734,15 @@ class Doc(UserList):
         if template_params:
             params.update(template_params)
 
+        # map legacy parameter names (e.g. "title") onto the new names (e.g.
+        # "pDocTitle") for plain jinja2 templates; the block engine does its
+        # own template-aware mapping while rendering (see
+        # pydocmaker.param_mapping). Values that merely mirror the template's
+        # own (placeholder) defaults do not block the conversion, while the
+        # defaults themselves survive when no legacy names are present.
+        if mytemplate is not None and not isinstance(mytemplate, BlockDocTemplate):
+            params = map_legacy_params(params, defaults=getattr(mytemplate, 'default_params', None))
+
         # Pass the fully-merged `params` (meta defaults + caller overrides) to the
         # backend renderer, not the raw `template_params` argument. Using the raw
         # argument silently dropped parameters set via set_template_to_meta()
@@ -1742,7 +1753,8 @@ class Doc(UserList):
     def to_typst(self, path_or_stream: Optional[Union[str, Path, IO[str]]] = None,
                  template: Optional[Union[str, jinja2.Template]] = None,
                  template_params: Optional[Dict[str, Any]] = None,
-                 template_engine: str = 'auto') -> str:
+                 template_engine: str = 'auto',
+                 verb: int = 0) -> str:
         """
         Converts the current document to a Typst file/string.
 
@@ -1757,6 +1769,8 @@ class Doc(UserList):
             template_engine: Template engine selection: 'auto' (default; comment-delimited
                 block markers in the template source select the block engine), 'jinja2'
                 (force the legacy Jinja2 engine) or 'blocks' (force the block engine).
+            verb (int, optional): The verbosity level passed to the typst backend
+                (0 = quiet, 1 = normal status messages, 2+ = debug output). Defaults to 0.
 
         Returns:
             str: The Typst source if path_or_stream is None.
@@ -1776,7 +1790,16 @@ class Doc(UserList):
         if template_params:
             params.update(template_params)
 
-        return self._ret(to_typst(self.dump(), template=template, template_params=params, template_engine=template_engine), path_or_stream)
+        # map legacy parameter names (e.g. "title") onto the new names (e.g.
+        # "pDocTitle") for plain jinja2 templates; the block engine does its
+        # own template-aware mapping while rendering (see
+        # pydocmaker.param_mapping). Values that merely mirror the template's
+        # own (placeholder) defaults do not block the conversion, while the
+        # defaults themselves survive when no legacy names are present.
+        if mytemplate is not None and not isinstance(mytemplate, BlockDocTemplate):
+            params = map_legacy_params(params, defaults=getattr(mytemplate, 'default_params', None))
+
+        return self._ret(to_typst(self.dump(), template=template, template_params=params, template_engine=template_engine, verb=verb), path_or_stream)
         
 
     def to_pdf(self, 
@@ -1887,6 +1910,15 @@ class Doc(UserList):
 
         if template_params:
             params.update(template_params)
+
+        # map legacy parameter names (e.g. "title") onto the new names (e.g.
+        # "pDocTitle") for plain jinja2 templates; the block engine does its
+        # own template-aware mapping while rendering (see
+        # pydocmaker.param_mapping). Values that merely mirror the template's
+        # own (placeholder) defaults do not block the conversion, while the
+        # defaults themselves survive when no legacy names are present.
+        if mytemplate is not None and not isinstance(mytemplate, BlockDocTemplate):
+            params = map_legacy_params(params, defaults=getattr(mytemplate, 'default_params', None))
 
         if engine is None and tformat:
             engine = tformat
@@ -2027,7 +2059,8 @@ class Doc(UserList):
                template: Optional[str] = None,
                do_escape_template_params: Union[str, bool] = 'auto',
                template_params: Optional[Dict[str, Any]] = None,
-               text_only: bool = False) -> Union[bool, str, Tuple[str, Dict[str, bytes]], Tuple[bytes, Dict[str, bytes]]]:
+               text_only: bool = False,
+               verb: int = 0) -> Union[bool, str, Tuple[str, Dict[str, bytes]], Tuple[bytes, Dict[str, bytes]]]:
         """Converts the current document to a LaTeX source file or a zipped LaTeX project.
 
         The output is a ZIP file containing doc.json, main.tex, and any attachment files,
@@ -2050,6 +2083,8 @@ class Doc(UserList):
                 parameter values itself when writing the macro assignments.
             template_params: Additional parameters to pass to the LaTeX template.
             text_only: If True and path_or_stream is None, returns the raw tex string instead of ZIP bytes.
+            verb (int, optional): The verbosity level passed to the latex backend
+                (0 = quiet, 1 = normal status messages, 2+ = debug output). Defaults to 0.
 
         Returns:
             bool: True if saved to a file/stream.
@@ -2075,6 +2110,15 @@ class Doc(UserList):
         if template_params:
             params.update(template_params)
 
+        # map legacy parameter names (e.g. "title") onto the new names (e.g.
+        # "pDocTitle") for plain jinja2 templates; the block engine does its
+        # own template-aware mapping while rendering (see
+        # pydocmaker.param_mapping). Values that merely mirror the template's
+        # own (placeholder) defaults do not block the conversion, while the
+        # defaults themselves survive when no legacy names are present.
+        if mytemplate is not None and not isinstance(mytemplate, BlockDocTemplate):
+            params = map_legacy_params(params, defaults=getattr(mytemplate, 'default_params', None))
+
         # Pass the fully-merged `params` (meta defaults + caller overrides) to the
         # backend renderer, not the raw `template_params` argument. Using the raw
         # argument silently dropped parameters set via set_template_to_meta()
@@ -2083,7 +2127,7 @@ class Doc(UserList):
         # resolved inside the backend, where the template engine is known (the
         # block engine escapes parameter values itself and must not be
         # pre-escaped, Jinja2 templates interpolate values verbatim).
-        tex, files = to_tex(self.dump(), with_attachments=True, template=template, files_to_upload=additional_files, do_escape_template_params=do_escape_template_params, template_params=params)
+        tex, files = to_tex(self.dump(), with_attachments=True, template=template, files_to_upload=additional_files, do_escape_template_params=do_escape_template_params, template_params=params, verb=verb)
 
         # zipped LaTeX project folder (doc.json, main.tex, attachments)
         with io.BytesIO() as in_memory_zip:

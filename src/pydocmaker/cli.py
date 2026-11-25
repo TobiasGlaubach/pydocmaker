@@ -40,18 +40,45 @@ Commands
         pydocmaker show html my_document.json     # show an input file as html
 
 ``build`` / ``convert`` -- convert documents into another format
-    Reads one or more documents and exports them into a target format (pdf by
-    default). The output file name defaults to the first input file name with
-    the file extension exchanged (``README.md`` -> ``README.pdf``); use ``-o``
-    to set an explicit output path. Readable inputs are: json pydocmaker files
-    (``Doc.save``/``Doc.load``), html pydocmaker files (``html_loader.py``),
-    notebooks (``.ipynb``), markdown (``.md``), latex (``.tex``) and any other
-    non-binary text document (added via ``Doc.add_text``)::
+    Reads one or more documents and exports each of them into a target format
+    (pdf by default); inputs are never merged -- every file is built
+    individually. The output file name defaults to the input file name with
+    the file extension exchanged (``README.md`` -> ``README.pdf``); use
+    ``-o`` to set an explicit output path. Readable inputs are: json
+    pydocmaker files (``Doc.save``/``Doc.load``), html pydocmaker files
+    (``html_loader.py``), notebooks (``.ipynb``), markdown (``.md``), latex
+    (``.tex``), typst (``.typ``) and any other non-binary text document
+    (added via ``Doc.add_text``). Typst files can be built to PDF on their
+    own. Use ``--nocode`` when building notebooks to exclude all code cells::
 
         pydocmaker build README.md               # -> README.pdf
         pydocmaker build my_report.tex            # -> my_report.pdf
+        pydocmaker build my_report.typ            # -> my_report.pdf
         pydocmaker build notes.md -f html         # -> notes.html
-        pydocmaker convert a.json b.md -o out.docx
+        pydocmaker build notebook.ipynb --nocode   # -> notebook.pdf (no code)
+
+    Plain latex (``.tex``) files built to pdf are treated as complete
+    standalone documents: they are compiled with the latex engine (not the
+    configured default engine) and rendered verbatim, without the pydocmaker
+    default preamble -- unless a template is given via ``-t``, which wraps
+    the input like any other document body.
+
+    An input may be a glob pattern (``abc*.tex``); every file matched by the
+    pattern is built individually (as if the command was run once per file,
+    each writing its own output next to the input). Unquoted patterns which
+    the shell has already expanded into several arguments are handled
+    identically. ``-o/--out`` cannot be combined with multiple inputs::
+
+        pydocmaker build "abc*.tex"
+
+Verbosity
+---------
+``build``/``convert`` and ``example`` accept ``-v/--verbosity`` to control how
+much progress and backend detail is printed to stderr (default 1). The level
+is passed through to the pdf, tex and typst export engines: 0 = quiet,
+1 = normal status messages, 2 = more details, 3+ = full backend output::
+
+    pydocmaker build report.tex -v 3
 
 ``check`` -- validate a document or template file
     Checks the syntax of an input file and reports whether it is OK. Supported
@@ -83,6 +110,13 @@ Commands
         pydocmaker template typ -o my_report.typ  # base.typ to a file
         pydocmaker template base.tex -o tmpl.tex
 
+``templates`` -- list the registered templates
+    Prints every template file found in the registered template directories
+    (the package templates plus user registered ones) with its full path,
+    grouped by directory, to stdout::
+
+        pydocmaker templates
+
 Templating
 ----------
 ``example``, ``show`` and ``build``/``convert`` accept a document template via
@@ -106,6 +140,15 @@ which becomes ``true``) are collected as template parameters as long as a
 templating command (example, show, build, convert) is used. Their values are
 JSON-parsed when possible (``--n 5`` -> ``5``) and otherwise kept as strings.
 Parameters given via ``--name value`` override values from ``-p``.
+
+Template options are only accepted where they have an effect: the
+non-templating commands (``check``, ``extract``, ``template``, ``templates``)
+reject ``-t``/``-p``/``-a`` with an error, and the direct typst build
+(``build my_report.typ``) rejects both a template and template parameters
+with an error instead of silently ignoring them::
+
+    pydocmaker build my_report.typ --pTitle "T"   # error: no template parameters
+    pydocmaker check my_document.json -t base     # error: no template options
 
 Attachments
 ~~~~~~~~~~~
@@ -141,6 +184,13 @@ then ``-a/--assets``. Note that the source scan is regex based and cannot
 resolve ``\\graphicspath``, jinja-interpolated dynamic paths or concatenated
 paths -- ``-a/--assets`` is the escape hatch for those cases.
 
+Directly built ``.tex``/``.latex`` and ``.typ``/``.typst`` input files (pdf
+builds) get the same treatment: their file references are scanned and
+attached automatically, resolving each reference as given, next to the
+input file and in the working directory. This lets ``pydocmaker build
+report.tex`` find ``logo.png`` next to ``report.tex`` even when the command
+runs from a different working directory.
+
 Output formats
 --------------
 ``example``, ``build`` and ``convert`` accept the formats (and aliases)
@@ -158,6 +208,7 @@ runtime error occurred (bad arguments, unreadable input, ...).
 
 import argparse
 import base64
+import glob
 import json
 import os
 import re
@@ -380,6 +431,22 @@ def _load_parameters(spec):
         raise CliError(f'--parameters must be a JSON object (mapping), '
                        f'got {type(data).__name__}')
     return data
+
+
+def _verbosity(args):
+    """Read the verbosity level given via ``-v/--verbosity``.
+
+    Args:
+        args (argparse.Namespace): the parsed arguments namespace.
+
+    Returns:
+        int: the verbosity level (0 = quiet, 1 = normal status messages,
+        2 = more details, 3+ = full backend output; default 1).
+    """
+    try:
+        return max(0, int(getattr(args, 'verbosity', 1)))
+    except (TypeError, ValueError):
+        return 1
 
 
 def _merged_params(args):
@@ -618,7 +685,7 @@ def _read_text_file(path):
     return content
 
 
-def _load_input_doc(path):
+def _load_input_doc(path, nocode=False):
     """Load any supported input document into a ``Doc``.
 
     The loader dispatches on the file extension:
@@ -630,11 +697,15 @@ def _load_input_doc(path):
       (``Doc.add_md``).
     * ``.tex`` / ``.latex`` -- the file content is added as a latex part
       (``Doc.add_tex``).
+    * ``.typ`` / ``.typst`` -- the file content is added as a typst part and
+      marked for typst compilation.
     * anything else -- the file is read as plain (non-binary) text and added
       via ``Doc.add_text``.
 
     Args:
         path (str): path of the input document.
+        nocode (bool): if True and the input is an ipynb file, exclude code
+            cells from the loaded document.
 
     Returns:
         Doc: the loaded document.
@@ -646,7 +717,13 @@ def _load_input_doc(path):
     ext = os.path.splitext(str(path))[1].lower()
     if ext in PYDOCMAKER_DOC_EXTS:
         try:
-            return Doc.load(path)
+            doc = Doc.load(path)
+            # If the loaded document is a notebook (has notebook metadata) and
+            # nocode is set, reload it through the notebook loader with nocode=True
+            if nocode and ext == '.ipynb':
+                from pydocmaker.io.ipynb_loader import load_notebook
+                doc = load_notebook(path, nocode=True)
+            return doc
         except Exception as err:
             raise CliError(f'could not load pydocmaker document {path!r}: {err}')
     text = _read_text_file(path)
@@ -654,7 +731,39 @@ def _load_input_doc(path):
         return Doc().add_md(text)
     if ext in ('.tex', '.latex'):
         return Doc().add_tex(text)
+    if ext in ('.typ', '.typst'):
+        doc = Doc()
+        doc.add_text(text)
+        doc.set_meta({"_raw_typst_file": text})
+        return doc
     return Doc().add_text(text)
+
+
+def _expand_input_pattern(path):
+    """Expand a single ``build``/``convert`` input argument into file paths.
+
+    Arguments containing glob wildcards (``*``, ``?`` or ``[``) are expanded
+    with ``glob.glob`` (``**`` works recursively) and the matches are sorted
+    for a deterministic order; only existing files are kept. A pattern that
+    matches nothing (or only directories) raises an error. Plain paths are
+    returned unchanged (their existence is checked later by the loader).
+
+    Args:
+        path (str): the raw input argument (a file path or a glob pattern).
+
+    Returns:
+        list[str]: the input file paths to build (one or more).
+
+    Raises:
+        CliError: when a pattern does not match any file.
+    """
+    path = str(path)
+    if not any(ch in path for ch in '*?['):
+        return [path]
+    matches = sorted(m for m in glob.glob(path, recursive=True) if os.path.isfile(m))
+    if not matches:
+        raise CliError(f'the input pattern {path!r} did not match any files')
+    return matches
 
 
 def _warn_template_ignored(template_arg, what):
@@ -681,12 +790,20 @@ def _is_docx_template(template_arg):
         and str(template_arg).lower().endswith('.docx')
 
 
-def _export_doc_to_file(doc, out_path, fmt, template_arg=None):
+def _export_doc_to_file(doc, out_path, fmt, template_arg=None, files_to_upload=None, verb=0, pdf_engine=None, pdf_template=None):
     """Write a document to a file path in a given canonical format.
 
     Text templates (html/tex/typ) are applied beforehand via the document
     metadata (see ``_apply_template_and_params``); a docx template file is
-    forwarded to the docx exporter here.
+    forwarded to the docx exporter here. ``files_to_upload`` (attachment
+    bytes keyed by reference) is only used for pdf exports, where the
+    compile runs in an isolated directory. ``verb`` is the verbosity level
+    passed through to the export backends that support it (pdf, tex and
+    typst; 0 = quiet, 1 = normal status messages, 2+ = debug output).
+    ``pdf_engine`` optionally forces the pdf engine (e.g. 'tex' for plain
+    latex inputs); when None the engine is chosen by ``Doc.to_pdf``.
+    ``pdf_template`` optionally overrides the pdf template (an empty string
+    renders the document body verbatim without a preamble wrapper).
 
     Args:
         doc (Doc): the document to export.
@@ -694,6 +811,12 @@ def _export_doc_to_file(doc, out_path, fmt, template_arg=None):
         fmt (str): the canonical output format (see ``FORMAT_ALIASES``).
         template_arg (str | None): the template as given by the user (only
             used for docx template files and no-effect warnings).
+        files_to_upload (dict | None): attachment bytes (``{key: bytes}``)
+            written into the pdf build directory (pdf only).
+        verb (int): verbosity level for the export backends.
+        pdf_engine (str | None): pdf engine to force (pdf only), e.g. 'tex'.
+        pdf_template (str | None): pdf template override (pdf only); an
+            empty string compiles the document body as a standalone document.
 
     Returns:
         str: the path that was written.
@@ -703,18 +826,22 @@ def _export_doc_to_file(doc, out_path, fmt, template_arg=None):
     """
     try:
         if fmt == 'pdf':
-            doc.to_pdf(str(out_path))
+            if files_to_upload:
+                doc.to_pdf(str(out_path), engine=pdf_engine, template=pdf_template,
+                           files_to_upload=files_to_upload, verb=verb)
+            else:
+                doc.to_pdf(str(out_path), engine=pdf_engine, template=pdf_template, verb=verb)
         elif fmt == 'md':
             _warn_template_ignored(template_arg, 'markdown output')
             doc.to_markdown(str(out_path))
         elif fmt == 'html':
             doc.to_html(str(out_path))
         elif fmt == 'typst':
-            doc.to_typst(str(out_path))
+            doc.to_typst(str(out_path), verb=verb)
         elif fmt == 'tex':
             # a path ending in ".tex"/".latex" gets the plain latex source,
             # any other suffix (e.g. ".zip") gets the zipped latex project
-            doc.to_tex(str(out_path))
+            doc.to_tex(str(out_path), verb=verb)
         elif fmt == 'json':
             _warn_template_ignored(template_arg, 'json output')
             doc.to_json(str(out_path))
@@ -744,7 +871,7 @@ def _export_doc_to_file(doc, out_path, fmt, template_arg=None):
     return str(out_path)
 
 
-def _export_doc_to_stdout(doc, fmt, template_arg=None):
+def _export_doc_to_stdout(doc, fmt, template_arg=None, verb=0):
     """Write a document to stdout in a given canonical format.
 
     Text based formats are printed as strings; binary formats (pdf, docx) are
@@ -754,13 +881,16 @@ def _export_doc_to_stdout(doc, fmt, template_arg=None):
 
     Text templates (html/tex/typ) are applied beforehand via the document
     metadata (see ``_apply_template_and_params``); a docx template file is
-    forwarded to the docx exporter here.
+    forwarded to the docx exporter here. ``verb`` is the verbosity level
+    passed through to the export backends that support it (pdf, tex and
+    typst; 0 = quiet, 1 = normal status messages, 2+ = debug output).
 
     Args:
         doc (Doc): the document to export.
         fmt (str): the canonical output format (see ``FORMAT_ALIASES``).
         template_arg (str | None): the template as given by the user (only
             used for docx template files and no-effect warnings).
+        verb (int): verbosity level for the export backends.
 
     Raises:
         CliError: when the format is binary and stdout is a terminal, or the
@@ -774,7 +904,7 @@ def _export_doc_to_stdout(doc, fmt, template_arg=None):
                 if fmt == 'docx':
                     _warn_template_ignored(template_arg, 'docx output (docx templates '
                                             'must be .docx files given via -t)')
-                data = doc.to_pdf() if fmt == 'pdf' else doc.to_docx()
+                data = doc.to_pdf(verb=verb) if fmt == 'pdf' else doc.to_docx()
             if hasattr(sys.stdout, 'isatty') and sys.stdout.isatty():
                 raise CliError(
                     f'the {fmt!r} format is binary; give an output file with -o/--out '
@@ -788,9 +918,9 @@ def _export_doc_to_stdout(doc, fmt, template_arg=None):
         elif fmt == 'html':
             out = doc.to_html()
         elif fmt == 'typst':
-            out = doc.to_typst()
+            out = doc.to_typst(verb=verb)
         elif fmt == 'tex':
-            out = doc.to_tex(text_only=True)
+            out = doc.to_tex(text_only=True, verb=verb)
         elif fmt == 'json':
             _warn_template_ignored(template_arg, 'json output')
             out = doc.to_json()
@@ -1491,10 +1621,12 @@ def cmd_example(args):
         out = str(args.out)
         if not os.path.splitext(out)[1]:
             out += FORMAT_EXTENSIONS[fmt]
-        _export_doc_to_file(doc, out, fmt, template_arg=args.template)
+        _export_doc_to_file(doc, out, fmt, template_arg=args.template,
+                            verb=_verbosity(args))
         _info(f'wrote example document ({fmt}) to {out}')
     else:
-        _export_doc_to_stdout(doc, fmt, template_arg=args.template)
+        _export_doc_to_stdout(doc, fmt, template_arg=args.template,
+                              verb=_verbosity(args))
     return 0
 
 
@@ -1558,21 +1690,139 @@ def cmd_show(args):
     return 0
 
 
+def _build_input(args, path, fmt, i=1, n=1):
+    """Build one input document into the target format.
+
+    Implements the per-file build of ``cmd_build`` (which may pass several
+    paths when the input argument was a glob pattern). A typst file is
+    compiled directly (to pdf only) and rejects a template and template
+    parameters with an error; any other input is loaded as a ``Doc``,
+    optionally templated (``-t``/``-p`` plus unknown ``--name value``
+    arguments, see ``_apply_template_and_params``) and exported. The output
+    file name defaults to the input file name with the extension exchanged
+    (``report.md`` -> ``report.pdf``).
+
+    Because pdf compiles run in isolated temp directories, file references
+    are resolved against the directory of the input file: direct typst
+    builds pass it as compile ``root`` and direct tex builds have their
+    references scanned and attached (as given, next to the input file, then
+    in the working directory; unresolved filename-like references only warn).
+
+    Args:
+        args (argparse.Namespace): parsed arguments with the attributes
+            ``out`` (str | None), ``template`` (str | None), ``nocode``
+            (bool), ``verbosity`` (int), ``parameters`` (str | None) and
+            ``assets`` (list[str] | None).
+        path (str): the input document path.
+        fmt (str): the canonical output format (see ``FORMAT_ALIASES``).
+        i (int), current document index number
+        n (int), total number of documents
+    Raises:
+        CliError: on invalid input/output combinations or build failures.
+    """
+    verb = _verbosity(args)
+
+    # a .typ/.typst file is compiled directly by the typst engine (pdf only)
+    if os.path.splitext(str(path))[1].lower() in ('.typ', '.typst'):
+        # the direct compile uses neither a template nor template parameters;
+        # reject the given options instead of silently ignoring them
+        if getattr(args, 'template', None):
+            raise CliError(
+                f'typst file {path!r} is compiled directly and does not accept a '
+                f'template, but -t/--template was given ({args.template!r}); remove '
+                f'it or build a pydocmaker document format instead')
+        params = _merged_params(args)
+        if params:
+            given = ', '.join('--' + k for k in sorted(params))
+            raise CliError(
+                f'typst file {path!r} is compiled directly and does not accept '
+                f'template parameters, but parameters were given: {given}; remove '
+                f'them or build a pydocmaker document format instead')
+        if fmt != 'pdf':
+            raise CliError(
+                f'typst file {path!r} can only be built to pdf; use -f/--format '
+                f'pdf or convert the document to another format first')
+        try:
+            typ_code = _read_text_file(path)
+            if args.out:
+                out = str(args.out)
+                if not os.path.splitext(out)[1]:
+                    out += FORMAT_EXTENSIONS['pdf']
+            else:
+                out = os.path.splitext(str(path))[0] + '.pdf'
+            if os.path.abspath(out) == os.path.abspath(str(path)):
+                raise CliError(
+                    f'the output file {out!r} would overwrite the input file {path!r}; '
+                    f'choose a different output with -o/--out')
+            from pydocmaker.backend.ex_typst import compile_with_typst
+            # resolve file references (#image("..."), ...) next to the input
+            # file first (the compile itself runs in a temp directory)
+            src_dir = os.path.dirname(os.path.abspath(path))
+            compile_with_typst(typ_code, output=out, verb=verb, root=src_dir)
+            _info(f'built {i}/{n} {path} -> {out} ({fmt})')
+            return
+        except CliError:
+            raise
+        except Exception as err:
+            raise CliError(f'could not compile typst file {path!r}: {err}')
+
+    nocode = getattr(args, 'nocode', False)
+    doc = _load_input_doc(path, nocode=nocode)
+
+    _apply_template_and_params(doc, args.template, _merged_params(args),
+                               assets=getattr(args, 'assets', None))
+
+    if args.out:
+        out = str(args.out)
+        if not os.path.splitext(out)[1]:
+            out += FORMAT_EXTENSIONS[fmt]
+    else:
+        out = os.path.splitext(str(path))[0] + FORMAT_EXTENSIONS[fmt]
+
+    if os.path.abspath(out) == os.path.abspath(str(path)):
+        raise CliError(
+            f'the output file {out!r} would overwrite the input file {path!r}; '
+            f'choose a different output with -o/--out or another format with -f/--format')
+
+    # a direct .tex/.latex input compiled to pdf runs in a temp directory;
+    # scan its file references and attach them so they are found there.
+    # Without a user template the latex engine is forced and an empty
+    # template is used: a plain latex document is a complete standalone
+    # source (own \documentclass, preamble and \begin{document}) and must
+    # not be wrapped in the default pydocmaker preamble nor silently fall
+    # back to the configured default engine (which may e.g. be typst)
+    files_to_upload = None
+    pdf_engine = None
+    pdf_template = None
+    if fmt == 'pdf' and os.path.splitext(str(path))[1].lower() in ('.tex', '.latex'):
+        source = _read_text_file(path)
+        files_to_upload, _unresolved = _find_template_file_references(
+            source, 'tex', base_dir=os.path.dirname(os.path.abspath(path)))
+        if not args.template:
+            pdf_engine = 'tex'
+            pdf_template = ''
+
+    _export_doc_to_file(doc, out, fmt, template_arg=args.template,
+                        files_to_upload=files_to_upload, verb=verb,
+                        pdf_engine=pdf_engine, pdf_template=pdf_template)
+    _info(f'built {i}/{n} {path} -> {out} ({fmt})')
+
+
 def cmd_build(args):
     """``build`` / ``convert`` command: convert documents into another format.
 
-    Loads all input documents (merged in the given order), optionally applies
-    a template and template parameters (``-t``/``-p`` plus unknown ``--name
-    value`` arguments, see ``_apply_template_and_params``), exports them into
-    the requested format (pdf by default) and writes the result either to the
-    file given with ``-o/--out`` or next to the first input file with the
-    extension exchanged (``report.md`` -> ``report.pdf``).
+    Each input document is built individually into its own output file (as if
+    the command was run once per file); inputs are never merged. An input may
+    be a glob pattern (``abc*.tex``); every file matched by the pattern is
+    then built individually. Unquoted patterns which the shell has already
+    expanded into several arguments are handled identically. ``-o/--out``
+    cannot be used when several files are built.
 
     Args:
         args (argparse.Namespace): parsed arguments with the attributes
             ``inputs`` (list[str]), ``format`` (str | None), ``out``
-            (str | None), ``template`` (str | None), ``parameters``
-            (str | None) and ``assets`` (list[str] | None).
+            (str | None), ``template`` (str | None), ``verbosity`` (int),
+            ``parameters`` (str | None) and ``assets`` (list[str] | None).
 
     Returns:
         int: exit code (0 on success).
@@ -1583,29 +1833,16 @@ def cmd_build(args):
     if fmt is None:
         fmt = 'pdf'
 
-    doc = Doc()
-    for path in args.inputs:
-        loaded = _load_input_doc(path)
-        doc.add(loaded.dump() if isinstance(loaded, Doc) else loaded)
-
-    _apply_template_and_params(doc, args.template, _merged_params(args),
-                               assets=getattr(args, 'assets', None))
-
-    if args.out:
-        out = str(args.out)
-        if not os.path.splitext(out)[1]:
-            out += FORMAT_EXTENSIONS[fmt]
-    else:
-        out = os.path.splitext(str(args.inputs[0]))[0] + FORMAT_EXTENSIONS[fmt]
-
-    for path in args.inputs:
-        if os.path.abspath(out) == os.path.abspath(str(path)):
-            raise CliError(
-                f'the output file {out!r} would overwrite the input file {path!r}; '
-                f'choose a different output with -o/--out or another format with -f/--format')
-
-    _export_doc_to_file(doc, out, fmt, template_arg=args.template)
-    _info(f'built {len(args.inputs)} input(s) -> {out} ({fmt})')
+    inputs = []
+    for arg in args.inputs:
+        inputs += _expand_input_pattern(arg)
+    if len(inputs) > 1 and args.out:
+        raise CliError(
+            f'{len(inputs)} files are built; -o/--out cannot be used with '
+            f'multiple inputs (each file is built to its own output next to '
+            f'the input file)')
+    for i, path in enumerate(inputs, 1):
+        _build_input(args, path, fmt, i, len(inputs))
     return 0
 
 
@@ -1768,6 +2005,40 @@ def cmd_template(args):
     return 0
 
 
+def cmd_templates(args):
+    """``templates`` command: list the registered templates and their paths.
+
+    Walks the registered template directories (the package templates plus
+    user registered ones, see ``register_new_template_dir``) and prints every
+    template file (html, tex, typ and the jinja2 ``.j2`` family) with its
+    full path, grouped by directory, to stdout.
+
+    Args:
+        args (argparse.Namespace): parsed arguments (unused).
+
+    Returns:
+        int: exit code (0 on success).
+    """
+    seen = set()
+    for d in get_registered_template_dirs(include_default=True):
+        d = str(d)
+        key = os.path.normpath(os.path.abspath(d))
+        if key in seen:
+            continue
+        seen.add(key)
+        if not os.path.isdir(d):
+            _info(f'warning: template directory {d!r} does not exist')
+            continue
+        files = sorted(fn for fn in os.listdir(d)
+                       if fn.lower().endswith(TEMPLATE_FILE_EXTS))
+        if not files:
+            continue
+        print(d)
+        for fn in files:
+            print(f'    {os.path.join(d, fn)}')
+    return 0
+
+
 # --------------------------------------------------------------------------- #
 # argument parser
 # --------------------------------------------------------------------------- #
@@ -1778,7 +2049,7 @@ def build_parser():
     Returns:
         argparse.ArgumentParser: the fully configured parser with all
         subcommands (example, show, build, convert, check, extract,
-        template).
+        template, templates).
     """
     parser = argparse.ArgumentParser(
         prog='pydocmaker',
@@ -1798,6 +2069,7 @@ examples:
   pydocmaker extract base.html                 print template parameters as json
   pydocmaker template html -o my.html          copy the base html template
   pydocmaker template tex                      print the base latex template
+  pydocmaker templates                         list registered templates and paths
 
 templating (example, show and build/convert accept -t/-p plus unknown
 "--name value" arguments as template parameters):
@@ -1828,6 +2100,11 @@ run "pydocmaker <command> --help" for the full argument reference of a command.
                              '(attached under its name) or a folder (attached '
                              'recursively); repeatable (only example, show and '
                              'build/convert)')
+    parser.add_argument('-v', '--verbosity', default=1, type=int, metavar='N',
+                        help='verbosity level for document builds and exports: '
+                             '0 = quiet, 1 = normal status messages, 2 = more '
+                             'details, 3+ = full backend output (default: 1; '
+                             'only example and build/convert)')
 
     sub = parser.add_subparsers(dest='command', metavar='COMMAND', required=True)
 
@@ -1867,6 +2144,11 @@ examples:
                    help='additional attachment for the document build: a file '
                         '(attached under its name) or a folder (attached '
                         'recursively); repeatable')
+    p.add_argument('-v', '--verbosity', default=argparse.SUPPRESS, type=int,
+                   metavar='N',
+                   help='verbosity level for the export: 0 = quiet, 1 = normal '
+                        'status messages, 2 = more details, 3+ = full backend '
+                        'output (default: 1)')
     p.set_defaults(func=cmd_example)
 
     # ---- show --------------------------------------------------------- #
@@ -1913,30 +2195,42 @@ examples:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         aliases=['convert'],
         help='convert document(s) into another format (default: pdf)',
-        description='Read one or more documents and export them into a given output '
-                    'format (pdf by default). The output file name defaults to the '
-                    'first input file name with the file extension exchanged '
-                    '(README.md -> README.pdf). Readable inputs: json pydocmaker '
+        description='Read one or more documents and export each of them into a given '
+                    'output format (pdf by default); inputs are never merged -- every '
+                    'file is built individually into its own output file. The output '
+                    'file name defaults to the input file name with the file extension '
+                    'exchanged (README.md -> README.pdf). Inputs may be glob patterns '
+                    '("abc*.tex"); an unquoted pattern already expanded by the shell is '
+                    'handled identically. Readable inputs: json pydocmaker '
                     'files (Doc.save/Doc.load), html pydocmaker files (html_loader.py), '
-                    'notebooks (.ipynb), markdown, latex and any other non-binary text '
-                    'document (added via add_text).',
+                    'notebooks (.ipynb), markdown, latex (.tex), typst (.typ), and any '
+                    'other non-binary text document (added via add_text). Plain latex '
+                    'files are compiled to pdf as standalone documents with the latex '
+                    'engine; typst files are compiled directly by the typst engine and '
+                    'accept neither a template nor template parameters (both are '
+                    'rejected with an error).',
         epilog="""\
 examples:
   pydocmaker build README.md              -> README.pdf
   pydocmaker build my_report.tex          -> my_report.pdf
+  pydocmaker build my_report.typ          -> my_report.pdf
   pydocmaker build notes.md -f html       -> notes.html
-  pydocmaker build a.json b.md -o out.docx
+  pydocmaker build "abc*.tex" -t my.tmpl.tex   build every matched file
+  pydocmaker build docs/s*.ipynb          also works unquoted (shell expanded)
   pydocmaker build README.md -t base.tex --pTitle "Readme"
   pydocmaker build README.md -t my.tmpl.tex -a ./assets
+  pydocmaker build notebook.ipynb --nocode   -> notebook.pdf (no code)
+  pydocmaker build report.tex -v 3        build with verbose backend output
 """)
     p.add_argument('inputs', nargs='+', metavar='INPUT',
-                   help='one or more input documents; multiple inputs are merged in '
-                        'the given order')
+                   help='one or more input documents; may contain glob patterns like '
+                        '"abc*.tex" (each matched file is built individually, sorted '
+                        'by name); inputs are never merged')
     p.add_argument('-f', '--format', default=None, metavar='FORMAT',
                    help='output format: pdf (default), md/markdown, html, typ/typst, '
                         'tex/latex, json, docx, ipynb, textile or pydoc/pyd')
     p.add_argument('-o', '--out', default=None, metavar='OUT',
-                   help='explicit output file path (default: first input file name '
+                   help='explicit output file path (default: the input file name '
                         'with the extension exchanged)')
     p.add_argument('-t', '--template', default=argparse.SUPPRESS, metavar='TEMPLATE',
                    help='document template: a template file path or a template id like '
@@ -1951,6 +2245,15 @@ examples:
                    help='additional attachment for the document build: a file '
                         '(attached under its name) or a folder (attached '
                         'recursively); repeatable')
+    p.add_argument('-v', '--verbosity', default=argparse.SUPPRESS, type=int,
+                   metavar='N',
+                   help='verbosity level for the build: 0 = quiet, 1 = normal '
+                        'status messages, 2 = more details, 3+ = full backend '
+                        'output (default: 1; passed through to the pdf, tex and '
+                        'typst engines)')
+    p.add_argument('--nocode', action='store_true', default=False,
+                   help='when loading notebook (.ipynb) files, exclude all code '
+                        'cells from the document')
     p.set_defaults(func=cmd_build)
 
     # ---- check --------------------------------------------------------- #
@@ -2024,6 +2327,22 @@ examples:
                         'to stdout (default: stdout)')
     p.set_defaults(func=cmd_template)
 
+    # ---- templates -------------------------------------------------------- #
+    p = sub.add_parser(
+        'templates',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        help='list the registered templates and their paths',
+        description='List every template file (html, tex, typ and the jinja2 ".j2" '
+                    'family) found in the registered template directories (the '
+                    'package templates plus user registered ones) with its full '
+                    'path, grouped by directory, on stdout.',
+        epilog="""\
+examples:
+  pydocmaker templates                  list all registered template files
+  pydocmaker templates | grep base      filter the listing
+""")
+    p.set_defaults(func=cmd_templates)
+
     return parser
 
 
@@ -2050,7 +2369,28 @@ def main(argv=None):
     args = parser.parse_args(clean)
     if params:
         args.cli_params = params
+    s = f'pydocmaker v:{__version__} -> {argv[0]}'
+
+    if len(argv) > 1:
+        s += f" {argv[1]}"
+    _info(s)
+
     try:
+        # template options are only meaningful for the templating commands
+        # (example, show, build/convert); the top level parser accepts them
+        # before any subcommand, so they must be rejected here for the other
+        # commands instead of being silently ignored. NOTE: the "template"
+        # command has a positional argument named "template" (its input), so
+        # the -t/--template option cannot be checked for it (a -t given
+        # before that subcommand is already overwritten by the positional)
+        if getattr(args, 'command', None) in ('check', 'extract', 'template', 'templates'):
+            attrs = [('parameters', '-p/--parameters'), ('assets', '-a/--assets')]
+            if args.command != 'template':
+                attrs.insert(0, ('template', '-t/--template'))
+            given = [flag for attr, flag in attrs if getattr(args, attr, None)]
+            if given:
+                raise CliError(f'the {args.command!r} command does not accept '
+                               f'template options ({", ".join(given)})')
         return args.func(args)
     except CliError as err:
         print(f'error: {err}', file=sys.stderr)

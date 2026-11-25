@@ -29,10 +29,20 @@ except Exception as err:
     from ..templating import handle_template
 
 try:
+    from pydocmaker.templating import BlockDocTemplate
+except Exception as err:
+    from ..templating import BlockDocTemplate
+
+try:
     from pydocmaker import util
 except Exception as err:
     from . import util
-    
+
+try:
+    from pydocmaker.param_mapping import map_legacy_params
+except Exception as err:
+    from ..param_mapping import map_legacy_params
+
 try:
     from pydocmaker.backend.pandoc_api import can_run_pandoc, pandoc_convert
 except Exception as err:
@@ -138,7 +148,13 @@ def convert(doc:List[dict], template = None, template_params=None, template_engi
         kw['references'] = {}
     if 'acronyms' in kw and isinstance(kw['acronyms'], str):
         kw['acronyms'] = {}
-    
+
+    # map legacy parameter names (e.g. "title") onto the new names (e.g.
+    # "pDocTitle") for plain jinja2 templates; the block engine does its own
+    # template-aware mapping while rendering
+    if not isinstance(template_obj, BlockDocTemplate):
+        kw = map_legacy_params(kw)
+
     if 'applicables' in kw:
         kw['applicables'] = {i:v for i, v in enumerate(kw['applicables'].values(), 1)} 
     if 'references' in kw:

@@ -23,6 +23,11 @@ except Exception as err:
     from . import util
 
 try:
+    from pydocmaker import param_mapping
+except Exception as err:
+    from . import param_mapping
+
+try:
     from pydocmaker import blocktmpl
 except Exception as err:
     from . import blocktmpl
@@ -34,12 +39,15 @@ scaffold = blocktmpl.scaffold
 update_params = blocktmpl.update_params
 render = blocktmpl.render
 detect = blocktmpl.detect
+map_legacy_params = param_mapping.map_legacy_params
+LEGACY_PARAM_MAP = param_mapping.LEGACY_PARAM_MAP
 
 __all__ = ['DocTemplate', 'BlockDocTemplate', 'TemplateDirSource', 'handle_template',
            'get_template_source', 'register_new_template_dir', 'remove_from_template_dir',
            'get_registered_template_dirs', 'get_available_template_ids', 'test_template_exists',
            'get_template_params', 'resolve_template_id', 'determine_engine_from_template',
-           'parse', 'scaffold', 'update_params', 'render', 'detect']
+           'parse', 'scaffold', 'update_params', 'render', 'detect',
+           'map_legacy_params', 'LEGACY_PARAM_MAP']
     
 def determine_engine_from_template(template: Union[Template, str, Path], tformat=None) -> str:
     """Detect the template engine type from a template string or file path.
@@ -949,6 +957,10 @@ class DocTemplate():
         """
         self.template = template
         self.params = params if not params is None else {}
+        # the parameters the template was constructed with are its defaults;
+        # kept separately because self.params is regularly overwritten with
+        # the (user) parameters from the document metadata
+        self.default_params = dict(self.params)
         self.attachments = attachments if attachments is not None else {}
         self.env = env or Environment(cache_size=0)
         self.template_id = template_id
@@ -976,6 +988,10 @@ class DocTemplate():
         If the template source contains comment-delimited block markers the render
         is delegated to the block templating engine (``BlockDocTemplate``) instead.
 
+        Legacy parameter names (e.g. "title", "doc_no") are automatically mapped
+        onto the new "p"-prefixed names (e.g. "pDocTitle", "pDocNo") before the
+        render; see :mod:`pydocmaker.param_mapping`.
+
         Args:
             **kwargs: Additional parameters to be used in the template.
 
@@ -989,6 +1005,10 @@ class DocTemplate():
             return block_template.render(**kwargs)
 
         params = {**self.params, **kwargs}
+        # parameter values that merely mirror the template's own (placeholder)
+        # defaults do not count as user-set and must not block the conversion
+        params = param_mapping.map_legacy_params(
+            params, defaults=getattr(self, 'default_params', None))
         params = util.remove_undefined(params)
         return self.template.render(**params)
 

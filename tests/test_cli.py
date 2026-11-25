@@ -126,18 +126,53 @@ class TestBuild(unittest.TestCase):
             self.assertIn('just some plain text',
                           Path(os.path.join(td, 'out.md')).read_text(encoding='utf-8'))
 
-    def test_build_multiple_inputs_merge(self):
+    def test_build_multiple_inputs_built_individually(self):
         with tempfile.TemporaryDirectory() as td:
-            a = os.path.join(td, 'a.md')
-            b = os.path.join(td, 'b.md')
+            a = os.path.join(td, 'a.tex')
+            b = os.path.join(td, 'b.tex')
             Path(a).write_text('first part\n', encoding='utf-8')
             Path(b).write_text('second part\n', encoding='utf-8')
-            out = os.path.join(td, 'merged.md')
-            r = run_cli('build', a, b, '-f', 'md', '-o', out)
+            r = run_cli('build', a, b, '-f', 'md')
             self.assertEqual(r.returncode, 0, r.stderr)
-            content = Path(out).read_text(encoding='utf-8')
-            self.assertIn('first part', content)
-            self.assertIn('second part', content)
+            for name, text in (('a', 'first part'), ('b', 'second part')):
+                out = os.path.join(td, f'{name}.md')
+                self.assertTrue(os.path.isfile(out), out)
+                self.assertIn(text, Path(out).read_text(encoding='utf-8'))
+
+    def test_build_wildcard_input(self):
+        with tempfile.TemporaryDirectory() as td:
+            for name in ('abc1.tex', 'abc2.tex', 'abc3.tex'):
+                Path(os.path.join(td, name)).write_text(
+                    f'Hello from {name}', encoding='utf-8')
+            Path(os.path.join(td, 'other.tex')).write_text(
+                'should not be built', encoding='utf-8')
+            r = run_cli('build', os.path.join(td, 'abc*.tex'), '-f', 'md')
+            self.assertEqual(r.returncode, 0, r.stderr)
+            for name in ('abc1', 'abc2', 'abc3'):
+                out = os.path.join(td, f'{name}.md')
+                self.assertTrue(os.path.isfile(out), out)
+                self.assertIn(f'Hello from {name}.tex',
+                              Path(out).read_text(encoding='utf-8'))
+            self.assertFalse(os.path.isfile(os.path.join(td, 'other.md')))
+            # no output file may overwrite its input
+            for name in ('abc1.tex', 'abc2.tex', 'abc3.tex'):
+                self.assertIn(f'Hello from {name}',
+                              Path(os.path.join(td, name)).read_text(encoding='utf-8'))
+
+    def test_build_wildcard_no_match_errors(self):
+        with tempfile.TemporaryDirectory() as td:
+            r = run_cli('build', os.path.join(td, 'nothing*.tex'), '-f', 'md')
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn('did not match any files', r.stderr)
+
+    def test_build_wildcard_multiple_matches_rejects_out(self):
+        with tempfile.TemporaryDirectory() as td:
+            for name in ('abc1.tex', 'abc2.tex'):
+                Path(os.path.join(td, name)).write_text('Hello', encoding='utf-8')
+            out = os.path.join(td, 'out.md')
+            r = run_cli('build', os.path.join(td, 'abc*.tex'), '-f', 'md', '-o', out)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn('-o/--out cannot be used with multiple inputs', r.stderr)
 
     def test_build_json_roundtrip_via_pyd(self):
         with tempfile.TemporaryDirectory() as td:
@@ -186,6 +221,51 @@ class TestBuild(unittest.TestCase):
             r = run_cli('build', p)
             self.assertEqual(r.returncode, 2)
             self.assertIn('binary', r.stderr)
+
+    @unittest.skipUnless(_latex_compiler_available(), 'no latex compiler found')
+    def test_build_tex_with_sibling_asset(self):
+        """a tex input built from a foreign cwd must find assets next to the
+        input file (the pdf compile runs in an isolated temp directory)"""
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, 'report.tex')
+            Path(p).write_text(
+                '\\documentclass{article}\n'
+                '\\usepackage{graphicx}\n'
+                '\\begin{document}\n'
+                '\\includegraphics[width=1cm]{logo.png}\n'
+                '\\end{document}\n', encoding='utf-8')
+            Path(td, 'logo.png').write_bytes(PNG_1PX)
+            # run from the repo cwd (NOT cwd=td) -- that is the regression
+            r = run_cli('build', p, '-f', 'pdf')
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue(Path(td, 'report.pdf').read_bytes().startswith(b'%PDF'))
+
+    @unittest.skipUnless(_latex_compiler_available(), 'no latex compiler found')
+    def test_build_tex_with_nested_sibling_asset(self):
+        with tempfile.TemporaryDirectory() as td:
+            os.makedirs(os.path.join(td, 'images'))
+            p = os.path.join(td, 'report.tex')
+            Path(p).write_text(
+                '\\documentclass{article}\n'
+                '\\usepackage{graphicx}\n'
+                '\\begin{document}\n'
+                '\\includegraphics[width=1cm]{images/logo.png}\n'
+                '\\end{document}\n', encoding='utf-8')
+            Path(td, 'images', 'logo.png').write_bytes(PNG_1PX)
+            r = run_cli('build', p, '-f', 'pdf')
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue(Path(td, 'report.pdf').read_bytes().startswith(b'%PDF'))
+
+    @unittest.skipUnless(_typst_available(), 'typst engine not installed')
+    def test_build_typ_with_sibling_asset(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, 'report.typ')
+            Path(p).write_text('#image("logo.png", width: 1cm)\n', encoding='utf-8')
+            Path(td, 'logo.png').write_bytes(PNG_1PX)
+            # run from the repo cwd (NOT cwd=td) -- that is the regression
+            r = run_cli('build', p, '-f', 'pdf')
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue(Path(td, 'report.pdf').read_bytes().startswith(b'%PDF'))
 
 
 class TestCheck(unittest.TestCase):
@@ -323,6 +403,56 @@ class TestShow(unittest.TestCase):
         self.assertIn('error:', r.stderr)
 
 
+class TestTemplates(unittest.TestCase):
+    """the ``templates`` command: list registered templates and their paths."""
+
+    def test_templates_lists_package_templates(self):
+        r = run_cli('templates')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('base.html', r.stdout)
+        self.assertIn('base.typ.j2', r.stdout)
+        self.assertIn('report.tex', r.stdout)
+        # full paths are shown
+        self.assertIn(os.path.join('templates', 'base.html'), r.stdout)
+
+    def test_templates_includes_registered_dir(self):
+        import contextlib
+        from pydocmaker import cli
+        from pydocmaker.templating import (register_new_template_dir,
+                                           remove_from_template_dir)
+        with tempfile.TemporaryDirectory() as td:
+            Path(os.path.join(td, 'my_custom.typ')).write_text(
+                '// custom template\n', encoding='utf-8')
+            self.assertTrue(register_new_template_dir(td))
+            try:
+                buf_out, buf_err = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(buf_out), \
+                        contextlib.redirect_stderr(buf_err):
+                    rc = cli.main(['templates'])
+            finally:
+                remove_from_template_dir(td)
+            self.assertEqual(rc, 0)
+            self.assertIn(td, buf_out.getvalue())
+            self.assertIn('my_custom.typ', buf_out.getvalue())
+
+    def test_templates_missing_dir_warns(self):
+        import contextlib
+        from pydocmaker import cli
+        from pydocmaker.templating import (register_new_template_dir,
+                                           remove_from_template_dir)
+        missing = os.path.join(tempfile.gettempdir(), 'no_such_tmpl_dir_xyz')
+        self.assertTrue(register_new_template_dir(missing, check_exists=False))
+        try:
+            buf_out, buf_err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(buf_out), \
+                    contextlib.redirect_stderr(buf_err):
+                rc = cli.main(['templates'])
+        finally:
+            remove_from_template_dir(missing)
+        self.assertEqual(rc, 0)
+        self.assertIn('does not exist', buf_err.getvalue())
+
+
 class TestTemplating(unittest.TestCase):
     """-t/--template, -p/--parameters and unknown-argument parameters."""
 
@@ -432,18 +562,18 @@ class TestTemplating(unittest.TestCase):
             self.assertIn('#let pTitle = "Built"', src)
             self.assertIn('content', src)
 
-    def test_build_multiple_inputs_with_template(self):
+    def test_build_wildcard_with_template(self):
         with tempfile.TemporaryDirectory() as td:
-            a = os.path.join(td, 'a.md')
-            b = os.path.join(td, 'b.md')
-            Path(a).write_text('first\n', encoding='utf-8')
-            Path(b).write_text('second\n', encoding='utf-8')
-            out = os.path.join(td, 'out.typ')
-            r = run_cli('convert', a, b, '-f', 'typst', '-t', 'base', '-o', out)
+            for name in ('abc1.md', 'abc2.md'):
+                Path(os.path.join(td, name)).write_text(
+                    f'# {name}\n\nsome content\n', encoding='utf-8')
+            r = run_cli('convert', os.path.join(td, 'abc*.md'), '-f', 'typst',
+                        '-t', 'base', '--pTitle', 'Built')
             self.assertEqual(r.returncode, 0, r.stderr)
-            src = Path(out).read_text(encoding='utf-8')
-            self.assertIn('first', src)
-            self.assertIn('second', src)
+            for name in ('abc1', 'abc2'):
+                src = Path(os.path.join(td, f'{name}.typ')).read_text(encoding='utf-8')
+                self.assertIn('#let pTitle = "Built"', src)
+                self.assertIn(name, src)
 
     def test_show_with_template(self):
         r = run_cli('show', 'typst', '-t', 'base', '--pTitle', 'Shown Title')
@@ -1060,6 +1190,104 @@ class TestCompileDirFileRefs(unittest.TestCase):
                 self.assertEqual(z.read('icon.png'), PNG_1PX)
             finally:
                 os.chdir(old_cwd)
+
+
+class TestStandaloneSourceBuilds(unittest.TestCase):
+    """``build`` of plain .tex/.typ source files must use the matching engine."""
+
+    @unittest.skipUnless(_latex_compiler_available(), 'no latex compiler found')
+    def test_plain_tex_builds_to_pdf_with_latex_engine(self):
+        # regression: a bare .tex input used to fall back to the configured
+        # default pdf engine (typst), which cannot compile latex macros
+        with tempfile.TemporaryDirectory() as td:
+            src = os.path.join(td, 'report.tex')
+            Path(src).write_text(
+                '\\documentclass{article}\n\\usepackage{amsmath}\n'
+                '\\begin{document}\nHello from LaTeX!\n\\end{document}\n',
+                encoding='utf-8')
+            out = os.path.join(td, 'report.pdf')
+            r = run_cli('build', src, '-o', out)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue(Path(out).read_bytes().startswith(b'%PDF'))
+
+    @unittest.skipUnless(_latex_compiler_available(), 'no latex compiler found')
+    def test_plain_tex_with_template_is_wrapped(self):
+        # with an explicit template the input is wrapped like any other body
+        with tempfile.TemporaryDirectory() as td:
+            src = os.path.join(td, 'body.tex')
+            Path(src).write_text('Just some \\textbf{body} text.\n',
+                                 encoding='utf-8')
+            out = os.path.join(td, 'body.pdf')
+            r = run_cli('build', src, '-t', 'base.tex', '-o', out)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue(Path(out).read_bytes().startswith(b'%PDF'))
+
+    @unittest.skipUnless(_typst_available(), 'typst engine not installed')
+    def test_plain_typ_builds_to_pdf(self):
+        with tempfile.TemporaryDirectory() as td:
+            src = os.path.join(td, 'report.typ')
+            Path(src).write_text('= Hello Typst\n\nSome text.\n',
+                                 encoding='utf-8')
+            out = os.path.join(td, 'report.pdf')
+            r = run_cli('build', src, '-o', out)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue(Path(out).read_bytes().startswith(b'%PDF'))
+
+
+class TestTemplateOptionRejection(unittest.TestCase):
+    """Template options must be rejected where they have no effect."""
+
+    def _write_typ(self, td):
+        src = os.path.join(td, 'report.typ')
+        Path(src).write_text('= Hello Typst\n\nSome text.\n', encoding='utf-8')
+        return src
+
+    def test_typ_build_rejects_template_parameters(self):
+        # regression: parameters used to be silently ignored on direct builds
+        with tempfile.TemporaryDirectory() as td:
+            src = self._write_typ(td)
+            r = run_cli('build', src, '--pShowSignaturePanel', '0')
+            self.assertEqual(r.returncode, 2, r.stdout)
+            self.assertIn('does not accept template parameters', r.stderr)
+            self.assertIn('--pShowSignaturePanel', r.stderr)
+
+    def test_typ_build_rejects_parameters_json(self):
+        with tempfile.TemporaryDirectory() as td:
+            src = self._write_typ(td)
+            r = run_cli('build', src, '-p', '{"pTitle": "T"}')
+            self.assertEqual(r.returncode, 2, r.stdout)
+            self.assertIn('does not accept template parameters', r.stderr)
+
+    def test_typ_build_rejects_template(self):
+        with tempfile.TemporaryDirectory() as td:
+            src = self._write_typ(td)
+            r = run_cli('build', src, '-t', 'base.typ')
+            self.assertEqual(r.returncode, 2, r.stdout)
+            self.assertIn('does not accept a template', r.stderr)
+
+    @unittest.skipUnless(_typst_available(), 'typst engine not installed')
+    def test_typ_build_allows_empty_parameters(self):
+        with tempfile.TemporaryDirectory() as td:
+            src = self._write_typ(td)
+            out = os.path.join(td, 'report.pdf')
+            r = run_cli('build', src, '-p', '{}', '-o', out)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue(Path(out).read_bytes().startswith(b'%PDF'))
+
+    def test_check_rejects_template_options(self):
+        # the top level parser accepts -t/-p/-a before any subcommand; the
+        # non-templating commands must reject them instead of ignoring
+        with tempfile.TemporaryDirectory() as td:
+            doc = os.path.join(td, 'doc.json')
+            Path(doc).write_text('[]', encoding='utf-8')
+            r = run_cli('-p', '{"pTitle": "T"}', 'check', doc)
+            self.assertEqual(r.returncode, 2, r.stdout)
+            self.assertIn('does not accept template options', r.stderr)
+
+    def test_extract_rejects_template_options(self):
+        r = run_cli('-t', 'base', 'extract', 'base.typ')
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn('does not accept template options', r.stderr)
 
 
 class TestParser(unittest.TestCase):

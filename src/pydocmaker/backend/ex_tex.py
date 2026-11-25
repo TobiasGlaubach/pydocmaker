@@ -37,7 +37,12 @@ try:
     from pydocmaker import util
 except Exception as err:
     from . import util
-    
+
+try:
+    from pydocmaker.param_mapping import map_legacy_params
+except Exception as err:
+    from ..param_mapping import map_legacy_params
+
 log = util.log
 
 try:
@@ -98,7 +103,6 @@ __default_template = r"""
   stringstyle=\color{ForestGreen},
   commentstyle=\color{Gray}\itshape
 }
-
 
 
 \makeatletter
@@ -228,7 +232,13 @@ def convert(doc:List[dict], with_attachments=True, files_to_upload=None, templat
         kw['references'] = {}
     if 'acronyms' in kw and isinstance(kw['acronyms'], str):
         kw['acronyms'] = {}
-    
+
+    # map legacy parameter names (e.g. "title") onto the new names (e.g.
+    # "pDocTitle") for plain jinja2 templates; the block engine does its own
+    # template-aware mapping while rendering
+    if not isinstance(template_obj, BlockDocTemplate):
+        kw = map_legacy_params(kw)
+
     if 'applicables' in kw:
         kw['applicables'] = {i:escape(v) for i, v in enumerate(kw['applicables'].values(), 1)} 
     if 'references' in kw:
@@ -244,6 +254,16 @@ def convert(doc:List[dict], with_attachments=True, files_to_upload=None, templat
 
     doc_tex = template_obj.render(**kw)
     formatter.attachments.update(attachments)
+
+    # remote the pandoc specific macros
+    macros = ("passthrough", "tightlist", "lstinline", "Verb")
+    for macro in macros:
+        macro = "\\" + macro
+        cmd = "\\providecommand{%s}" % macro
+        if cmd not in doc_tex and macro in doc_tex:
+            if verb: log.warning(f'found "{macro}" in tex source but no "{cmd}" will replace all occurances')
+            doc_tex = doc_tex.replace(macro, "")
+
 
     if with_attachments:
         return doc_tex, formatter.attachments

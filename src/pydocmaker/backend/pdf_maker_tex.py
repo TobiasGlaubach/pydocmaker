@@ -29,7 +29,7 @@ def test_latex_compiler(compiler):
 # Define a global variable to store the latex compiler
 _latex_compiler = None
 
-_allowed_compilers = 'pdflatex tectonic lualatex xelatex'.split()
+_allowed_compilers = 'tectonic pdflatex lualatex xelatex'.split()
 
 #: latex source patterns that reference external files (group 1 = the reference)
 _LATEX_FILE_REF_RES = (
@@ -321,9 +321,12 @@ def make_pdf_from_tex(input_latex_text, attachments_dc=None, docname='', out_for
                     if os.path.exists(logfile):
                         with open(logfile, 'r') as fp:
                             s = fp.read()
-                            info_string += '\nHere is the last 500 chars from the log file:\n---------\n' + s[-500:]
+                            info_string += '\nHere are the first and last 500 chars from the log file:\n---------\n' + s[:500] + '\n (...) \n' + s[-500:]
                             if verb and os.environ.get('PYDOCMAKER_TESTFULL'):
-                                log.error(((('>'*100) + '\n')*10) + s + (('<'*100) + '\n')*10)
+                                s2 = (('>'*100) + '\n')*10
+                                s2 += s
+                                s2 += (('<'*100) + '\n')*10
+                                log.error(s2)
 
                     info_string += '\n To debug the latex code you can have a look at doc.to_tex() or doc.show("tex") directly to see the source. You can also call doc.to_pdf("myfolder/mydoc.zip") to get the full folder directly'
 

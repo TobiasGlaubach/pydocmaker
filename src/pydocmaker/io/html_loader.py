@@ -8,7 +8,8 @@ from pydocmaker.core import Doc
 
 
 # HTML Template: body starts empty; JS renders JSON -> HTML on load.
-# A ?renderMarkdown=1 query param triggers CDN loading (snarkdown + highlight.js).
+# The [render nicely] buttons trigger CDN loading (marked + DOMPurify); a third
+# button shows the raw JSON payload.
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -65,11 +66,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 {% endif %}
 
     <div style="display:flex;justify-content:flex-end;align-items:center;gap:12px;margin-bottom:10px;">
-        <button style="font-size:0.85em;color:#888;text-decoration:none;" onclick="renderMain(false);">
+        <button style="font-size:0.85em;color:#888;text-decoration:none;" onclick="renderMain('plain');">
             [show plain view]
         </button>
-        <button style="font-size:0.85em;color:#0366d6;text-decoration:none;" onclick="renderMain(true);">
+        <button style="font-size:0.85em;color:#0366d6;text-decoration:none;" onclick="renderMain('render');">
             [render nicely]
+        </button>
+        <button style="font-size:0.85em;color:#b35900;text-decoration:none;" onclick="renderMain('raw');">
+            [show raw JSON]
         </button>
     </div>
 
@@ -78,11 +82,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     <div class="pydocmaker-footer">
         <div style="display:flex;justify-content:flex-end;align-items:center;gap:12px;margin-bottom:10px;">
-            <button style="font-size:0.85em;color:#888;text-decoration:none;" onclick="renderMain(false);">
+            <button style="font-size:0.85em;color:#888;text-decoration:none;" onclick="renderMain('plain');">
                 [show plain view]
             </button>
-            <button style="font-size:0.85em;color:#0366d6;text-decoration:none;" onclick="renderMain(true);">
+            <button style="font-size:0.85em;color:#0366d6;text-decoration:none;" onclick="renderMain('render');">
                 [render nicely]
+            </button>
+            <button style="font-size:0.85em;color:#b35900;text-decoration:none;" onclick="renderMain('raw');">
+                [show raw JSON]
             </button>
         </div>
         <a href="https://pypi.org/project/pydocmaker/" target="_blank">pydocmaker</a> 
@@ -120,36 +127,13 @@ async function renderMd(text) {
   return dompurify.sanitize(marked.parse(text));
 }
 
-async function renderMain(renderMarkdown) {
+async function renderMain(renderFormat) {
 
-    
+    /* ---- decide rendering mode: 'plain', 'render' or 'raw' ---- */
+    if (renderFormat === 'render') {
 
-    /* ---- decide rendering mode ---- */
-    if (renderMarkdown) {
-        /* need snarkdown – load from CDN first */
-        // Load snarkdown (ESM)
         console.log("Importing CDN libs...");
-
         var tmp = await renderMd("**Hello World**"); /* just to import */
-
-/*
-        // Load highlight.js
-        var hlLink = document.createElement('link');
-        hlLink.rel = 'stylesheet';
-        hlLink.href = 'https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css';
-        document.head.appendChild(hlLink);
-
-        var hlCore = document.createElement('script');
-        hlCore.src = 'https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/core.min.js';
-        document.head.appendChild(hlCore);
-
-        var langs = ['python','bash','javascript','xml'];
-        for (var i=0;i<langs.length;i++) {
-            var ls = document.createElement('script');
-            ls.src = 'https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/' + langs[i] + '.min.js';
-            document.head.appendChild(ls);
-        }
-*/
         console.log("Importing CDN libs...DONE");
 
     }
@@ -163,33 +147,51 @@ async function renderMain(renderMarkdown) {
         return d.innerHTML;
     }
 
-    /* ---- flatten iter-wrapped lists ---- */
-    function flatten(lst) {
-        var out = [];
-        for (var i = 0; i < lst.length; i++) {
-            var e = lst[i];
-            if (!e || typeof e !== 'object') {
-                if (typeof e === 'string' && e) out.push({typ: 'text', children: e});
-                continue;
-            }
-            if (e.typ === 'iter' && e.children && Array.isArray(e.children)) {
-                var sub = flatten(e.children);
-                for (var j = 0; j < sub.length; j++) out.push(sub[j]);
-            } else {
-                out.push(e);
-            }
-        }
-        return out;
-    }
-
     var payloadScript = document.getElementById('pydocmaker-payload');
     if (!payloadScript) {
         document.getElementById('pydocmaker-body').innerText = "Error! Document empty!";
+        return;
     };
     var doc = JSON.parse(payloadScript.textContent);
-    var parts = await Promise.all(flatten(doc).map(e => digest(e, renderMarkdown)));
+
+    /* ---- raw JSON view ---- */
+    if (renderFormat === 'raw') {
+        document.getElementById('pydocmaker-body').innerHTML =
+            '<div>pyd raw JSON payload:</div>\n<div class="verbatim"><pre>' + esc(JSON.stringify(doc, null, 2)) + '</pre></div>';
+        return;
+    }
+
+    var parts = await digestAny(doc, renderFormat === 'render');
     document.getElementById('pydocmaker-body').innerHTML = parts.join('\n');
 
+
+    /* ---- recursive transformation: digest any node (object), list, or plain string ---- */
+    async function digestAny(el, withMd) {
+        if (Array.isArray(el)) {
+            var items = await Promise.all(el.map(e => digestAny(e, withMd)));
+            var out = [];
+            for (var i = 0; i < items.length; i++) {
+                for (var j = 0; j < items[i].length; j++) out.push(items[i][j]);
+            }
+            return out;
+        }
+        if (el && typeof el === 'object') {
+            return [await digest(el, withMd)];
+        }
+        if (typeof el === 'string' && el) {
+            return [await digest({typ: 'text', children: el}, withMd)];
+        }
+        return [];
+    }
+
+    /* digest a single table cell: object/list -> recursive digest, else escaped text */
+    async function digestCell(c, withMd) {
+        if (c && typeof c === 'object') {
+            var parts = await digestAny(c, withMd);
+            return parts.join('\n');
+        }
+        return esc(String(c));
+    }
 
     async function digest(el, withMd) {
         if (!el || !el.typ) return '';
@@ -213,8 +215,9 @@ async function renderMain(renderMarkdown) {
             return lb + '<div' + sty + '><pre><code' + cl + '>' + esc(ch) + '</code></pre></div>';
         }
         if (t === 'text' || t === 'line') {
-            var txt = typeof ch === 'string' ? ch : esc(String(ch));
-            return '<div' + sty + '>' + txt + '</div>';
+            if (typeof ch === 'string') return '<div' + sty + '>' + ch + '</div>';
+            var parts = await digestAny(ch, withMd);
+            return '<div' + sty + '>' + parts.join('\n') + '</div>';
         }
         if (t === 'image') {
             var src = el.imageblob || '';
@@ -234,25 +237,33 @@ async function renderMain(renderMarkdown) {
             var rows = [];
             if (hd.length) {
                 var hc = '';
-                for (var i=0;i<hd.length;i++) hc += '<th' + stb + '>' + esc(String(hd[i])) + '</th>';
+                for (var i=0;i<hd.length;i++) hc += '<th' + stb + '>' + await digestCell(hd[i], withMd) + '</th>';
                 rows.push(hc);
             }
             for (var r=0;r<mt.length;r++) {
                 var cc = '';
-                for (var c=0;c<mt[r].length;c++) cc += '<td' + stb + '>' + esc(String(mt[r][c])) + '</td>';
+                for (var c=0;c<mt[r].length;c++) cc += '<td' + stb + '>' + await digestCell(mt[r][c], withMd) + '</td>';
                 rows.push('  <tr>' + cc + '</tr>');
             }
             var tbl = '<table' + sty + '>' + rows.join('\n') + '</table>';
             if (cap) tbl += '<div style="text-align:center;font-size:0.9em;color:#666;"><b>Table:</b> ' + esc(cap) + '</div>';
             return tbl;
         }
+        if (t === 'iter') {
+            var parts = await digestAny(ch, withMd);
+            return parts.join('\n');
+        }
         if (t === 'meta') return '';
+        if (Array.isArray(ch)) {
+            var parts = await digestAny(ch, withMd);
+            return '<div' + sty + '>' + parts.join('\n') + '</div>';
+        }
         return '<div' + sty + ' class="verbatim"><pre>' + esc(String(ch)) + '</pre></div>';
     }
 
 }
     
-renderMain(false).then(() => {
+renderMain('plain').then(() => {
     console.info("pydocmaker DONE!");
 }).catch((e) => {
     console.error("pydocmaker ERROR!");

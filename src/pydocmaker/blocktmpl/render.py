@@ -11,6 +11,11 @@ try:
 except Exception as err:
     from .. import util
 
+try:
+    from pydocmaker.param_mapping import map_legacy_params
+except Exception as err:
+    from ..param_mapping import map_legacy_params
+
 from .markers import normalize_tformat, detect_format
 from .adapter_base import get_adapter
 from .parser import parse
@@ -121,9 +126,27 @@ def _append_op(doc, term, appends):
     return (insert_line, insert_line, block)
 
 
+def _declared_param_names(doc) -> set:
+    """The parameter names declared in the parsed document's parameters block."""
+    if doc.params_section is None:
+        return set()
+    return set(doc.params_section.params.keys())
+
+
+def _declared_param_defaults(doc) -> dict:
+    """The declared parameter default values (name -> parsed default value)."""
+    if doc.params_section is None:
+        return {}
+    return {n: p.value for n, p in doc.params_section.params.items()}
+
+
 def render(source, body, params=None, tformat=None, template_engine='auto', strict=True) -> str:
     """Render a block template source: replace the body block content with ``body``
     and apply parameter overrides.
+
+    Legacy parameter names (e.g. "title", "doc_no") are automatically mapped
+    onto the new "p"-prefixed names (e.g. "pDocTitle", "pDocNo") when the
+    template declares the new name; see :mod:`pydocmaker.param_mapping`.
 
     Args:
         source: document source string (with or without block markers; unmarked
@@ -148,6 +171,11 @@ def render(source, body, params=None, tformat=None, template_engine='auto', stri
         raise BodyReservedError(BODY_RESERVED_MSG)
 
     doc, adapter, lines, term = _prepare(source, tformat, params, strict)
+    # map legacy parameter names onto the new names the template declares;
+    # values that merely mirror the template's own (placeholder) defaults do
+    # not count as user-set and must not block the conversion
+    params = map_legacy_params(params, available_new_names=_declared_param_names(doc),
+                               drop_converted=True, defaults=_declared_param_defaults(doc))
     ops, appends = _param_ops(doc, adapter, lines, term, params, skip_equal=True)
     append_op = _append_op(doc, term, appends)
     if append_op is not None:
@@ -173,6 +201,10 @@ def update_params(source, params, tformat=None, strict=True) -> str:
     replaced when an explicit value for that name is supplied. A second run with
     the same arguments produces byte-identical output.
 
+    Legacy parameter names (e.g. "title", "doc_no") are automatically mapped
+    onto the new "p"-prefixed names (e.g. "pDocTitle", "pDocNo") when the
+    template declares the new name; see :mod:`pydocmaker.param_mapping`.
+
     Args:
         source: document source string.
         params: parameter values to write; ``None`` removes an existing assignment.
@@ -187,6 +219,11 @@ def update_params(source, params, tformat=None, strict=True) -> str:
         raise BodyReservedError(BODY_RESERVED_MSG)
 
     doc, adapter, lines, term = _prepare(source, tformat, params, strict)
+    # map legacy parameter names onto the new names the template declares;
+    # values that merely mirror the template's own (placeholder) defaults do
+    # not count as user-set and must not block the conversion
+    params = map_legacy_params(params, available_new_names=_declared_param_names(doc),
+                               drop_converted=True, defaults=_declared_param_defaults(doc))
     ops, appends = _param_ops(doc, adapter, lines, term, params, skip_equal=False)
     append_op = _append_op(doc, term, appends)
     if append_op is not None:
@@ -236,6 +273,9 @@ class BlockDocTemplate:
             if parsed.params_section is not None:
                 block_params = {k: p.value for k, p in parsed.params_section.params.items()}
         self.params = params if params is not None else block_params
+        # the parameter defaults declared in the template source (kept
+        # independent of the params argument, which may carry user parameters)
+        self.default_params = dict(block_params)
         self.attachments = attachments if attachments is not None else {}
         self.template_id = template_id
         self.env = None

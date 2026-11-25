@@ -6,7 +6,7 @@
 // pydocmaker:param:pDate
 #let pDate = ""
 // pydocmaker:param:pAcronyms
-#let pAcronyms = (SNR: "Signal-to-Noise Ratio", FFT: "Fast Fourier Transform")
+#let pAcronyms = (:) // e.G: (SNR: "Signal-to-Noise Ratio", FFT: "Fast Fourier Transform")
 // pydocmaker:param:pApplicables
 #let pApplicables = (:)
 // pydocmaker:param:pReferences

@@ -83,7 +83,7 @@ def pandoc_convert(input_string, input_format, output_format, is_binary=False, i
     
     if is_code:
         uses_new_flag = PANDOC_VERSION >= 3.8
-        args += ("-s", "--syntax-highlighting=idiomatic") if uses_new_flag else ("--listings",)
+        args += ("-s", "--syntax-highlighting=none") if uses_new_flag else ("--no-highlight",)
     
     args = tuple(set(args))
     argss = [shlex.quote(arg) for arg in args]
