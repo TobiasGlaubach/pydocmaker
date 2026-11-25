@@ -185,6 +185,77 @@ print(pyd.options.pdf_engine_get())
 ```
 
 
+### Command Line Interface (CLI)
+
+`pydocmaker` also ships with a command-line interface that covers the most common workflows
+without writing any Python code. It is registered as the ``pydocmaker`` console script and can
+also be run as a module::
+
+    pydocmaker <command> [arguments]
+    python -m pydocmaker.cli <command> [arguments]
+
+**Commands:**
+
+| Command        | Description                                         |
+|----------------|-----------------------------------------------------|
+| `example`      | Write the built-in example document                 |
+| `show`         | Display a document on the terminal                  |
+| `build`/`convert` | Convert document(s) into another format (default: PDF) |
+| `check`        | Validate the syntax of a document or template       |
+| `extract`      | Print a template's parameters as JSON               |
+| `template`     | Copy a registered document template                 |
+
+**Output formats:** `pdf`, `md`/`markdown`, `html`, `typ`/`typst`, `tex`/`latex`, `json`,
+`docx`/`word`, `ipynb`, `textile`, `pydoc`/`pyd`.
+
+**Quick examples:**
+
+```bash
+# Generate the example document as PDF
+pydocmaker example pdf -o example.pdf
+
+# Convert markdown to PDF (output: README.pdf)
+pydocmaker build README.md
+
+# Convert markdown to HTML with a custom template
+pydocmaker build README.md -f html -t base.tex --pTitle "My Report"
+
+# Show a saved document in the terminal
+pydocmaker show rich doc.json
+pydocmaker show html doc.json
+
+# Validate a block template and see its parameters
+pydocmaker check base.tex
+pydocmaker extract base.typ
+
+# Copy a template for editing
+pydocmaker template base.tex -o my_custom_template.tex
+```
+
+**Template parameters** can be supplied via ``-p/--parameters`` (a JSON string or file path),
+or as unknown ``--name value`` arguments that `pydocmaker` collects automatically::
+
+```bash
+# Using --name value arguments
+pydocmaker example pdf -t base --pAuthor "Jane Doe" --pTitle "My Report"
+
+# Using a JSON file
+pydocmaker build doc.md -p params.json
+
+# Using a JSON string
+pydocmaker build doc.md -p '{"pTitle": "From JSON"}'
+```
+
+**Attachments** for templates (images, logos, bibliography files) can be given explicitly
+with ``-a/--assets``::
+
+```bash
+pydocmaker build README.md -t report.tex -a ./assets -a logo.png
+```
+
+For the full CLI reference see the documentation: [CLI Reference](https://pydocmaker.readthedocs.io/en/latest/cli_reference.html).
+
+
 ### Block Templates (comment-delimited, standalone-compilable)
 
 Besides the classic Jinja2 templates (`.j2` files), pydocmaker supports **block templates**: plain
@@ -193,7 +264,7 @@ valid and compilable standalone (the native compilers ignore the parameter const
 body placeholder) while pydocmaker can render, scaffold and update them without ever modifying the
 file on disk during render.
 
-````latex
+```latex
 % pydocmaker:parameters:begin
 % pydocmaker:param:title
 \providecommand{\title}{My Report}
@@ -210,9 +281,9 @@ file on disk during render.
 placeholder text
 % pydocmaker:body:end
 \end{document}
-````
+```
 
-````typst
+```typst
 // pydocmaker:parameters:begin
 // pydocmaker:param:title
 #let title = "My Report"
@@ -223,9 +294,9 @@ placeholder text
 // pydocmaker:body:begin
 placeholder text
 // pydocmaker:body:end
-````
+```
 
-````html
+```html
 <!-- pydocmaker:parameters:begin -->
 <!-- pydocmaker:param:title -->
 <meta name="pydocmaker:param:title" content="My Report">
@@ -235,7 +306,7 @@ placeholder text
 placeholder text
 <!-- pydocmaker:body:end -->
 </body>
-````
+```
 
 Engine selection is automatic (markers in the template source select the block engine) and can be
 forced with the `template_engine` argument (`'auto'` (default), `'jinja2'` or `'blocks'`) on

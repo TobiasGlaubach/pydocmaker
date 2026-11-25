@@ -6,6 +6,7 @@ Examples
    :maxdepth: 4
    :glob:
 
+   cli_reference
    s01_getting_started
    s02_word_examples
    s03_template_examples

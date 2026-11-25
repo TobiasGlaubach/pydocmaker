@@ -52,9 +52,7 @@ template_params = {
 path = (Path(__file__).parent / "README.md").absolute().resolve()
 readme = path.read_text()
 doc = pyd.Doc().add_md(readme)
-doc.set_template_to_meta('base.typ', template_params=template_params)
-
-doc.to_tex(path.with_suffix(".tex"))
+doc.set_template_to_meta('report.typ', template_params=template_params)
 
 doc.to_pdf(path.with_suffix(".pdf"))
 print(path.as_uri())
