@@ -475,6 +475,9 @@ class LatexElementFormatter(BaseFormatter):
 
         if imageblob:
             if isinstance(imageblob, str):
+                if not file_name.lower().endswith("png") and "image/png" in imageblob[:100]:
+                    file_name = str(Path(file_name).with_suffix(".png"))
+
                 if ';base64, ' in imageblob:
                     imageblob = imageblob.replace(';base64, ', ';base64,')
 
