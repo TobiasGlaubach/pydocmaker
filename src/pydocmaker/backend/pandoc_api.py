@@ -1,4 +1,3 @@
-import base64
 import os
 import random
 import re
@@ -12,9 +11,6 @@ import subprocess
 import os
 import subprocess
 import uuid
-import zipfile
-import tempfile
-import io
 
 from pathlib import Path
 
@@ -27,6 +23,31 @@ allow_pandoc = True
 
 _is_pandoc_installed = None
 PANDOC_VERSION = 0.0
+
+RENDER_MARKDOWN_VIA_PANDOC = True
+
+def config_use_pandoc_for_md_render_set(shall_use_pandoc=True) -> str:
+    """
+    Sets whether or not pandoc shall be used to convert markdown elements
+
+    Parameters:
+    choice (bool): True to use "pandoc" else the backend shall use its own toolchain for conversion.
+
+    Returns:
+    bool: whether or not allowed to use pandoc
+
+    """
+    
+    global RENDER_MARKDOWN_VIA_PANDOC
+    RENDER_MARKDOWN_VIA_PANDOC = shall_use_pandoc
+    return RENDER_MARKDOWN_VIA_PANDOC
+
+
+def config_use_pandoc_for_md_render_get() -> str:
+    """returns whether or not allowed to use pandoc
+    """
+    return RENDER_MARKDOWN_VIA_PANDOC
+
 
 def test_is_pandoc_installed():
     global PANDOC_VERSION
@@ -115,12 +136,12 @@ def pandoc_convert(input_string, input_format, output_format, is_binary=False, i
         return output
 
 def pandoc_convert_batch(
-    blocks: list[str],
+    blocks: List[str],
     input_format: str = "markdown",
     output_format: str = "typst",
     *args,
     is_code=False
-) -> list[str]:
+) -> List[str]:
     """
     Convert multiple text blocks in a single pandoc invocation.
 
