@@ -81,7 +81,7 @@ def config_typst_md_mode_set(choice: str = 'pandoc') -> str:
         raise ValueError(f'The desired mode to convert must be one of {options=} but was {choice=}')
     
     global RENDER_MARKDOWN_VIA_PANDOC
-    RENDER_MARKDOWN_VIA_PANDOC = choice
+    RENDER_MARKDOWN_VIA_PANDOC = str(choice).lower() == "pandoc"
     return RENDER_MARKDOWN_VIA_PANDOC
 
 
