@@ -23,31 +23,36 @@ titlepage_info_dict = {
 
 version = 'v' + pyd.__version__
 titlepage_info_dict = {'Version': version, **titlepage_info_dict}
-docname = f'#link("https://pypi.org/project/pydocmaker/")[pydocmaker] {version} documentation'
+# docname = f'#link("https://pypi.org/project/pydocmaker/")[pydocmaker] {version} documentation'
+docname = f"https://pypi.org/project/pydocmaker/ {version} documentation"
+
 date = datetime.datetime.now().strftime("%Y-%m-%d")
 template_params = {
-    "title": "Pydocmaker Documentation",
-    "subtitle": "Automatically created via pydocmaker from README.md",
-    "author": "Tobias Glaubach",
-    "hide_toc": False,  
+    "pTitle": "Pydocmaker Documentation",
+    "pSubtitle": "Automatically created via pydocmaker from README.md",
+    "pAuthor": "Tobias Glaubach",
+    "pHideToc": False,
 
-    "doc_category": "Report",
-    "hide_date": False,
-    "titlepage_info_dict": titlepage_info_dict,
+    "pDocCategory": "Report",
+    "pHideDate": False,
+    "pTitlepageInfoDict": titlepage_info_dict,
 
-    "hide_pydocmaker": False,
-    "abstract": pkg_meta["Summary"],
+    "pHidePydocmaker": False,
+    "pAbstract": pkg_meta["Summary"],
 
-    "header_str_left": docname,
-    "header_str_right": date,
+    "pHeaderStrLeft": docname,
+    "pHeaderStrRight": date,
 
-    "version": version,
+    "pVersion": version,
+
+    "pAcronyms": {},
+    "pApplicables": {},
+    "pReferences": {},
 }
-
-readme = (Path(__file__).parent / "README.md").read_text()
+path = (Path(__file__).parent / "README.md").absolute().resolve()
+readme = path.read_text()
 doc = pyd.Doc().add_md(readme)
-doc.set_template_to_meta('report', tformat='typ', template_params=template_params)
+doc.set_template_to_meta('report.typ', template_params=template_params)
 
-path = Path('README.pdf').absolute().resolve()
-res = doc.to_pdf(path)
+doc.to_pdf(path.with_suffix(".pdf"))
 print(path.as_uri())

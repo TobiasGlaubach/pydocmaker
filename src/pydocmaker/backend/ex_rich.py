@@ -30,18 +30,46 @@ try:
     from pydocmaker.util import _raise_missing
 except Exception as err:
     from ..util import _raise_missing
-    
-try:
-    from rich import box
-    from rich.console import Console, Group
-    from rich.text import Text
-    from rich.panel import Panel
-    from rich.markdown import Markdown
-    from rich.table import Table
-    from rich.align import Align
 
-except ImportError:
-    Console = None
+Console = None
+Box = None
+Group = None
+Text = None
+Panel = None
+Markdown = None
+Table = None
+Align = None
+
+def _lazy_import():
+    global Console, Box, Group, Text, Panel, Markdown, Table, Align
+    if Console is None:
+        try:
+            from rich import box as _box
+            from rich.console import Console as _console, Group as _group
+            from rich.text import Text as _text
+            from rich.panel import Panel as _panel
+            from rich.markdown import Markdown as _markdown
+            from rich.table import Table as _table
+            from rich.align import Align as _align
+
+            Console = _console
+            Box = _box
+            Group = _group
+            Text = _text
+            Panel = _panel
+            Markdown = _markdown
+            Table = _table
+            Align = _align
+
+        except ImportError:
+            Console = None
+            Box = None
+            Group = None
+            Text = None
+            Panel = None
+            Markdown = None
+            Table = None
+            Align = None
 
 
 
@@ -72,6 +100,8 @@ CONSOLE_WIDTH_MAX = 200
 
 
 def convert(doc:List[dict], stream=None, title:str=None, embed_images=True, **kwargs):
+    _lazy_import()
+    
     if Console is None:
         raise ImportError('rich library is not installed. Please install it to use the rich backend.')
         
@@ -106,6 +136,9 @@ def convert(doc:List[dict], stream=None, title:str=None, embed_images=True, **kw
 class rich_renderer(BaseFormatter):
 
     def __init__(self, stream=None, embed_images=True, theme=None):
+
+        _lazy_import()
+
         self.cnt_img = 0
         self.cnt_table = 0
 

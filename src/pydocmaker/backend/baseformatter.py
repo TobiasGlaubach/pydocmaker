@@ -1,11 +1,5 @@
 import abc
 import traceback
-import os
-from typing import Tuple
-
-from jinja2 import Template
-
-
 
 
 class BaseFormatter(abc.ABC):
@@ -144,7 +138,7 @@ class BaseFormatter(abc.ABC):
         n_cols = kwargs.get('n_cols', None)
         if n_cols is None:
             n_cols = max(len(header), max([len(row) for row in data]))
-        
+
         head = [fun(el) for el in header]
         if len(head) < n_cols:
             head += ['']*(n_cols-len(head))

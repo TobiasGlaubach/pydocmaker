@@ -1,21 +1,6 @@
-from collections import namedtuple
 import copy
-import io
-import json
-import random
-import textwrap
-import time
-import traceback
-import urllib
-import re
-import uuid
-import os
-import base64
 import warnings
-import markdown
 from typing import List
-
-from jinja2 import Template
 
 
 try:
@@ -29,14 +14,39 @@ except Exception as err:
     from ..templating import handle_template
 
 try:
+    from pydocmaker.templating import BlockDocTemplate
+except Exception as err:
+    from ..templating import BlockDocTemplate
+
+try:
     from pydocmaker import util
 except Exception as err:
     from . import util
-    
+
 try:
-    from pydocmaker.backend.pandoc_api import can_run_pandoc, pandoc_convert
+    from pydocmaker.param_mapping import map_legacy_params
 except Exception as err:
-    from .pandoc_api import can_run_pandoc, pandoc_convert
+    from ..param_mapping import map_legacy_params
+
+try:
+    from pydocmaker.backend.pandoc_api import can_run_pandoc, pandoc_convert, config_use_pandoc_for_md_render_get
+except Exception as err:
+    from .pandoc_api import can_run_pandoc, pandoc_convert, config_use_pandoc_for_md_render_get
+
+try:
+    from pydocmaker.backend.pandoc_batch import PandocBatchMixin
+except Exception as err:
+    from .pandoc_batch import PandocBatchMixin
+
+markdown = None
+urllib = None
+def _lazy_import():
+    global markdown, urllib
+    if markdown is None:
+        import urllib as _urllib
+        import markdown as _markdown
+        markdown = _markdown
+        _urllib = _urllib
 
 
 __default_template = """<!DOCTYPE html>
@@ -106,13 +116,15 @@ __default_template = """<!DOCTYPE html>
 # DEFAULT_IMAGE_BLOB = ''
 
 def mk_link(id_, label=None, pth='show', p0='uib', v='v1', **kwargs):
+    _lazy_import()
     return f'<a href="/{p0}/{v}/{pth}/{urllib.parse.quote_plus(id_)}" target="_self">{label if label else id_}</a>'
 
 def mk_tpl(id_, label=None, pth='show', p0='uib', v='v1', **kwargs):
+    _lazy_import()
     return f"/{p0}/{v}/{pth}/{urllib.parse.quote_plus(id_)}", label if label else id_
 
 
-def convert(doc:List[dict], template = None, template_params=None, **kwargs):
+def convert(doc:List[dict], template = None, template_params=None, template_engine='auto', **kwargs):
 
     if not template_params:
         template_params = {}
@@ -125,13 +137,26 @@ def convert(doc:List[dict], template = None, template_params=None, **kwargs):
     tmp = list(doc.values()) if isinstance(doc, dict) else doc
     body = html_renderer().format(tmp)
 
-    template_obj, attachments, template_str = handle_template(template, __default_template, tformat='html')
+    template_obj, attachments, template_str = handle_template(template, __default_template, tformat='html', template_engine=template_engine)
     
     kw = copy.deepcopy(template_params)
 
     assert not ('body' in kw), f'the "body" keyword is an invalid keyword for templates as it is reserved for the document body.'
     kw['body'] = body
     
+    if 'applicables' in kw and isinstance(kw['applicables'], str):
+        kw['applicables'] = {}
+    if 'references' in kw and isinstance(kw['references'], str):
+        kw['references'] = {}
+    if 'acronyms' in kw and isinstance(kw['acronyms'], str):
+        kw['acronyms'] = {}
+
+    # map legacy parameter names (e.g. "title") onto the new names (e.g.
+    # "pDocTitle") for plain jinja2 templates; the block engine does its own
+    # template-aware mapping while rendering
+    if not isinstance(template_obj, BlockDocTemplate):
+        kw = map_legacy_params(kw)
+
     if 'applicables' in kw:
         kw['applicables'] = {i:v for i, v in enumerate(kw['applicables'].values(), 1)} 
     if 'references' in kw:
@@ -159,13 +184,17 @@ def convert(doc:List[dict], template = None, template_params=None, **kwargs):
 """
 ###########################################################################################
 
-class html_renderer(BaseFormatter):
+class html_renderer(PandocBatchMixin, BaseFormatter):
+
+    # kind (pandoc input format) -> (output format, is_code)
+    _pandoc_batch_specs = {'markdown': ('html', False), 'latex': ('html', False)}
 
     def __init__(self):
         self.cnt_img = 0
         self.cnt_table = 0
 
         super().__init__()
+        self._pandoc_batch_init()
 
     def digest_text(self, **kwargs):
         label = kwargs.get('label', '')
@@ -185,18 +214,17 @@ class html_renderer(BaseFormatter):
     
     def digest_latex(self, **kwargs):
         if can_run_pandoc():
-            return pandoc_convert(kwargs.get('children', ''), 'latex', 'html')
-        else:
-            s = 'native backend can not convert latex to html and no pandoc is available. Falling back to show as verbatim'
-            warnings.warn(s)
-            return '<br>' + self.digest_text(children='Warning! ' + s, color='purple') + self.digest_verbatim(**kwargs)    
+            return self._pandoc_register('latex', dict(kwargs), children=kwargs.get('children', ''))
+        s = 'native backend can not convert latex to html and no pandoc is available. Falling back to show as verbatim'
+        warnings.warn(s)
+        return '<br>' + self.digest_text(children='Warning! ' + s, color='purple') + self.digest_verbatim(**kwargs)
 
-    
+
     def digest_markdown(self, **kwargs):
         label = kwargs.get('label', '')
         content = kwargs.get('content', kwargs.get('children'))
         color = kwargs.get('color', '')
-        use_pandoc = kwargs.get('use_pandoc', 0)
+        use_pandoc = kwargs.get('use_pandoc', config_use_pandoc_for_md_render_get())
 
         if color:
             color = f'color:{color};'
@@ -209,13 +237,49 @@ class html_renderer(BaseFormatter):
             ]
 
         if use_pandoc and can_run_pandoc():
-            s = pandoc_convert(content, 'markdown', 'html')
-        else:
-            s = markdown.markdown(content)
+            return self._pandoc_register('markdown', dict(kwargs), children=content)
+
+        _lazy_import()
+        s = markdown.markdown(content)
 
         fun = lambda x:  f'<div style="{color}">{x}</div>' if color else f'<div>{x}</div>'
         parts += [fun(s)]
         return '\n\n'.join(parts)
+
+
+    def _pandoc_finalize(self, kind, el, converted=None, err=None) -> str:
+        if converted is None:
+            return self.handle_error(err, el)
+
+        # the batch split token is rendered as a standalone <p>...</p>
+        # paragraph in the html output, so every split part carries a leftover
+        # '</p>' prefix and/or '<p>' suffix; strip them to match the per-block
+        # conversion output (single block batches and direct pandoc_convert
+        # calls are unaffected since their output is balanced html)
+        converted = converted.strip()
+        if converted.startswith('</p>'):
+            converted = converted[4:].lstrip()
+        if converted.endswith('<p>'):
+            converted = converted[:-3].rstrip()
+
+        if kind == 'markdown':
+            label = el.get('label', '')
+            color = el.get('color', '')
+            if color:
+                color = f'color:{color};'
+
+            parts = []
+            if label:
+                parts += [
+                    f'<div style="min-width:100;{color}">{label}</div>',
+                    '<hr/>'
+                ]
+
+            fun = lambda x:  f'<div style="{color}">{x}</div>' if color else f'<div>{x}</div>'
+            parts += [fun(converted)]
+            return '\n\n'.join(parts)
+
+        return converted
     
 
     def digest_verbatim(self, **kwargs):

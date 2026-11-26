@@ -177,3 +177,8 @@ temp.*
 doc.pdf
 
 req_*
+
+*exported_docs*
+prompts.md
+profile*.svg
+.gitignore

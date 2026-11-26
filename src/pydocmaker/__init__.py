@@ -1,4 +1,4 @@
-__version__ = '2.7.0'
+__version__ = '2.8.0'
 
 
 from pydocmaker.core import Doc, construct, constr, buildingblocks, print_to_pdf, make_pdf_from_tex, show_pdf, is_notebook, load_file_b64
@@ -22,6 +22,14 @@ from pydocmaker.templating import (DocTemplate, TemplateDirSource, register_new_
                                    test_template_exists, remove_from_template_dir, 
                                    get_template_params, resolve_template_id)
 
+from pydocmaker import blocktmpl
+from pydocmaker.blocktmpl import (BlockDocTemplate as BlockTemplate,
+                                  parse as parse_block_template,
+                                  scaffold as scaffold_block_template,
+                                  update_params as update_block_params,
+                                  render as render_block_template,
+                                  detect as detect_block_template)
+
 
 try:
     from latex import escape as tex_escape
@@ -30,7 +38,11 @@ except ImportError:
 
 
 from pydocmaker.backend.libreoffice_api import config_libreoffice_path_get, config_libreoffice_path_set, config_libreoffice_path_find, config_libreoffice_path_testset
-from pydocmaker.core import config_pdf_engine_get, config_pdf_engine_set, config_pdf_engine_scan, config_pdf_engine_test, config_renderer_default_get, config_renderer_default_set, test_typst_installed, compile_with_typst
+from pydocmaker.core import (config_pdf_engine_get, config_pdf_engine_set, config_pdf_engine_scan, config_pdf_engine_test, 
+                             config_renderer_default_get, config_renderer_default_set, 
+                             config_use_pandoc_for_md_render_get, config_use_pandoc_for_md_render_set, 
+                             test_typst_installed, compile_with_typst)
+
 from pydocmaker.backend.pdf_maker_tex import config_latex_compiler_scan, config_latex_compiler_get, config_latex_compiler_set, config_latex_compiler_testset
 
 from pydocmaker.io.ipynb_loader import load_notebook

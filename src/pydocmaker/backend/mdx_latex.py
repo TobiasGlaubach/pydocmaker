@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 import http.client
 import os
 import tempfile
-import urllib.request, urllib.parse, urllib.error
+import urllib.request
 
 
 start_single_quote_re = re.compile("(^|\s|\")'")

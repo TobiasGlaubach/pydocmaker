@@ -10,8 +10,13 @@ if __name__ == '__main__':
 
 import pydocmaker as pyd
 
+#: CI runners must not rely on a latex compiler or libreoffice being installed
+IN_CI = bool(os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'))
+
+_NOT_IN_CI = "Skipping since test requires optional dependencies and CI must not rely on a latex compiler or libreoffice"
+
 class TestMakePdfs(unittest.TestCase):
-    @unittest.skipUnless(os.name == 'nt' or os.environ.get('PYDOCMAKER_TESTFULL'), "Skipping since test requires optional dependencies")
+    @unittest.skipUnless((os.name == 'nt' or os.environ.get('PYDOCMAKER_TESTFULL')) and not IN_CI, _NOT_IN_CI)
     def test_pdf_pandoc(self):
         templatepath = None
         metadata = None
@@ -21,7 +26,7 @@ class TestMakePdfs(unittest.TestCase):
         self.assertIsInstance(bts, bytes)
         self.assertTrue(bts.startswith(b'%PDF'), str(bts)[:20])
 
-    @unittest.skipUnless(os.name == 'nt' or os.environ.get('PYDOCMAKER_TESTFULL'), "Skipping since test requires optional dependencies")
+    @unittest.skipUnless((os.name == 'nt' or os.environ.get('PYDOCMAKER_TESTFULL')) and not IN_CI, _NOT_IN_CI)
     def test_pdf_libreoffice(self):
         templatepath = None
         metadata = None

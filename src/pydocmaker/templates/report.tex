@@ -1,0 +1,373 @@
+% pydocmaker report template (LaTeX)
+%
+% the LaTeX counterpart of "report.typ": a more comprehensive report template
+% with a title page, table of contents, list of figures / tables, acronyms,
+% applicable and reference documents and configurable headers / footers
+% (front matter in roman page numbers, body in arabic page numbers).
+%
+% copied and modified from https://github.com/roland-KA/basic-report-typst-template/tree/main
+% (via report.typ) THANKS!
+%
+% NOTE: pydocmaker parameter names double as LaTeX macro names here, so they
+% must be letters only (no digits). The logo parameter of report.typ
+% ("pLogoB64", a base64 string) is therefore "pLogoFile" in this template:
+% pass an image FILE NAME (e.g. "logo.png") and provide the file as an
+% attachment. pydocmaker rewrites file-path parameter values to their bare
+% basename and attaches the file automatically, e.g.:
+%
+%     pydocmaker build my_report.md -t report.tex --pLogoFile my_logo.png
+%
+% When no logo file is given, the pydocmaker logo is shown instead (unless
+% pHidePydocmaker is set), provided a "pydocmaker_logo.png" attachment is
+% available for the build (e.g. via "report.assets/pydocmaker_logo.png" in a
+% registered template directory or "-a pydocmaker_logo.png"). Missing logo
+% files are skipped gracefully.
+
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[a4paper, top=2.5cm, left=2.0cm, right=2.5cm, bottom=2.0cm, headheight=15pt]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{fancyhdr}
+\usepackage{lastpage}
+\usepackage{listings}
+\usepackage{etoolbox}
+\usepackage{caption}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{hyperref}
+\usepackage{xltabular}
+\usepackage{array}
+\usepackage{calc}
+
+% justified text without first line indent and with paragraph spacing
+% (report.typ: par(justify: true, first-line-indent: 0em, spacing: 1.65em))
+\usepackage[skip=1.65em]{parskip}
+
+\lstset{
+  frame=single,
+  rulecolor=\color{black},
+  breaklines=true,
+  breakatwhitespace=false,
+  postbreak=\mbox{\textcolor{gray}{$\hookrightarrow$}\space},
+  basicstyle=\ttfamily\small,
+  columns=fullflexible,
+  keywordstyle=\color{Blue}\bfseries,
+  stringstyle=\color{ForestGreen},
+  commentstyle=\color{Gray}\itshape,
+  % listings cannot handle utf8 chars in code on its own; map the common ones
+  literate={→}{{$\rightarrow$}}1 {←}{{$\leftarrow$}}1 {↔}{{$\leftrightarrow$}}1
+}
+
+% pandoc emits these for tight lists and inline code
+\providecommand{\tightlist}{\setlength{\itemsep}{0pt}}
+\providecommand{\passthrough}[1]{#1}
+
+% table text a bit smaller (report.typ: table cells 0.7em)
+\AtBeginEnvironment{tabular}{\small}
+\AtBeginEnvironment{longtable}{\small}
+
+% caption text a bit smaller (report.typ: label-size 9pt)
+\captionsetup{font=footnotesize}
+
+% links in blue like report.typ
+\hypersetup{colorlinks=true, urlcolor=blue, linkcolor=blue, citecolor=blue, filecolor=blue}
+
+% section numbering with a trailing dot like report.typ ("1.", "1.1.", ...);
+% like report.typ's heading numbering a missing parent level is not shown as 0
+\renewcommand{\thesection}{\arabic{section}.}
+\renewcommand{\thesubsection}{\ifnum\value{section}>0 \arabic{section}.\fi\arabic{subsection}.}
+\renewcommand{\thesubsubsection}{\ifnum\value{section}>0 \arabic{section}.\fi\ifnum\value{subsection}>0 \arabic{subsection}.\fi\arabic{subsubsection}.}
+
+% ISO date (report.typ datetime-fmt "[year]-[month]-[day]")
+\renewcommand{\today}{\the\year-\ifnum\month<10 0\fi\the\month-\ifnum\day<10 0\fi\the\day}
+
+\makeatletter
+
+% ===== helper macros ====================
+
+% \pdmifempty{\macro}{<if empty/undefined>}{<if not empty>}
+\newcommand{\pdmifempty}[3]{%
+  \if\relax\detokenize\expandafter{#1}\relax
+    \expandafter\@firstoftwo
+  \else
+    \expandafter\@secondoftwo
+  \fi
+  {#2}{#3}%
+}
+
+% \pdmifflag{\macro}{<if true>}{<if false>}
+% a flag parameter is "on" when its macro content is "true" or "1"
+\newcommand{\pdmifflag}[3]{%
+  \ifdefined#1%
+    \edef\pdm@flagval{\detokenize\expandafter{#1}}%
+  \else
+    \edef\pdm@flagval{}%
+  \fi
+  \edef\pdm@onetest{\detokenize{1}}%
+  \ifx\pdm@flagval\pdm@onetest
+    \edef\pdm@flagval{\detokenize{true}}%
+  \fi
+  \edef\pdm@truetest{\detokenize{true}}%
+  \ifx\pdm@flagval\pdm@truetest
+    \expandafter\@firstoftwo
+  \else
+    \expandafter\@secondoftwo
+  \fi
+  {#2}{#3}%
+}
+
+% render a pydocmaker key-value macro (a description environment whose items
+% look like "\item{key}{value}") with bold labels.
+% \pdmkvbegin{prefix} <macro> \pdmkvend
+% - empty prefix: the keys are the (bold) labels (used for the acronyms)
+% - prefix given (e.g. "AD" or "RD"): items are numbered prefix1, prefix2, ...
+\newcounter{pdm@kv}
+\newcommand{\pdmkvbegin}[1]{%
+  \begingroup
+    \def\pdm@prefix{#1}%
+    \setcounter{pdm@kv}{0}%
+    \let\pdm@origitem\item
+    \def\item##1{%
+      \if\relax\detokenize\expandafter{\pdm@prefix}\relax
+        \pdm@origitem[\textbf{##1}]%
+      \else
+        \stepcounter{pdm@kv}%
+        \pdm@origitem[\textbf{\pdm@prefix\arabic{pdm@kv}}]%
+      \fi
+      \ignorespaces
+    }%
+}
+\newcommand{\pdmkvend}{\par\endgroup}
+
+% the pydocmaker logo (looked up by name; the macro indirection keeps
+% template file-reference scanning from picking the name up)
+\newcommand{\pdmpydlogo}{pydocmaker_logo.png}
+
+% the fixed rows of the title page info block (Author / Date)
+\newcommand{\pdm@inforows}{%
+  \pdmifempty{\pAuthor}{}{Author: & \pAuthor \\}%
+  \pdmifempty{\pDate}{%
+    \pdmifflag{\pHideDate}{}{Date: & \today \\}%
+  }{%
+    Date: & \pDate \\%
+  }%
+}
+
+% the title page info block: the fixed rows plus the pTitlepageInfoDict
+% entries, rendered as one aligned two column table
+\newcommand{\pdmtitleinfo}{%
+  \begingroup
+    \renewenvironment{description}{%
+      \begin{tabular}{r@{\hspace{2.5em}}l}%
+      \pdm@inforows
+    }{%
+      \end{tabular}%
+    }%
+    \renewcommand{\item}[2]{##1 & ##2 \\}%
+    \pdmifempty{\pTitlepageInfoDict}{%
+      \begin{tabular}{r@{\hspace{2.5em}}l}\pdm@inforows\end{tabular}%
+    }{%
+      \pTitlepageInfoDict
+    }%
+  \endgroup
+}
+
+% localize the table of contents title (report.typ translates the outline
+% title per language; scripts that pdflatex cannot render fall back to English)
+\newcommand{\pdmapplylang}{%
+  \edef\pdm@lang{\detokenize\expandafter{\pLanguage}}%
+  \edef\pdm@x{\detokenize{de}}\ifx\pdm@lang\pdm@x \renewcommand{\contentsname}{Inhalt}\fi
+  \edef\pdm@x{\detokenize{fr}}\ifx\pdm@lang\pdm@x \renewcommand{\contentsname}{Table des mati\`eres}\fi
+  \edef\pdm@x{\detokenize{es}}\ifx\pdm@lang\pdm@x \renewcommand{\contentsname}{Contenido}\fi
+  \edef\pdm@x{\detokenize{it}}\ifx\pdm@lang\pdm@x \renewcommand{\contentsname}{Indice}\fi
+  \edef\pdm@x{\detokenize{nl}}\ifx\pdm@lang\pdm@x \renewcommand{\contentsname}{Inhoud}\fi
+  \edef\pdm@x{\detokenize{pt}}\ifx\pdm@lang\pdm@x \renewcommand{\contentsname}{\'Indice}\fi
+}
+
+% the page footer center ("Page i" in the front matter,
+% "Page N of M" in the body)
+\newcommand{\pdmpagecenter}{Page \thepage}
+
+\makeatother
+
+% pydocmaker:parameters:begin
+% NOTE: parameter names use a leading "p" (pTitle, pAuthor, ...) so the derived
+% LaTeX macros (\pTitle, ...) never collide with LaTeX kernel macros, and they
+% must stay letters-only (digits are not allowed in LaTeX macro names).
+% pydocmaker:param:pTitle
+\providecommand{\pTitle}{}
+% pydocmaker:param:pSubtitle
+\providecommand{\pSubtitle}{}
+% pydocmaker:param:pAbstract
+\providecommand{\pAbstract}{}
+% pydocmaker:param:pAuthor
+\providecommand{\pAuthor}{}
+% pydocmaker:param:pDate
+\providecommand{\pDate}{}
+% pydocmaker:param:pVersion
+\providecommand{\pVersion}{N/A}
+% pydocmaker:param:pDocCategory
+\providecommand{\pDocCategory}{}
+% pydocmaker:param:pLanguage
+\providecommand{\pLanguage}{en}
+% pydocmaker:param:pAcronyms
+\providecommand{\pAcronyms}{}
+% pydocmaker:param:pApplicables
+\providecommand{\pApplicables}{}
+% pydocmaker:param:pReferences
+\providecommand{\pReferences}{}
+% pydocmaker:param:pTitlepageInfoDict
+\providecommand{\pTitlepageInfoDict}{}
+% pydocmaker:param:pHeaderStrLeft
+\providecommand{\pHeaderStrLeft}{}
+% pydocmaker:param:pHeaderStrRight
+\providecommand{\pHeaderStrRight}{}
+% pydocmaker:param:pFooterStrLeft
+\providecommand{\pFooterStrLeft}{}
+% pydocmaker:param:pFooterStrRight
+\providecommand{\pFooterStrRight}{}
+% pydocmaker:param:pHideToc
+\providecommand{\pHideToc}{false}
+% pydocmaker:param:pHideDate
+\providecommand{\pHideDate}{false}
+% pydocmaker:param:pHidePydocmaker
+\providecommand{\pHidePydocmaker}{false}
+% pydocmaker:param:pLogoFile
+\providecommand{\pLogoFile}{}
+% pydocmaker:parameters:end
+
+\begin{document}
+
+% ============================
+% TITLE PAGE
+% ============================
+
+\pdmifempty{\pTitle}{}{%
+
+\begin{titlepage}
+
+% ----- Logo (top right) ------------------------
+% the user logo when given, otherwise the pydocmaker logo (unless hidden);
+% logos that do not resolve to an existing file are skipped gracefully
+\pdmifempty{\pLogoFile}{%
+  \pdmifflag{\pHidePydocmaker}{}{\IfFileExists{\pdmpydlogo}{\noindent\hfill\includegraphics[width=2cm]{\pdmpydlogo}\par}{}}%
+}{%
+  \IfFileExists{\pLogoFile}{\noindent\hfill\includegraphics[width=2cm]{\pLogoFile}\par}{}%
+}
+
+\vspace*{4cm}
+
+% ----- Doc Category & Title ------------------------
+\pdmifempty{\pDocCategory}{}{%
+  {\color{black!50}\fontsize{14pt}{17pt}\selectfont\pDocCategory\par}%
+  \vspace{0.3cm}%
+}
+
+{\fontsize{36pt}{43pt}\selectfont\pTitle\par}
+
+\pdmifempty{\pSubtitle}{%
+}{%
+  \vspace{0.3cm}%
+  {\color{black!50}\fontsize{18pt}{22pt}\selectfont\pSubtitle\par}%
+}
+
+\pdmifempty{\pAbstract}{%
+}{%
+  \vspace*{3cm}%
+  \noindent\textbf{Abstract: }{\fontsize{9pt}{11pt}\selectfont\pAbstract\par}%
+}
+
+% ----- Info Block (bottom left) ------------------------
+\vfill
+\pdmtitleinfo
+\pdmifflag{\pHidePydocmaker}{%
+}{%
+  \par\vspace*{2em}%
+  \noindent This document was generated with \href{https://pypi.org/project/pydocmaker/}{pydocmaker}.\par
+}
+
+\end{titlepage}
+
+} % end title page
+
+% ============================
+% LAYOUT SETUP
+% ============================
+
+% front matter (title page, toc, lists) in roman page numbers
+\pagenumbering{roman}
+
+\pagestyle{fancy}
+\fancyhf{}
+
+% header only when a header string is given (line below the header like report.typ)
+\newif\ifpdmheader
+\pdmifempty{\pHeaderStrLeft}{%
+  \pdmifempty{\pHeaderStrRight}{\pdmheaderfalse}{\pdmheadertrue}%
+}{\pdmheadertrue}
+\ifpdmheader
+  \fancyhead[L]{\footnotesize\pHeaderStrLeft}%
+  \fancyhead[R]{\footnotesize\pHeaderStrRight}%
+  \renewcommand{\headrulewidth}{0.5pt}%
+\else
+  \renewcommand{\headrulewidth}{0pt}%
+\fi
+
+% footer always (line above the footer like report.typ)
+\fancyfoot[L]{\footnotesize\pFooterStrLeft}%
+\fancyfoot[C]{\footnotesize\pdmpagecenter}%
+\fancyfoot[R]{\footnotesize\pFooterStrRight}%
+\renewcommand{\footrulewidth}{0.5pt}%
+
+% pdf metadata like report.typ (set document(title: ..., author: ...))
+\pdmifempty{\pTitle}{}{\hypersetup{pdftitle={\pTitle}}}%
+\pdmifempty{\pAuthor}{}{\hypersetup{pdfauthor={\pAuthor}}}%
+
+% ============================
+% TABLE OF CONTENTS
+% ============================
+
+\pdmifflag{\pHideToc}{%
+  % toc hidden: continue directly with arabic page numbers
+}{%
+  \pdmapplylang
+  \tableofcontents
+
+  \listoffigures
+
+  \listoftables
+
+  \pdmifempty{\pAcronyms}{}{%
+    \section*{List of Acronyms}
+    \pdmkvbegin{}\pAcronyms\pdmkvend
+  }
+
+  \pdmifempty{\pApplicables}{}{%
+    \section*{List of Applicable Documents}
+    \pdmkvbegin{AD}\pApplicables\pdmkvend
+  }
+
+  \pdmifempty{\pReferences}{}{%
+    \section*{List of Reference Documents}
+    \pdmkvbegin{RD}\pReferences\pdmkvend
+  }
+
+  \clearpage
+}
+
+% body in arabic page numbers ("Page N of M" in the footer)
+\pagenumbering{arabic}
+\renewcommand{\pdmpagecenter}{Page \thepage\ of \pageref{LastPage}}
+
+% ============================
+% DOCUMENT BODY
+% ============================
+
+% pydocmaker:body:begin
+Document body placeholder
+% pydocmaker:body:end
+
+\end{document}

@@ -47,8 +47,10 @@ Links
    index
    installation
    tldr
+   cli_reference
    examples
    datamodel
+   blocktemplating
 ..    high_level
 
 

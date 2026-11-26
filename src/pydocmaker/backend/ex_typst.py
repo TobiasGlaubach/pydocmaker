@@ -38,13 +38,34 @@ try:
 except Exception as err:
     from .. import b64_data
 
+try:
+    from pydocmaker import blocktmpl
+except Exception as err:
+    from .. import blocktmpl
 
 try:
-    from pydocmaker.backend.pandoc_api import can_run_pandoc, pandoc_convert, pandoc_convert_file
+    from pydocmaker.templating import BlockDocTemplate
 except Exception as err:
-    from .pandoc_api import can_run_pandoc, pandoc_convert, pandoc_convert_file
+    from ..templating import BlockDocTemplate
+
+try:
+    from pydocmaker.param_mapping import map_legacy_params
+except Exception as err:
+    from ..param_mapping import map_legacy_params
+
+
+try:
+    from pydocmaker.backend.pandoc_api import can_run_pandoc, pandoc_convert, pandoc_convert_file, pandoc_convert_batch, config_use_pandoc_for_md_render_get
+except Exception as err:
+    from .pandoc_api import can_run_pandoc, pandoc_convert, pandoc_convert_file, pandoc_convert_batch, config_use_pandoc_for_md_render_get
+
+try:
+    from pydocmaker.backend.pandoc_batch import PandocBatchMixin
+except Exception as err:
+    from .pandoc_batch import PandocBatchMixin
 
 log = util.log
+
 
 CODLY_LIBS = """#import "@preview/codly:1.3.0": *
 #import "@preview/codly-languages:0.1.1": *
@@ -55,10 +76,28 @@ CODLY_LIBS = """#import "@preview/codly:1.3.0": *
 
 __default_template = """
 
+// pydocmaker:parameters:begin
+// pydocmaker:param:pTitle
+#let pTitle = "My Report"
+// pydocmaker:param:pAuthor
+#let pAuthor = "Automatically Generated via pydocmaker"
+// pydocmaker:param:pDate
+#let pDate = ""
+// pydocmaker:param:pAcronyms
+#let pAcronyms = (:)
+// pydocmaker:param:pApplicables
+#let pApplicables = (:)
+// pydocmaker:param:pReferences
+#let pReferences = (:)
+// pydocmaker:parameters:end
+
 #set page("a4")
+#set document(title: if pTitle != "" { pTitle } else { "untitled" })
 
 #show link: set text(fill: blue, weight: 700)
 #show link: underline
+#show text.where(fill: green): set text(fill: green.darken(35%))
+
 
 // code blocks
 #let code-border = luma(0)
@@ -66,7 +105,7 @@ __default_template = """
 #show raw.where(block: true): set text(size: 0.8em)
 #show raw.where(block: true): it => {
     block(
-        width:100%,
+        width: 100%,
         inset: 10pt,
         radius: 4pt,
         stroke: 0.1pt + code-border,
@@ -75,10 +114,51 @@ __default_template = """
 }
 
 #set figure(numbering: "1")
-#set figure.caption(separator: " - ") // With a nice separator
+#set figure.caption(separator: " - ")
 #set math.equation(numbering: "(1)", supplement: "Eq.")
 
-{{ body}}
+#let kv_rows(mydict) = {
+    let rows = ()
+    for (k, v) in mydict {
+        rows.push([#strong[#k]])
+        rows.push([#v])
+    }
+    rows
+}
+
+#let render_kvtable(mydict) = table(
+    columns: (auto, 1fr),
+    stroke: none,
+    ..kv_rows(mydict),
+)
+
+#if pTitle != "" [
+    #heading(level: 1)[#pTitle]
+]
+#if pAuthor != "" [
+    #text(size: 0.9em)[#pAuthor]
+]
+#if pDate != "" [
+    #text(size: 0.9em)[#pDate]
+]
+
+#if pAcronyms.len() > 0 [
+    #heading(level: 2)[List of Acronyms]
+    #render_kvtable(pAcronyms)
+]
+#if pApplicables.len() > 0 [
+    #heading(level: 2)[Applicable Documents]
+    #render_kvtable(pApplicables)
+]
+#if pReferences.len() > 0 [
+    #heading(level: 2)[Reference Documents]
+    #render_kvtable(pReferences)
+]
+
+// pydocmaker:body:begin
+Document body placeholder
+// pydocmaker:body:end
+
 
 """
 
@@ -86,13 +166,13 @@ __default_template = """
 
 _table_template = """
 #figure(
-table(
+wrappable(table(
     columns: {n_cols:},
     stroke: {stroke:},
     align:(left+horizon),
     {header:}
     {rows:}
-),
+)),
 {suffix:}
 ) <{name:}>
 
@@ -112,6 +192,9 @@ DATA_URI_IMAGE_RE = re.compile(
 DO_REPLACE_HORIZONTALRULE = True
 USE_CODELY = True
 
+
+
+
 def test_typst_installed():
     try:
         import typst
@@ -124,6 +207,61 @@ def to_typst_string(text):
     safe_text = text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
     return f'"{safe_text}"'
 
+
+#: typst source patterns that reference external files (group 1 = the
+#: reference; single and double quotes are accepted). The function calls
+#: appear with or without a leading ``#`` (inside content blocks), so only a
+#: word boundary is required.
+_TYPST_FILE_REF_RES = (
+    re.compile(r'\b(?:image|bibliography|json|yaml|csv|toml|xml)\(\s*["\']([^"\']+)["\']'),
+    re.compile(r'\bread\(\s*["\']([^"\']+)["\']'),
+    re.compile(r'\binclude\s+["\']([^"\']+)["\']'),
+)
+
+
+def _copy_missing_file_refs(inp, tempdir, orig_root):
+    """Copy files referenced by typst sources into the compile tempdir.
+
+    Document content converted from markdown may reference local files by
+    their bare name (``#image("icon.png")``). Those references resolve
+    relative to the compile root (usually the working directory); when the
+    compilation is relocated into a temporary directory (because the input
+    contains in-memory content), the files would be lost. This copies every
+    referenced file that is not already part of the input from the original
+    root into the tempdir so the references resolve.
+
+    Args:
+        inp (dict): the compile input mapping (keys = file names).
+        tempdir (Path): the compile tempdir (copy destination).
+        orig_root (str): the original compile root (copy source base).
+    """
+    refs = []
+    for value in inp.values():
+        if isinstance(value, bytes):
+            try:
+                value = value.decode('utf-8', 'replace')
+            except Exception:
+                continue
+        if not isinstance(value, str):
+            continue
+        for pattern in _TYPST_FILE_REF_RES:
+            refs += pattern.findall(value)
+    for ref in dict.fromkeys(r.strip() for r in refs):
+        if not ref or ref.startswith('http') or '\\' in ref or '{{' in ref:
+            continue
+        if ref in inp or (tempdir / ref).exists():
+            continue  # already provided with the input
+        src = Path(orig_root) / ref
+        if not src.is_file():
+            continue
+        dst = tempdir / ref
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            import shutil
+            shutil.copy2(src, dst)
+        except OSError as err:
+            log.warning(f'could not copy referenced file {src!r} into the '
+                        f'typst compile directory: {err}')
 
 
 def _compile(verb, on_warning, **kw):
@@ -165,32 +303,42 @@ def _compile(verb, on_warning, **kw):
                     newpath = None
                     if isinstance(v, Path) and v.exists():
                         newpath:Path = (p / k)
+                        newpath.parent.mkdir(parents=True, exist_ok=True)
                         newpath.write_bytes(v.read_bytes())
 
                     elif isinstance(v, bytes) and util.bytes_path_exists(v):
                         v = Path(v.decode())
                         newpath:Path = (p / k)
+                        newpath.parent.mkdir(parents=True, exist_ok=True)
                         newpath.write_bytes(v.read_bytes())
 
                     elif isinstance(v, bytes) and v:
                         newpath:Path = (p / k)
+                        newpath.parent.mkdir(parents=True, exist_ok=True)
                         newpath.write_bytes(v)
 
                     elif isinstance(v, str) and v and os.path.exists(v):
                         v = Path(v).resolve()
                         newpath:Path = (p / k)
+                        newpath.parent.mkdir(parents=True, exist_ok=True)
                         newpath.write_bytes(v.read_bytes())
 
                     elif isinstance(v, str) and v:
                         newpath:Path = (p / k)
+                        newpath.parent.mkdir(parents=True, exist_ok=True)
                         newpath.write_bytes(v.encode())
 
-                    # typst rust bindings do not like non text files (but will try to find them at the given 
+                    # typst rust bindings do not like non text files (but will try to find them at the given
                     # pathes within the document). Therefore only include typst files.
                     if newpath and newpath.suffix in ['.typ', '.txt', '.csv', '.json']:
                         newinp[k] = newpath.resolve()
                     elif newpath:
                         context[k] = newpath.resolve()
+
+                # bring along files that are referenced by the sources but are
+                # not part of the input (e.g. local images referenced by
+                # markdown-converted document content)
+                _copy_missing_file_refs(inp, p, kw.get('root') or os.getcwd())
 
                 kw['input'] = newinp
                 
@@ -341,7 +489,7 @@ def compile_with_typst(typst_code: Union[str, List[dict]], output: str = None, v
 #     compiler = typst.Compiler()
 #     compiler.compile(input="hello.typ", format="png", ppi=144.0)
 
-def convert(doc:List[dict], template = None, template_params=None, ret_attachments=False, verb=0, **kwargs):
+def convert(doc:List[dict], template = None, template_params=None, ret_attachments=False, verb=0, template_engine='auto', **kwargs):
 
     if not template_params:
         template_params = {}
@@ -355,12 +503,16 @@ def convert(doc:List[dict], template = None, template_params=None, ret_attachmen
     tmp = list(doc.values()) if isinstance(doc, dict) else doc
     body = formatter.digest(tmp)
 
-    template_obj, attachments, template_str = handle_template(template, __default_template, tformat='typ')
+    template_obj, attachments, template_str = handle_template(template, __default_template, tformat='typ', template_engine=template_engine)
     
 
     try:
-        tds = templating.TemplateDirSource(None, tformat='typ')
-        expected_variables = tds.get_params(template_str if template_str else template_obj)
+        if blocktmpl.detect(template_str):
+            doc_b = blocktmpl.parse(template_str, tformat='typ', strict=False)
+            expected_variables = {k: p.value for k, p in doc_b.params_section.params.items()} if doc_b.params_section else {}
+        else:
+            tds = templating.TemplateDirSource(None, tformat='typ')
+            expected_variables = tds.get_params(template_str if template_str else template_obj)
     except Exception as err:
         log.warning(f'failed to extract expected_variables from template: {err} will continue without expected_variables')
         expected_variables = {}
@@ -370,18 +522,35 @@ def convert(doc:List[dict], template = None, template_params=None, ret_attachmen
     libraries = kw.pop("libraries", [])
     libraries.extend(formatter.libraries)
     kw = util.remove_undefined(kw)
-    if not 'logo_b64_pydocmaker' in kw and (not expected_variables or 'logo_b64_pydocmaker' in expected_variables):
+    # treat empty values (e.g. block template defaults carried via the metadata
+    # flow) as "not given" so the pydocmaker logo is still auto injected
+    if not kw.get('logo_b64_pydocmaker') and (not expected_variables or 'logo_b64_pydocmaker' in expected_variables):
         kw['logo_b64_pydocmaker'] = b64_data.logo_b64_pydocmaker
+    if not kw.get('pLogoB64Pydocmaker') and 'pLogoB64Pydocmaker' in expected_variables:
+        kw['pLogoB64Pydocmaker'] = b64_data.logo_b64_pydocmaker
 
 
 
     assert not ('body' in kw), f'the "body" keyword is an invalid keyword for templates as it is reserved for the document body.'
     
-    if libraries:
-        b = ('\n'.join(libraries) + '\n\n' + body)
-    else:
-        b = body
-    kw['body'] = b
+    if 'applicables' in kw and isinstance(kw['applicables'], str):
+        kw['applicables'] = {}
+    if 'references' in kw and isinstance(kw['references'], str):
+        kw['references'] = {}
+    if 'acronyms' in kw and isinstance(kw['acronyms'], str):
+        kw['acronyms'] = {}
+
+    # map legacy parameter names (e.g. "title") onto the new names (e.g.
+    # "pDocTitle") for plain jinja2 templates; the block engine does its own
+    # template-aware mapping while rendering
+    if not isinstance(template_obj, BlockDocTemplate):
+        kw = map_legacy_params(kw)
+
+    # if libraries:
+    #     b = ('\n'.join(libraries) + '\n\n' + body)
+    # else:
+    #     b = body
+    kw['body'] = body
     
     # typst can handle named references, so we can directly pass the dict to the template
     # if 'applicables' in kw:
@@ -397,12 +566,17 @@ def convert(doc:List[dict], template = None, template_params=None, ret_attachmen
         log.info(f'   {kw.keys()=}')
         log.info(f'   {attachments.keys()=}')
     
-
+    libraries = list(sorted(libraries))
+    
     try:
         doc_typst = template_obj.render(**kw)
+
+        # append the libraries to the front
+        doc_typst = '\n'.join(libraries) + '\n\n' + doc_typst
+
         # {{ body }} was not part of the template... just append it to the end
-        if not b in doc_typst:
-            doc_typst += '\n\n' + b
+        if not body in doc_typst:
+            doc_typst += '\n\n' + body
 
         if DO_REPLACE_HORIZONTALRULE:
             doc_typst = doc_typst.replace('#horizontalrule', '#line(length: 100%, stroke: 0.5pt)')
@@ -420,13 +594,19 @@ def convert(doc:List[dict], template = None, template_params=None, ret_attachmen
 
 
 
-class DocumentTypstFormatter(BaseFormatter):
+class DocumentTypstFormatter(PandocBatchMixin, BaseFormatter):
+
+    # kind (pandoc input format) -> (output format, is_code)
+    _pandoc_batch_specs = {
+        'markdown': ('typst', False),
+        'latex': ('typst', False),
+    }
 
     def __init__(self) -> None:
         self.cnt_img = 0
         self.cnt_tables = 0
         self.libraries = set()
-
+        self._pandoc_batch_init()
 
     def _handle_color(self, part, color=None, **kwargs) -> str:
         if color:
@@ -434,52 +614,78 @@ class DocumentTypstFormatter(BaseFormatter):
             return s
         else:
             return part
-        
 
-    def digest_latex(self, children: str, **kwargs):
-        s = None
+    def _pandoc_finalize(self, kind, el, converted=None, err=None) -> str:
+        kwargs = dict(el)
+        children = kwargs.pop('children', '')
+        if kind == 'markdown':
+            return self._finalize_markdown(children, converted=converted, **kwargs)
+        else:
+            return self._finalize_latex(children, converted=converted, **kwargs)
+
+    def _finalize_latex(self, children, converted=None, **kwargs):
+        """Post-conversion handling for a latex element (behavior unchanged).
+
+        ``converted`` is the typst string produced by the batch or per-block
+        pandoc conversion; ``converted=None`` triggers the verbatim mitex
+        fallback (pandoc missing or conversion failed).
+        """
+        s = converted
         err = ''
         if can_run_pandoc():
-            try:
-                s = pandoc_convert(children, 'latex', 'typst')
+            if s is not None:
                 return self._handle_color(s, **kwargs)
-            except Exception as err:
-                err = 'Can not convert latex to typst! Embedding the latex code verbatim...\n\n'
+            err = 'Can not convert latex to typst! Embedding the latex code verbatim...\n\n'
         else:
             err = 'Pandoc is not available to convert latex to typst! Embedding the latex code verbatim...\n\n'
-        
-        
+
         if s is None:
             self.libraries.add('#import "@preview/cmarker:0.1.8"')
             self.libraries.add('#import "@preview/mitex:0.2.7": *')
             safe_latex = json.dumps(children, cls=util.CommonJSONEncoder) # escape all chars etc. and put quotes around it
             s = f'#mitext({safe_latex})'
             return s
-        
+
         s = err
         s += self.digest_verbatim(children=children, lang='latex', **kwargs)
         return self._handle_color(s, 'orange')
 
-    def digest_markdown(self, children='', **kwargs) -> list:
-        s = None
-        if can_run_pandoc():
-            try:
-                s = pandoc_convert(children, 'markdown', 'typst')
-            except Exception as err:
-                pass
+    def _finalize_markdown(self, children, converted=None, **kwargs):
+        """Post-conversion handling for a markdown element (behavior unchanged).
+
+        ``converted`` is the typst string produced by the batch or per-block
+        pandoc conversion; ``converted=None`` triggers the cmarker fallback
+        (pandoc missing or conversion failed).
+        """
+        s = converted
 
         if s is None:
             self.libraries.add('#import "@preview/cmarker:0.1.8"')
             self.libraries.add('#import "@preview/mitex:0.2.6": mitex')
             safe_markdown = json.dumps(children, cls=util.CommonJSONEncoder) # escape all chars etc. and put quotes around it
             s = f'#cmarker.render({safe_markdown}, math: mitex)'
-            
+
         return self._handle_color(s, **kwargs)
+
+    def digest_latex(self, children: str, **kwargs):
+        if can_run_pandoc():
+            return self._pandoc_register('latex', dict(children=children, **kwargs), children=children)
+
+        return self._finalize_latex(children, **kwargs)
+
+    def digest_markdown(self, children='', **kwargs) -> str:
+        if config_use_pandoc_for_md_render_get() and can_run_pandoc():
+            return self._pandoc_register('markdown', dict(children=children, **kwargs), children=children)
+
+        return self._finalize_markdown(children, **kwargs)
     
     def digest_text(self, children='', **kwargs):
         return self._handle_color(children, **kwargs)
     
     def digest_table(self, children=None, **kwargs) -> str:
+        
+        self.libraries.add('#show figure.where(kind: table): set block(breakable: true)') # make a table break at end of page
+        self.libraries.add('#let wrappable(body) = {\n  show regex("[.,:\\\\-_]"): it => [#it#sym.zws]\n  body\n}') # make column text also break on ,.:-
 
         borders = kwargs.pop('borders', None)
         if borders is None:

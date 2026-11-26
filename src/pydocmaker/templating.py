@@ -8,6 +8,9 @@ from jinja2 import Environment, FileSystemLoader, ChoiceLoader, Undefined, meta,
 
 TEMPLATE_EXTS = 'jinja2 j2 jinja j'.split() 
 
+# the priority in which to resolve templates
+TEMPLATE_PRIORITY = ['.typ', '.tex', '.html']
+
 
 default_template_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
 
@@ -18,6 +21,33 @@ try:
     from pydocmaker import util
 except Exception as err:
     from . import util
+
+try:
+    from pydocmaker import param_mapping
+except Exception as err:
+    from . import param_mapping
+
+try:
+    from pydocmaker import blocktmpl
+except Exception as err:
+    from . import blocktmpl
+
+BlockDocTemplate = blocktmpl.BlockDocTemplate
+detect_block_template = blocktmpl.detect_block_template
+parse = blocktmpl.parse
+scaffold = blocktmpl.scaffold
+update_params = blocktmpl.update_params
+render = blocktmpl.render
+detect = blocktmpl.detect
+map_legacy_params = param_mapping.map_legacy_params
+LEGACY_PARAM_MAP = param_mapping.LEGACY_PARAM_MAP
+
+__all__ = ['DocTemplate', 'BlockDocTemplate', 'TemplateDirSource', 'handle_template',
+           'get_template_source', 'register_new_template_dir', 'remove_from_template_dir',
+           'get_registered_template_dirs', 'get_available_template_ids', 'test_template_exists',
+           'get_template_params', 'resolve_template_id', 'determine_engine_from_template',
+           'parse', 'scaffold', 'update_params', 'render', 'detect',
+           'map_legacy_params', 'LEGACY_PARAM_MAP']
     
 def determine_engine_from_template(template: Union[Template, str, Path], tformat=None) -> str:
     """Detect the template engine type from a template string or file path.
@@ -70,6 +100,8 @@ def determine_engine_from_template(template: Union[Template, str, Path], tformat
     return engine
 
 def get_template_source(template_obj:Template):
+    if isinstance(template_obj, BlockDocTemplate):
+        return template_obj.template
     loader = getattr(template_obj.environment, 'loader', None)
     if loader is None:
         template_str = ''
@@ -80,7 +112,18 @@ def get_template_source(template_obj:Template):
     return template_str
 
 
-def handle_template(template, default_template, tformat=None) -> Tuple[Template, dict, str]:
+def _block_template_from_source(source, tformat, template_id=None, attachments=None):
+    """Build a BlockDocTemplate from a source string, scaffolding the blocks
+    in memory when the source carries no markers."""
+    if not detect_block_template(source):
+        source = scaffold(source, tformat=tformat)
+    return BlockDocTemplate(source, tformat=tformat, template_id=template_id), (attachments if attachments is not None else {}), source
+
+
+def handle_template(template, default_template, tformat=None, template_engine='auto') -> Tuple[Template, dict, str]:
+    if template_engine not in ('auto', 'blocks', 'jinja2'):
+        raise ValueError(f"template_engine must be one of 'auto', 'blocks', 'jinja2', got {template_engine!r}")
+
     if template is None:
         template = default_template
 
@@ -90,26 +133,47 @@ def handle_template(template, default_template, tformat=None) -> Tuple[Template,
         template_obj:Template = template
         template_str = get_template_source(template_obj)
     elif isinstance(template, str) and os.path.exists(template):
+        if template_engine in ('auto', 'blocks'):
+            with open(template, 'r', encoding='utf-8-sig') as f:
+                src = f.read()
+            if detect_block_template(src) or template_engine == 'blocks':
+                return _block_template_from_source(src, tformat, template_id=os.path.basename(template))
         template_obj = Template(template)
     elif template is None or (isinstance(template, str) and not template):
         template_str = '{{ body }}'
         template_obj = Template(template_str)
     elif isinstance(template, str):
-        try:
-            tdir = TemplateDirSource(tformat=tformat)
+        if template_engine in ('auto', 'blocks') and detect_block_template(template):
+            return _block_template_from_source(template, tformat)
+        # resolve the id the same way DocTemplate.from_tid does (format
+        # candidates first) so the direct and the metadata template flows
+        # always end up on the same template file
+        template_obj = None
+        tdir = TemplateDirSource(tformat=tformat)
+        for cand in _candidate_template_ids(template, tformat):
+            template_obj = tdir.get(cand, None)
+            if template_obj is not None:
+                break
+        if template_obj is None:
             template_obj = tdir.get(template, None)
-        except KeyError as err:
-            template_obj = None
-
         if template_obj is None:
             template_obj = Template(template)
             template_str = str(template)
 
     else:
         raise KeyError(f'Unknown template type! {type(template)=}')
-        
+
     if template_str is None:
         template_str = get_template_source(template_obj)
+
+    if template_engine == 'blocks' or (template_engine == 'auto' and detect_block_template(template_str)):
+        template_id = getattr(template_obj, 'template_id', None)
+        return _block_template_from_source(template_str, tformat, template_id=template_id, attachments=attachments)
+
+    if detect_block_template(template_str):
+        util.log.warning(
+            "template_engine='jinja2' was forced but the template source contains block markers; "
+            'the markers will be ignored by the Jinja2 engine')
 
     return template_obj, attachments, template_str
 
@@ -126,11 +190,42 @@ def _remove_template_ext_match(filename):
         filename = str(filename)
     if isinstance(filename, str):
         match_ = next((f'.{k}' for k in TEMPLATE_EXTS if filename.endswith(k)), '')
-        fn = filename[:-(len(match_))]
+        # NOTE: slicing with -0 would return the empty string, so only slice
+        # when a template extension actually matched
+        fn = filename[:len(filename) - len(match_)] if match_ else filename
     else:
         match_ = False
         fn = filename
     return fn, True if match_ else False
+
+
+def _candidate_template_ids(template_id, tformat=''):
+    """Build the candidate template ids for a lookup, in priority order.
+
+    1. The id combined with the format suffix, without double-appending it
+       (``"base" + ".tex"`` -> ``"base.tex"``; ``"base.tex" + ".tex"`` stays
+       ``"base.tex"``; ``"base.tex.j2" + ".tex"`` stays ``"base.tex.j2"``).
+    2. When the id carries a *different* format suffix, the id with that suffix
+       swapped for the requested one (``"base.tex"`` looked up as ``"html"``
+       -> ``"base.html"``), so cross-format lookups still find the variant.
+
+    With no ``tformat`` given the id is used as-is.
+    """
+    template_id = str(template_id)
+    tformat = '' if tformat is None else tformat
+    if tformat and not tformat.startswith('.'):
+        tformat = '.' + tformat
+
+    if not tformat:
+        return [template_id]
+
+    base, _had_tpl_ext = _remove_template_ext_match(template_id)
+    if base.endswith(tformat):
+        return [template_id]
+    candidates = [template_id + tformat]
+    if '.' in base:
+        candidates.append(base.rsplit('.', 1)[0] + tformat)
+    return candidates
 
 
 def register_new_template_dir(new_template_dir:str, check_exists=True) -> bool:
@@ -192,17 +287,17 @@ def test_template_exists(template_id, tformat = '', template_dir=None):
     """tests if a template with a given id and optional in a given format exists
 
     Args:
-        template_id (str): the template id to search for e.G. 'base'
+        template_id (str): the template id to search for e.G. 'base' or 'base.tex'
         tformat (str, optional): optinal the template format to look for (e.g. 'html', 'typ', 'tex') if nothing is given the first found template with that name independent of the format is returned. Defaults to ''.
         template_dir (str, optional): if this is given only the given template directory is mounted to load jinja templates. Defaults to ''.
 
     Returns:
         bool: True if found False otherwise
     """
-    tformat = '' if tformat is None else tformat
-    if tformat and not tformat.startswith('.'):
-        tformat = '.' + tformat
-    return (template_id + tformat) in TemplateDirSource(template_dir)
+    tds = TemplateDirSource(template_dir)
+    candidates = _candidate_template_ids(template_id, tformat)
+    util.log.info(f"found n={len(candidates)} candidates. {candidates=}")
+    return next((True for tid in candidates if tid in tds), False)
 
 
 def get_available_template_ids(template_dir=None, tformat=None) -> list:
@@ -329,6 +424,14 @@ class TemplateDirSource():
 
         loaders = [FileSystemLoader(template_dir) for template_dir in self.template_dirs]
         self.env = Environment(loader=ChoiceLoader(loaders))
+
+        # Per-instance memoization of the directory scans (get_block_templates /
+        # get_templates). Cached dicts and the BlockDocTemplate / jinja2 Template
+        # objects inside them must be treated as read-only by callers; the
+        # accessors hand out shallow dict copies so caller-side merges never
+        # mutate the cache. Call clear_cache() when the template directories
+        # change on disk during the instance's lifetime.
+        self._cache = {}
              
 
     def find_undeclared_variables(self, template:Union[Template, str]):
@@ -360,6 +463,9 @@ class TemplateDirSource():
             set: A set of undeclared variable names used in the template.
         """
         # --- Case: already a Jinja2 Template object ---
+        if isinstance(template, BlockDocTemplate):
+            return set(template.params.keys()) | {'body'}
+
         if isinstance(template, Template):
             env = getattr(template, "environment", None) or self.env
             # Try to reconstruct the template ID (the "name" attribute) and
@@ -393,6 +499,15 @@ class TemplateDirSource():
         if isinstance(template, str):
             env = self.env
             stripped = template.strip()
+
+            # Comment-delimited block templates: return the declared parameter
+            # names (plus the reserved 'body') instead of jinja2 analysis.
+            try:
+                block_templates = self.get_block_templates()
+            except Exception as err:
+                block_templates = {}
+            if stripped in block_templates:
+                return set(block_templates[stripped].params.keys()) | {'body'}
 
             # If we got an absolute file path from a Path object, use it
             # directly via a temporary loader so that jinja2's include/extends
@@ -472,12 +587,29 @@ class TemplateDirSource():
             return next(iter(self.get_params([templates], allow_fallback_jinja).values()))
         
         if templates is None:
-            templates = self.get_templates()
+            templates = {**self.get_block_templates(), **self.get_templates()}
+        block_templates = self.get_block_templates()
         params = {}
         for template_id in templates:
             # if its a Template and it has a filename use the filename instead
             if hasattr(template_id, 'filename'):
                 template_id = Path(template_id.filename).name.split('.')[0]
+
+            # comment-delimited block templates: params come from the parsed block
+            # (a <id>.params.json file, if present, stays authoritative)
+            if isinstance(template_id, str) and template_id in block_templates:
+                template_param_name = Path(template_id).name.split('.')[0] + '.params.json'
+                loaded = False
+                for template_dir in self.template_dirs:
+                    fpath = os.path.join(template_dir, template_param_name)
+                    if os.path.exists(fpath) and os.path.isfile(fpath):
+                        with open(fpath, 'r') as f:
+                            params[template_id] = json.load(f, cls=util.MyJSONDecoder)   
+                        loaded = True
+                        break
+                if not loaded:
+                    params[template_id] = dict(block_templates[template_id].params)
+                continue
 
             template_param_name = Path(template_id).name.split('.')[0] + '.params.json'
             for template_dir in self.template_dirs:
@@ -503,7 +635,8 @@ class TemplateDirSource():
     def get(self, template_id:str, default=None):
         try:
             template_id = self.resolve_template_id(template_id)
-            return self.get_templates().get(template_id, default)
+            templates = {**self.get_block_templates(), **self.get_templates()}
+            return templates.get(template_id, default)
         except KeyError as err:
             return default
 
@@ -531,17 +664,96 @@ class TemplateDirSource():
         
         return True
 
+    def _block_template_matches_engine(self, template_name):
+        """Check if a native (non-jinja) template file name qualifies as a block
+        template candidate for the configured engine filter."""
+        base = os.path.basename(template_name.replace('\\', '/'))
+        root, ext = os.path.splitext(base)
+        if ext.lower() not in ('.html', '.tex', '.typ'):
+            return False
+        # Exclude params files (defensive; .json has a different extension anyway)
+        if base.endswith('.params.json'):
+            return False
+        # Exclude hidden/git files
+        if base.startswith('.git') or base.startswith('.'):
+            return False
+        # Exclude block_ prefixed templates (reserved prefix for both engines)
+        if base.startswith('block_'):
+            return False
+        # Apply tformat filter
+        if not (self.tformat is None or ext.lower() == f'.{self.tformat}'):
+            return False
+        return True
+
+    def get_block_templates(self) -> dict:
+        """Retrieves all comment-delimited block templates (``*.html``/``*.tex``/``*.typ``
+        files whose source contains ``pydocmaker:`` markers) from the template directories.
+
+        Excludes ``.j2`` files, ``block_``-prefixed files, ``.params.json`` files and
+        dotfiles. When the same relative file name exists in several directories the
+        first directory (in registration order) wins.
+
+        The scan result is memoized per instance and returned as a shallow dict copy;
+        see ``clear_cache()`` for cache invalidation.
+
+        Returns:
+            dict: A dictionary of block templates where the keys are the template file
+                names and the values are BlockDocTemplate objects.
+        """
+        cached = self._cache.get('block_templates')
+        if cached is None:
+            result = {}
+            for template_dir in self.template_dirs:
+                if not os.path.isdir(template_dir):
+                    continue
+                for root, dirs, files in os.walk(template_dir):
+                    dirs[:] = [d for d in dirs if d != '.git' and not d.startswith('.')]
+                    for file in sorted(files):
+                        rel = os.path.relpath(os.path.join(root, file), template_dir).replace(os.sep, '/')
+                        if not self._block_template_matches_engine(rel):
+                            continue
+                        if rel in result:
+                            continue
+                        fpath = os.path.join(root, file)
+                        try:
+                            with open(fpath, 'r', encoding='utf-8-sig') as f:
+                                source = f.read()
+                        except OSError as err:
+                            continue
+                        if not detect_block_template(source):
+                            continue
+                        try:
+                            result[rel] = BlockDocTemplate(source, tformat=self.tformat, template_id=rel)
+                        except Exception as err:
+                            util.log.warning(f'failed to load block template "{rel}": {err}')
+            cached = result
+            self._cache['block_templates'] = cached
+        return dict(cached)
+
+    def clear_cache(self):
+        """Empty the per-instance cache of the directory scans
+        (``get_block_templates`` / ``get_templates``).
+
+        Only needed for long-lived ``TemplateDirSource`` instances whose template
+        directories change on disk during the instance's lifetime. Short-lived
+        instances (the default, e.g. one instance per public helper call or per
+        ``DocTemplate.from_tid`` call) always see the current directory state.
+        """
+        self._cache.clear()
+
     def get_templates(self) -> dict:
         """Retrieves all the templates from the directory.
 
        Returns:
            dict: A dictionary of templates where the keys are the template names
                and the values are the corresponding Jinja2 Template objects.
-        """
-
-        templates = self.env.list_templates(filter_func=self._template_matches_engine)
-        templates = {template: self.env.get_template(template) for template in templates}
-        return templates
+       """
+        cached = self._cache.get('templates')
+        if cached is None:
+            templates = self.env.list_templates(filter_func=self._template_matches_engine)
+            cached = {template: self.env.get_template(template) for template in templates}
+            self._cache['templates'] = cached
+        return dict(cached)
 
     def get_template_ids(self):
         """
@@ -549,9 +761,12 @@ class TemplateDirSource():
 
         Returns:
             list: A list of template IDs, which are the names of the templates without the file extension.
+                Includes both jinja2 templates and comment-delimited block templates (jinja2 priority).
         """
         templates = self.get_templates()
-        template_ids = {t.rsplit('.')[0]:t for t in templates}
+        block_templates = self.get_block_templates()
+        template_ids = {t.rsplit('.')[0]:t for t in block_templates}
+        template_ids.update({t.rsplit('.')[0]:t for t in templates})
         return list(template_ids.keys())
 
 
@@ -606,7 +821,8 @@ class TemplateDirSource():
         return filenames
     
     def get_all(self, load_params=True, load_attachments=True):
-        """Get all templates, parameters, and attachments.
+        """Get all templates (jinja2 and comment-delimited block templates),
+        parameters, and attachments.
 
         Args:
             load_params (bool, optional): Whether to load parameters. Defaults to True.
@@ -615,13 +831,17 @@ class TemplateDirSource():
         Returns:
             tuple: A tuple containing templates, parameters, and attachments.
         """
-        templates = self.get_templates()
+        templates = {**self.get_block_templates(), **self.get_templates()}
         params = self.get_params(templates) if load_params else {}
         attachments = self.get_attachments(templates) if load_attachments else {}
         return templates, params, attachments
 
     def resolve_template_id(self, my_template_id):
         """Resolve the template ID to the actual template file name.
+
+        An exact file name match always wins (so ``base.tex`` can force a block
+        template file even when ``base.tex.j2`` also exists); short IDs prefer the
+        first available format variant in priority order (tex > typ > html).
 
         Args:
             my_template_id (str): The template ID to resolve.
@@ -632,11 +852,50 @@ class TemplateDirSource():
         Raises:
             KeyError: If the template ID is not found in the available templates.
         """
-        templates = self.get_templates()
+        
+        block_templates = self.get_block_templates()
+
+        if my_template_id in block_templates:
+            return my_template_id
+        
+        # name-only lookup: listing the template names avoids compiling every
+        # jinja2 template just to resolve an id (get_templates() compiles all
+        # of them); membership checks and the short_map construction below work
+        # identically on the plain name list
+        templates = self.env.list_templates(filter_func=self._template_matches_engine)
         if my_template_id in templates:
             return my_template_id
-        template_ids = {t.rsplit('.')[0]:t for t in templates} # filename no extension only
-        template_ids.update({_remove_template_ext(t):t for t in templates}) # remove ".j2" only
+        
+        # Collect all templates keyed by short name (without last extension)
+        short_map = {}
+        for t in templates:
+            base = t.rsplit('.', 1)[0]
+            short_map.setdefault(base, []).append(t)
+        for t in block_templates:
+            base = t.rsplit('.', 1)[0]
+            short_map.setdefault(base, []).append(t)
+
+        # Check if we have multiple format variants of the same template
+        base_name = my_template_id.rsplit('.', 1)[0] if '.' in my_template_id else my_template_id
+        variants = short_map.get(base_name, [])
+
+        if len(variants) > 1:
+            
+            for ext in TEMPLATE_PRIORITY:
+                for v in variants:
+                    if v.endswith(ext) or v.endswith(ext + '.j2'):
+                        return v
+            return variants[0]
+
+        # No multiple variants - use existing logic
+        template_ids = {t.rsplit('.')[0]:t for t in templates}
+        template_ids.update({_remove_template_ext(t):t for t in templates})
+        block_ids = {}
+        for t in block_templates:
+            block_ids.setdefault(t.rsplit('.')[0], t)
+            block_ids.setdefault(_remove_template_ext(t), t)
+        for k, v in block_ids.items():
+            template_ids.setdefault(k, v)
         if not my_template_id in template_ids:
             raise KeyError(f'{my_template_id=} was not found in {template_ids.keys()=}')
         return template_ids[my_template_id]
@@ -658,7 +917,7 @@ class DocTemplate():
     Attributes:
         template (str): A string representation of the template.
         params (dict): A dictionary of parameters to be used in the template.
-        attachments (dict): A dictionary of attachments to be used in the template.
+        attachments (dict): A dictionary of attachments to be used with the template.
         env (Environment): An instance of the jinja2 Environment class.
     """
     @staticmethod
@@ -666,25 +925,37 @@ class DocTemplate():
         """Load a template by supplying a template_id and possibly a template format
 
         Args:
-            template_id (str): The ID of the template to load e.G. "base"
+            template_id (str): The ID of the template to load e.G. "base" or "base.tex"
             tformat (str, optional): optinal the template format to get e.G. ".tex" or ".html". Defaults to '' which means first of any format being found.
             template_dir (str, optional): The directory containing the templates.
                 If not provided, the default template directory is used.
         Returns:
             DocTemplate: An instance of the DocTemplate class.
         """
-        tformat = '' if tformat is None else tformat
-
-        if tformat and not tformat.startswith('.'):
-            tformat = '.' + tformat
-
         t = TemplateDirSource(template_dir)
-        template_id = t.resolve_template_id(f'{template_id}{tformat}')
-        templates, params, attachments_all = t.get_all()
-        # global assets and template specific assets
-        attch = {**attachments_all[''], **attachments_all[template_id]} 
+        err = None
+        for cand in _candidate_template_ids(template_id, tformat):
+            try:
+                template_id = t.resolve_template_id(cand)
+                break
+            except KeyError as e:
+                err = e
+        else:
+            raise err
 
-        template, params = templates[template_id], params[template_id]
+        # targeted loading: resolution is done, so only this template's params
+        # and assets are loaded instead of scanning every template in the
+        # directory (the old t.get_all() here walked and compiled everything)
+        block_templates = t.get_block_templates()          # cached per instance
+        params = t.get_params([template_id])[template_id]  # one params.json stat round or one fallback analysis
+        attachments = t.get_attachments([template_id])     # reads only global + this template's assets
+        # global assets and template specific assets
+        attch = {**attachments[''], **attachments[template_id]}
+
+        if template_id in block_templates:
+            return BlockDocTemplate(block_templates[template_id].template, params=params,
+                                    attachments=attch, tformat=None, template_id=template_id)
+        template = t.env.get_template(template_id)         # compiles exactly one template
         return DocTemplate(template, params, attch, t.env, template_id)
 
     @staticmethod
@@ -723,14 +994,18 @@ class DocTemplate():
             template (str): A string representation of the template.
             params (dict, optional): A dictionary of parameters to be used in the template.
                 If not provided, an empty dictionary is used.
-            attachments (dict, optional): A dictionary of attachments to be used in the template.
+            attachments (dict, optional): A dictionary of attachments to be used with the template.
                 If not provided, an empty dictionary is used.
             env (Environment, optional): An instance of the jinja2 Environment class. NOT NEEDED. ONLY FOR CONVENIENCE
             template_id (str, optional): the actual template id for this template
         """
         self.template = template
         self.params = params if not params is None else {}
-        self.attachments = attachments if not attachments is None else {}
+        # the parameters the template was constructed with are its defaults;
+        # kept separately because self.params is regularly overwritten with
+        # the (user) parameters from the document metadata
+        self.default_params = dict(self.params)
+        self.attachments = attachments if attachments is not None else {}
         self.env = env or Environment(cache_size=0)
         self.template_id = template_id
 
@@ -754,14 +1029,30 @@ class DocTemplate():
     def render(self, **kwargs):
         """Render the Jinja2 template with given parameters.
 
+        If the template source contains comment-delimited block markers the render
+        is delegated to the block templating engine (``BlockDocTemplate``) instead.
+
+        Legacy parameter names (e.g. "title", "doc_no") are automatically mapped
+        onto the new "p"-prefixed names (e.g. "pDocTitle", "pDocNo") before the
+        render; see :mod:`pydocmaker.param_mapping`.
+
         Args:
             **kwargs: Additional parameters to be used in the template.
 
         Returns:
             str: The rendered template as a string.
         """
-        
+        if isinstance(self.template, str) and detect_block_template(self.template):
+            block_template = BlockDocTemplate(
+                self.template, params=self.params, attachments=self.attachments,
+                tformat=self.tformat or None, template_id=self.template_id)
+            return block_template.render(**kwargs)
+
         params = {**self.params, **kwargs}
+        # parameter values that merely mirror the template's own (placeholder)
+        # defaults do not count as user-set and must not block the conversion
+        params = param_mapping.map_legacy_params(
+            params, defaults=getattr(self, 'default_params', None))
         params = util.remove_undefined(params)
         return self.template.render(**params)
 
