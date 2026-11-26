@@ -4,7 +4,8 @@ These tests are OPT-IN and skipped by default so minimal test suites stay fast:
 
 - set the environment variable ``PYDOCMAKER_TEST_TEMPLATING=1`` (or the general
   ``PYDOCMAKER_TESTFULL=1``) to include them in a run, or
-- select them explicitly with ``pytest -m templating_extensive``.
+- run this module directly (``python tests/test_templating_extensive.py``) or
+  via ``python -m unittest tests.test_templating_extensive``.
 
 Covered matrix:
 
@@ -31,8 +32,6 @@ _src = os.path.join(os.path.dirname(_setup), 'src')
 if _src not in sys.path:
     sys.path.insert(0, _src)
 
-import pytest
-
 import pydocmaker as pyd
 from pydocmaker import blocktmpl, templating
 from pydocmaker.backend import ex_tex, ex_typst
@@ -45,7 +44,6 @@ README_PATH = REPO_ROOT / 'README.md'
 
 EXTENSIVE = True #bool(os.environ.get('PYDOCMAKER_TEST_TEMPLATING') or os.environ.get('PYDOCMAKER_TESTFULL'))
 
-pytestmark = pytest.mark.templating_extensive
 extensive = unittest.skipUnless(
     EXTENSIVE, 'extensive templating suite; opt in with PYDOCMAKER_TEST_TEMPLATING=1 or PYDOCMAKER_TESTFULL=1')
 
