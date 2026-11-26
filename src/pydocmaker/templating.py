@@ -295,7 +295,9 @@ def test_template_exists(template_id, tformat = '', template_dir=None):
         bool: True if found False otherwise
     """
     tds = TemplateDirSource(template_dir)
-    return any(tid in tds for tid in _candidate_template_ids(template_id, tformat))
+    candidates = _candidate_template_ids(template_id, tformat)
+    util.log.info(f"found n={len(candidates)} candidates. {candidates=}")
+    return next((True for tid in candidates if tid in tds), False)
 
 
 def get_available_template_ids(template_dir=None, tformat=None) -> list:
@@ -422,6 +424,14 @@ class TemplateDirSource():
 
         loaders = [FileSystemLoader(template_dir) for template_dir in self.template_dirs]
         self.env = Environment(loader=ChoiceLoader(loaders))
+
+        # Per-instance memoization of the directory scans (get_block_templates /
+        # get_templates). Cached dicts and the BlockDocTemplate / jinja2 Template
+        # objects inside them must be treated as read-only by callers; the
+        # accessors hand out shallow dict copies so caller-side merges never
+        # mutate the cache. Call clear_cache() when the template directories
+        # change on disk during the instance's lifetime.
+        self._cache = {}
              
 
     def find_undeclared_variables(self, template:Union[Template, str]):
@@ -683,35 +693,53 @@ class TemplateDirSource():
         dotfiles. When the same relative file name exists in several directories the
         first directory (in registration order) wins.
 
+        The scan result is memoized per instance and returned as a shallow dict copy;
+        see ``clear_cache()`` for cache invalidation.
+
         Returns:
             dict: A dictionary of block templates where the keys are the template file
                 names and the values are BlockDocTemplate objects.
         """
-        result = {}
-        for template_dir in self.template_dirs:
-            if not os.path.isdir(template_dir):
-                continue
-            for root, dirs, files in os.walk(template_dir):
-                dirs[:] = [d for d in dirs if d != '.git' and not d.startswith('.')]
-                for file in sorted(files):
-                    rel = os.path.relpath(os.path.join(root, file), template_dir).replace(os.sep, '/')
-                    if not self._block_template_matches_engine(rel):
-                        continue
-                    if rel in result:
-                        continue
-                    fpath = os.path.join(root, file)
-                    try:
-                        with open(fpath, 'r', encoding='utf-8-sig') as f:
-                            source = f.read()
-                    except OSError as err:
-                        continue
-                    if not detect_block_template(source):
-                        continue
-                    try:
-                        result[rel] = BlockDocTemplate(source, tformat=self.tformat, template_id=rel)
-                    except Exception as err:
-                        util.log.warning(f'failed to load block template "{rel}": {err}')
-        return result
+        cached = self._cache.get('block_templates')
+        if cached is None:
+            result = {}
+            for template_dir in self.template_dirs:
+                if not os.path.isdir(template_dir):
+                    continue
+                for root, dirs, files in os.walk(template_dir):
+                    dirs[:] = [d for d in dirs if d != '.git' and not d.startswith('.')]
+                    for file in sorted(files):
+                        rel = os.path.relpath(os.path.join(root, file), template_dir).replace(os.sep, '/')
+                        if not self._block_template_matches_engine(rel):
+                            continue
+                        if rel in result:
+                            continue
+                        fpath = os.path.join(root, file)
+                        try:
+                            with open(fpath, 'r', encoding='utf-8-sig') as f:
+                                source = f.read()
+                        except OSError as err:
+                            continue
+                        if not detect_block_template(source):
+                            continue
+                        try:
+                            result[rel] = BlockDocTemplate(source, tformat=self.tformat, template_id=rel)
+                        except Exception as err:
+                            util.log.warning(f'failed to load block template "{rel}": {err}')
+            cached = result
+            self._cache['block_templates'] = cached
+        return dict(cached)
+
+    def clear_cache(self):
+        """Empty the per-instance cache of the directory scans
+        (``get_block_templates`` / ``get_templates``).
+
+        Only needed for long-lived ``TemplateDirSource`` instances whose template
+        directories change on disk during the instance's lifetime. Short-lived
+        instances (the default, e.g. one instance per public helper call or per
+        ``DocTemplate.from_tid`` call) always see the current directory state.
+        """
+        self._cache.clear()
 
     def get_templates(self) -> dict:
         """Retrieves all the templates from the directory.
@@ -719,11 +747,13 @@ class TemplateDirSource():
        Returns:
            dict: A dictionary of templates where the keys are the template names
                and the values are the corresponding Jinja2 Template objects.
-        """
-
-        templates = self.env.list_templates(filter_func=self._template_matches_engine)
-        templates = {template: self.env.get_template(template) for template in templates}
-        return templates
+       """
+        cached = self._cache.get('templates')
+        if cached is None:
+            templates = self.env.list_templates(filter_func=self._template_matches_engine)
+            cached = {template: self.env.get_template(template) for template in templates}
+            self._cache['templates'] = cached
+        return dict(cached)
 
     def get_template_ids(self):
         """
@@ -822,13 +852,20 @@ class TemplateDirSource():
         Raises:
             KeyError: If the template ID is not found in the available templates.
         """
-        templates = self.get_templates()
+        
         block_templates = self.get_block_templates()
-        if my_template_id in templates:
-            return my_template_id
+
         if my_template_id in block_templates:
             return my_template_id
-
+        
+        # name-only lookup: listing the template names avoids compiling every
+        # jinja2 template just to resolve an id (get_templates() compiles all
+        # of them); membership checks and the short_map construction below work
+        # identically on the plain name list
+        templates = self.env.list_templates(filter_func=self._template_matches_engine)
+        if my_template_id in templates:
+            return my_template_id
+        
         # Collect all templates keyed by short name (without last extension)
         short_map = {}
         for t in templates:
@@ -905,13 +942,20 @@ class DocTemplate():
                 err = e
         else:
             raise err
-        templates, params, attachments_all = t.get_all()
-        # global assets and template specific assets
-        attch = {**attachments_all[''], **attachments_all[template_id]} 
 
-        template, params = templates[template_id], params[template_id]
-        if isinstance(template, BlockDocTemplate):
-            return BlockDocTemplate(template.template, params=params, attachments=attch, tformat=None, template_id=template_id)
+        # targeted loading: resolution is done, so only this template's params
+        # and assets are loaded instead of scanning every template in the
+        # directory (the old t.get_all() here walked and compiled everything)
+        block_templates = t.get_block_templates()          # cached per instance
+        params = t.get_params([template_id])[template_id]  # one params.json stat round or one fallback analysis
+        attachments = t.get_attachments([template_id])     # reads only global + this template's assets
+        # global assets and template specific assets
+        attch = {**attachments[''], **attachments[template_id]}
+
+        if template_id in block_templates:
+            return BlockDocTemplate(block_templates[template_id].template, params=params,
+                                    attachments=attch, tformat=None, template_id=template_id)
+        template = t.env.get_template(template_id)         # compiles exactly one template
         return DocTemplate(template, params, attch, t.env, template_id)
 
     @staticmethod
