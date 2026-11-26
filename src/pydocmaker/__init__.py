@@ -38,7 +38,11 @@ except ImportError:
 
 
 from pydocmaker.backend.libreoffice_api import config_libreoffice_path_get, config_libreoffice_path_set, config_libreoffice_path_find, config_libreoffice_path_testset
-from pydocmaker.core import config_pdf_engine_get, config_pdf_engine_set, config_pdf_engine_scan, config_pdf_engine_test, config_renderer_default_get, config_renderer_default_set, test_typst_installed, compile_with_typst
+from pydocmaker.core import (config_pdf_engine_get, config_pdf_engine_set, config_pdf_engine_scan, config_pdf_engine_test, 
+                             config_renderer_default_get, config_renderer_default_set, 
+                             config_use_pandoc_for_md_render_get, config_use_pandoc_for_md_render_set, 
+                             test_typst_installed, compile_with_typst)
+
 from pydocmaker.backend.pdf_maker_tex import config_latex_compiler_scan, config_latex_compiler_get, config_latex_compiler_set, config_latex_compiler_testset
 
 from pydocmaker.io.ipynb_loader import load_notebook
