@@ -11,6 +11,7 @@ import subprocess
 
 import os
 import subprocess
+import uuid
 import zipfile
 import tempfile
 import io
@@ -112,6 +113,58 @@ def pandoc_convert(input_string, input_format, output_format, is_binary=False, i
         return o
     else:
         return output
+
+def pandoc_convert_batch(
+    blocks: list[str],
+    input_format: str = "markdown",
+    output_format: str = "typst",
+    *args,
+    is_code=False
+) -> list[str]:
+    """
+    Convert multiple text blocks in a single pandoc invocation.
+
+    The blocks are joined with a blank-line-delimited unique split token
+    (a bare alphanumeric token paragraph, e.g. ``PYDOCMAKERPANDOCSPLIT...``).
+    Such a token survives both markdown and latex input parsing verbatim
+    (as long as ``--wrap=none`` is used), so it can serve as a split marker
+    in the converted output without requiring raw block support in the input
+    format. The token is uuid4-based, contains no underscores (underscores
+    would be interpreted as math subscripts by the latex reader) and is
+    therefore practically collision free.
+
+    Args:
+        blocks (list[str]): The text blocks to be converted
+        input_format (str): The source format (e.g. 'markdown', 'latex')
+        output_format (str): The target format (e.g. 'typst', 'html')
+        is_code (bool): Whether the blocks contain code (controls syntax
+            highlighting suppression, see :func:`pandoc_convert`)
+
+    Returns:
+        list[str]: The converted blocks (in input order)
+
+    Raises:
+        RuntimeError: If pandoc returns an error message or if the number of
+            parts found after splitting does not match the number of input
+            blocks (e.g. when a block swallowed the split token).
+    """
+    if not blocks:
+        return []
+
+    token = f"PYDOCMAKERPANDOCSPLIT{uuid.uuid4().hex}"
+    # Blank lines around the token ensure Pandoc parses it as a standalone paragraph
+    separator = f"\n\n{token}\n\n"
+    payload = separator.join(blocks)
+
+    out = pandoc_convert(payload, input_format, output_format, is_binary=False, is_code=is_code, *args)
+
+    parts = out.split(token)
+    if len(parts) != len(blocks):
+        raise RuntimeError(
+            f"Expected {len(blocks)} blocks after Pandoc split, got {len(parts)}"
+        )
+
+    return [part.strip("\n") for part in parts]
 
 def pandoc_set_allowed(is_allowed):
     """Set whether or not pandoc is allowed to be used as a valid conversion option"""
