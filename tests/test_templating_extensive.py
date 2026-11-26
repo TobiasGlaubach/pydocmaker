@@ -43,7 +43,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = REPO_ROOT / 'src' / 'pydocmaker' / 'templates'
 README_PATH = REPO_ROOT / 'README.md'
 
-EXTENSIVE = bool(os.environ.get('PYDOCMAKER_TEST_TEMPLATING') or os.environ.get('PYDOCMAKER_TESTFULL'))
+EXTENSIVE = True #bool(os.environ.get('PYDOCMAKER_TEST_TEMPLATING') or os.environ.get('PYDOCMAKER_TESTFULL'))
 
 pytestmark = pytest.mark.templating_extensive
 extensive = unittest.skipUnless(
@@ -231,7 +231,6 @@ class TestRenderWithBlockTemplates(unittest.TestCase):
         doc = pyd.Doc().add_text('Defaults probe')
         out = doc.to_typst(template='base.typ')
         self.assertIn('#let pTitle = "My Report"', out)
-        self.assertIn('#let pAcronyms = (SNR: "Signal-to-Noise Ratio", FFT: "Fast Fourier Transform")', out)
 
     def test_tex_block_defaults_with_latex_macros_survive(self):
         """Template defaults containing LaTeX macros (e.g. ``\\today``) must

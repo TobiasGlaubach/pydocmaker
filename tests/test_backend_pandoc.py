@@ -14,6 +14,7 @@ from pydocmaker.backend.pandoc_api import PandocFormatter
 
 import tempfile
 import base64
+from unittest.mock import patch
 
 
 class TestConvert(unittest.TestCase):
@@ -52,6 +53,92 @@ class TestConvert(unittest.TestCase):
 
     def test_pandoc_installed(self):
         self.assertIn(pandoc_api.test_is_pandoc_installed(), [True, False])
+
+
+class TestPandocConvertBatch(unittest.TestCase):
+
+    def test_empty_blocks(self):
+        self.assertEqual(pandoc_api.pandoc_convert_batch([], 'markdown', 'typst'), [])
+
+    def test_token_is_underscore_free_alphanumeric(self):
+        # patch pandoc_convert with an identity conversion so the split
+        # arithmetic holds and the separator token can be inspected
+        captured = {}
+
+        def fake_convert(payload, input_format, output_format, is_binary=False, is_code=False, *args):
+            captured['payload'] = payload
+            return payload
+
+        blocks = ['one', 'two', 'three']
+        with patch.object(pandoc_api, 'pandoc_convert', fake_convert):
+            out = pandoc_api.pandoc_convert_batch(blocks, 'markdown', 'typst')
+
+        self.assertEqual(out, blocks)
+        token = [p for p in captured['payload'].split('\n\n') if p and p not in blocks][0]
+        self.assertTrue(token)
+        self.assertNotIn('_', token)
+        self.assertTrue(token.isalnum())
+        self.assertEqual(captured['payload'].count(token), len(blocks) - 1)
+
+    def test_single_block_has_no_separator(self):
+        captured = {}
+
+        def fake_convert(payload, input_format, output_format, is_binary=False, is_code=False, *args):
+            captured['payload'] = payload
+            return payload
+
+        with patch.object(pandoc_api, 'pandoc_convert', fake_convert):
+            out = pandoc_api.pandoc_convert_batch(['# Only Block'], 'markdown', 'typst')
+
+        self.assertEqual(captured['payload'], '# Only Block')
+        self.assertEqual(out, ['# Only Block'])
+
+    def test_is_code_defaults_to_false(self):
+        captured = {}
+
+        def fake_convert(payload, input_format, output_format, is_binary=False, is_code=False, *args):
+            captured['is_code'] = is_code
+            return payload
+
+        with patch.object(pandoc_api, 'pandoc_convert', fake_convert):
+            pandoc_api.pandoc_convert_batch(['a', 'b'], 'markdown', 'typst')
+
+        self.assertFalse(captured['is_code'])
+
+    def test_part_count_mismatch_raises(self):
+        # pandoc (mocked) loses the split tokens -> RuntimeError
+        with patch.object(pandoc_api, 'pandoc_convert', return_value='no tokens here'):
+            with self.assertRaises(RuntimeError):
+                pandoc_api.pandoc_convert_batch(['a', 'b', 'c'], 'markdown', 'typst')
+
+    @unittest.skipUnless(pandoc_api.can_run_pandoc(), 'pandoc is not installed')
+    def test_batch_equals_per_block_markdown(self):
+        blocks = [
+            "# Heading One",
+            "Some *italic* and **bold** text with unicode: \u00e4\u00f6\u00fc \u20ac \u03b1\u03b2\u03b3",
+            "```python\nprint('hello')\n```",
+            "",
+            "- item a\n- item b\n- item c",
+            "[a link](https://example.com)",
+            "Paragraph with `inline code` here.",
+        ]
+        batched = pandoc_api.pandoc_convert_batch(blocks, 'markdown', 'typst')
+        per_block = [pandoc_api.pandoc_convert(b, 'markdown', 'typst') for b in blocks]
+        self.assertEqual(batched, per_block)
+
+    @unittest.skipUnless(pandoc_api.can_run_pandoc(), 'pandoc is not installed')
+    def test_batch_equals_per_block_latex(self):
+        blocks = [
+            r"\section{Section One}",
+            r"$x^2 + y^2 = z^2$",
+            r"\begin{itemize} \item one \item two \end{itemize}",
+            r"\textbf{bold} and \textit{italic}",
+            r"\begin{equation} E = mc^2 \end{equation}",
+            r"$x_{sub}^{sup}$",
+        ]
+        batched = pandoc_api.pandoc_convert_batch(blocks, 'latex', 'typst')
+        per_block = [pandoc_api.pandoc_convert(b, 'latex', 'typst') for b in blocks]
+        self.assertEqual(batched, per_block)
 
 
 # class TestPandocFormatterHtml(unittest.TestCase):
