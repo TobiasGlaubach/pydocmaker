@@ -24,8 +24,7 @@ import jinja2
 
 
 
-from .util import flatten_list, split_camel_case, upload_report_to_redmine, CommonJSONEncoder, MyJSONDecoder, limit_len, log, make_png_imageblob
-
+from .util import flatten_list, split_camel_case, upload_report_to_redmine, CommonJSONEncoder, MyJSONDecoder, limit_len, log, make_png_imageblob, loadfile_str
 
 from .backend.ex_html import convert as to_html
 from .backend.ex_docx import convert as to_docx
@@ -36,7 +35,7 @@ from .backend.ex_redmine import convert as to_textile
 from .backend.ex_tex import make_pdf as to_pdf_tex
 from .backend.ex_tex import make_pdf_zip as to_pdf_zip
 from .backend.ex_rich import convert as print_rich
-from .backend.ex_typst import convert as to_typst, compile_with_typst as to_pdf_typst, test_typst_installed, compile_with_typst
+from .backend.ex_typst import convert as to_typst, compile_with_typst as to_pdf_typst, test_typst_installed, compile_with_typst, RENDER_MARKDOWN_VIA_PANDOC
 
 from .backend.pdf_maker_tex import make_pdf_from_tex, config_latex_compiler_get, config_latex_compiler_set
 from .backend import ex_docx
@@ -60,6 +59,38 @@ chapter_level = 1 # this is the level of heading to use for chapters which is eq
 _pdf_engine = None
 _renderer_default = 'auto'
 
+
+def config_typst_md_mode_set(choice: str = 'pandoc') -> str:
+    """
+    Sets the desired mode to convert markdown in typst
+        "cmarker" = within the typst document via the plugin library cmarker
+        "pandoc" = convert within pydocmaker via pandoc
+
+    Parameters:
+    choice (str): The desired mode to convert markdown in typst. Either "cmarker" or "pandoc" default "pandoc"
+
+    Returns:
+    str: The selected mode to convert markdown in typst.
+
+    Raises:
+    ValueError: If the provided choice is not one of the allowed options.
+    """
+    options = "cmarker pandoc".split()
+    choice = str(choice).lower()
+    if not choice in options:
+        raise ValueError(f'The desired mode to convert must be one of {options=} but was {choice=}')
+    
+    global RENDER_MARKDOWN_VIA_PANDOC
+    RENDER_MARKDOWN_VIA_PANDOC = choice
+    return RENDER_MARKDOWN_VIA_PANDOC
+
+
+def config_typst_md_mode_get() -> str:
+    """returns the desired mode to convert markdown in typst
+        "cmarker" = within the typst document via the plugin library cmarker
+        "pandoc" = convert within pydocmaker via pandoc
+    """
+    return str(RENDER_MARKDOWN_VIA_PANDOC)
 
 
 def config_renderer_default_set(choice:str='auto'):
