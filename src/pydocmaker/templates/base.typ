@@ -18,6 +18,7 @@
 
 #show link: set text(fill: blue, weight: 700)
 #show link: underline
+#show text.where(fill: green): set text(fill: green.darken(35%))
 
 // code blocks
 #let code-border = luma(0)

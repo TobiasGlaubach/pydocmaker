@@ -384,7 +384,8 @@
   show heading: set text(fill: heading-color)
   show heading: set par(justify: false)
   show heading: set block(below: 2em)
-
+  show text.where(fill: green): set text(fill: green.darken(35%))
+  
   set figure(numbering: "1")
   show figure.caption: it => {
     set text(size: label-size)
