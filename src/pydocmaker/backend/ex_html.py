@@ -29,9 +29,14 @@ except Exception as err:
     from ..param_mapping import map_legacy_params
 
 try:
-    from pydocmaker.backend.pandoc_api import can_run_pandoc, pandoc_convert
+    from pydocmaker.backend.pandoc_api import can_run_pandoc, pandoc_convert, config_use_pandoc_for_md_render_get
 except Exception as err:
-    from .pandoc_api import can_run_pandoc, pandoc_convert
+    from .pandoc_api import can_run_pandoc, pandoc_convert, config_use_pandoc_for_md_render_get
+
+try:
+    from pydocmaker.backend.pandoc_batch import PandocBatchMixin
+except Exception as err:
+    from .pandoc_batch import PandocBatchMixin
 
 markdown = None
 urllib = None
@@ -179,13 +184,17 @@ def convert(doc:List[dict], template = None, template_params=None, template_engi
 """
 ###########################################################################################
 
-class html_renderer(BaseFormatter):
+class html_renderer(PandocBatchMixin, BaseFormatter):
+
+    # kind (pandoc input format) -> (output format, is_code)
+    _pandoc_batch_specs = {'markdown': ('html', False), 'latex': ('html', False)}
 
     def __init__(self):
         self.cnt_img = 0
         self.cnt_table = 0
 
         super().__init__()
+        self._pandoc_batch_init()
 
     def digest_text(self, **kwargs):
         label = kwargs.get('label', '')
@@ -205,18 +214,17 @@ class html_renderer(BaseFormatter):
     
     def digest_latex(self, **kwargs):
         if can_run_pandoc():
-            return pandoc_convert(kwargs.get('children', ''), 'latex', 'html')
-        else:
-            s = 'native backend can not convert latex to html and no pandoc is available. Falling back to show as verbatim'
-            warnings.warn(s)
-            return '<br>' + self.digest_text(children='Warning! ' + s, color='purple') + self.digest_verbatim(**kwargs)    
+            return self._pandoc_register('latex', dict(kwargs), children=kwargs.get('children', ''))
+        s = 'native backend can not convert latex to html and no pandoc is available. Falling back to show as verbatim'
+        warnings.warn(s)
+        return '<br>' + self.digest_text(children='Warning! ' + s, color='purple') + self.digest_verbatim(**kwargs)
 
-    
+
     def digest_markdown(self, **kwargs):
         label = kwargs.get('label', '')
         content = kwargs.get('content', kwargs.get('children'))
         color = kwargs.get('color', '')
-        use_pandoc = kwargs.get('use_pandoc', 0)
+        use_pandoc = kwargs.get('use_pandoc', config_use_pandoc_for_md_render_get())
 
         if color:
             color = f'color:{color};'
@@ -229,14 +237,49 @@ class html_renderer(BaseFormatter):
             ]
 
         if use_pandoc and can_run_pandoc():
-            s = pandoc_convert(content, 'markdown', 'html')
-        else:
-            _lazy_import()
-            s = markdown.markdown(content)
+            return self._pandoc_register('markdown', dict(kwargs), children=content)
+
+        _lazy_import()
+        s = markdown.markdown(content)
 
         fun = lambda x:  f'<div style="{color}">{x}</div>' if color else f'<div>{x}</div>'
         parts += [fun(s)]
         return '\n\n'.join(parts)
+
+
+    def _pandoc_finalize(self, kind, el, converted=None, err=None) -> str:
+        if converted is None:
+            return self.handle_error(err, el)
+
+        # the batch split token is rendered as a standalone <p>...</p>
+        # paragraph in the html output, so every split part carries a leftover
+        # '</p>' prefix and/or '<p>' suffix; strip them to match the per-block
+        # conversion output (single block batches and direct pandoc_convert
+        # calls are unaffected since their output is balanced html)
+        converted = converted.strip()
+        if converted.startswith('</p>'):
+            converted = converted[4:].lstrip()
+        if converted.endswith('<p>'):
+            converted = converted[:-3].rstrip()
+
+        if kind == 'markdown':
+            label = el.get('label', '')
+            color = el.get('color', '')
+            if color:
+                color = f'color:{color};'
+
+            parts = []
+            if label:
+                parts += [
+                    f'<div style="min-width:100;{color}">{label}</div>',
+                    '<hr/>'
+                ]
+
+            fun = lambda x:  f'<div style="{color}">{x}</div>' if color else f'<div>{x}</div>'
+            parts += [fun(converted)]
+            return '\n\n'.join(parts)
+
+        return converted
     
 
     def digest_verbatim(self, **kwargs):

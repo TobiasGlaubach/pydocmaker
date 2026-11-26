@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-import base64, time, io, copy, json, traceback, hashlib, markdown, re, uuid
+import base64, time, io, copy, json, traceback, hashlib, markdown, re
 import warnings
 from typing import List, Union
 import json
@@ -55,18 +55,17 @@ except Exception as err:
 
 
 try:
-    from pydocmaker.backend.pandoc_api import can_run_pandoc, pandoc_convert, pandoc_convert_file, pandoc_convert_batch
+    from pydocmaker.backend.pandoc_api import can_run_pandoc, pandoc_convert, pandoc_convert_file, pandoc_convert_batch, config_use_pandoc_for_md_render_get
 except Exception as err:
-    from .pandoc_api import can_run_pandoc, pandoc_convert, pandoc_convert_file, pandoc_convert_batch
+    from .pandoc_api import can_run_pandoc, pandoc_convert, pandoc_convert_file, pandoc_convert_batch, config_use_pandoc_for_md_render_get
+
+try:
+    from pydocmaker.backend.pandoc_batch import PandocBatchMixin
+except Exception as err:
+    from .pandoc_batch import PandocBatchMixin
 
 log = util.log
 
-
-RENDER_MARKDOWN_VIA_PANDOC = True
-
-# maximum number of pending blocks per pandoc batch call (None = no limit,
-# i.e. one batch call per input format and document)
-PANDOC_BATCH_CHUNK_SIZE = None
 
 CODLY_LIBS = """#import "@preview/codly:1.3.0": *
 #import "@preview/codly-languages:0.1.1": *
@@ -192,6 +191,9 @@ DATA_URI_IMAGE_RE = re.compile(
 )
 DO_REPLACE_HORIZONTALRULE = True
 USE_CODELY = True
+
+
+
 
 def test_typst_installed():
     try:
@@ -592,16 +594,19 @@ def convert(doc:List[dict], template = None, template_params=None, ret_attachmen
 
 
 
-class DocumentTypstFormatter(BaseFormatter):
+class DocumentTypstFormatter(PandocBatchMixin, BaseFormatter):
+
+    # kind (pandoc input format) -> (output format, is_code)
+    _pandoc_batch_specs = {
+        'markdown': ('typst', False),
+        'latex': ('typst', False),
+    }
 
     def __init__(self) -> None:
         self.cnt_img = 0
         self.cnt_tables = 0
         self.libraries = set()
-        # pending pandoc conversions as (placeholder, kind, el_dict) tuples;
-        # kind is the pandoc input format ('markdown' or 'latex')
-        self._pending = []
-        self._digest_depth = 0
+        self._pandoc_batch_init()
 
     def _handle_color(self, part, color=None, **kwargs) -> str:
         if color:
@@ -610,73 +615,13 @@ class DocumentTypstFormatter(BaseFormatter):
         else:
             return part
 
-    def digest(self, children, **kwargs) -> str:
-        # wrap the base dispatch so that all pandoc placeholder elements
-        # registered during (possibly nested) digesting are resolved and
-        # substituted as soon as the outermost digest call finishes
-        self._digest_depth += 1
-        ret = None
-        try:
-            ret = super().digest(children, **kwargs)
-        finally:
-            self._digest_depth -= 1
-            if self._digest_depth == 0:
-                # clear _pending first so state never leaks between calls
-                # (also on exception paths of super().digest)
-                pending, self._pending = self._pending, []
-                if pending and isinstance(ret, str):
-                    try:
-                        ret = self._resolve_pending(ret, pending)
-                    except Exception as err:
-                        log.warning(f'failed to resolve pending pandoc conversions: {err}')
-        return ret
-
-    def _resolve_pending(self, s, pending=None) -> str:
-        """Convert all pending pandoc placeholder elements and substitute them in ``s``.
-
-        The pending elements are grouped by input format and converted with at
-        most one ``pandoc_convert_batch`` call per group (optionally chunked via
-        ``PANDOC_BATCH_CHUNK_SIZE``). On batch failure the group is retried per
-        block, and blocks that still fail fall back to their cmarker/mitex
-        embedding.
-        """
-        if pending is None:
-            pending = self._pending
-
-        # group pending placeholder elements by input format; registration order is preserved
-        groups = {}
-        for placeholder, kind, el in pending:
-            groups.setdefault(kind, []).append((placeholder, el))
-
-        for kind, items in groups.items():
-            chunk_size = PANDOC_BATCH_CHUNK_SIZE or len(items)
-            chunk_size = max(1, chunk_size)
-
-            for i in range(0, len(items), chunk_size):
-                chunk = items[i:i + chunk_size]
-                children_list = [el.get('children', '') for _, el in chunk]
-
-                converted = [None] * len(chunk)
-                try:
-                    converted = pandoc_convert_batch(children_list, kind, 'typst', is_code=False)
-                except Exception as err:
-                    log.warning(f'pandoc batch conversion failed ({kind} -> typst): {err}\nfalling back to per-block conversion...')
-                    for j, children in enumerate(children_list):
-                        try:
-                            converted[j] = pandoc_convert(children, kind, 'typst')
-                        except Exception:
-                            converted[j] = None
-
-                for (placeholder, el), conv in zip(chunk, converted):
-                    kwargs = dict(el)
-                    children = kwargs.pop('children', '')
-                    if kind == 'markdown':
-                        repl = self._finalize_markdown(children, converted=conv, **kwargs)
-                    else:
-                        repl = self._finalize_latex(children, converted=conv, **kwargs)
-                    s = s.replace(placeholder, repl)
-
-        return s
+    def _pandoc_finalize(self, kind, el, converted=None, err=None) -> str:
+        kwargs = dict(el)
+        children = kwargs.pop('children', '')
+        if kind == 'markdown':
+            return self._finalize_markdown(children, converted=converted, **kwargs)
+        else:
+            return self._finalize_latex(children, converted=converted, **kwargs)
 
     def _finalize_latex(self, children, converted=None, **kwargs):
         """Post-conversion handling for a latex element (behavior unchanged).
@@ -724,17 +669,13 @@ class DocumentTypstFormatter(BaseFormatter):
 
     def digest_latex(self, children: str, **kwargs):
         if can_run_pandoc():
-            placeholder = f'PYDOCMAKERPANDOCPH{uuid.uuid4().hex}'
-            self._pending.append((placeholder, 'latex', dict(children=children, **kwargs)))
-            return placeholder
+            return self._pandoc_register('latex', dict(children=children, **kwargs), children=children)
 
         return self._finalize_latex(children, **kwargs)
 
     def digest_markdown(self, children='', **kwargs) -> str:
-        if RENDER_MARKDOWN_VIA_PANDOC and can_run_pandoc():
-            placeholder = f'PYDOCMAKERPANDOCPH{uuid.uuid4().hex}'
-            self._pending.append((placeholder, 'markdown', dict(children=children, **kwargs)))
-            return placeholder
+        if config_use_pandoc_for_md_render_get() and can_run_pandoc():
+            return self._pandoc_register('markdown', dict(children=children, **kwargs), children=children)
 
         return self._finalize_markdown(children, **kwargs)
     

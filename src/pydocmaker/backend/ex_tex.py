@@ -44,9 +44,14 @@ except Exception as err:
     
 
 try:
-    from pydocmaker.backend.pandoc_api import can_run_pandoc, pandoc_convert
+    from pydocmaker.backend.pandoc_api import can_run_pandoc, pandoc_convert, config_use_pandoc_for_md_render_get
 except Exception as err:
-    from .pandoc_api import can_run_pandoc, pandoc_convert
+    from .pandoc_api import can_run_pandoc, pandoc_convert, config_use_pandoc_for_md_render_get
+
+try:
+    from pydocmaker.backend.pandoc_batch import PandocBatchMixin
+except Exception as err:
+    from .pandoc_batch import PandocBatchMixin
 
 
 
@@ -563,13 +568,17 @@ def handle_color(func):
         return map_colornames(result, c)
     return wrapper
 
-class LatexElementFormatter(BaseFormatter):
+class LatexElementFormatter(PandocBatchMixin, BaseFormatter):
+
+    # kind (pandoc input format) -> (output format, is_code)
+    _pandoc_batch_specs = {'markdown': ('latex', True)}
 
     def __init__(self, make_blue=False) -> None:
         self.attachments = {}
         self.make_blue = make_blue
 
         self._escape_strings = False
+        self._pandoc_batch_init()
 
     def handle_error(self, err, el):
         txt = 'ERROR WHILE HANDLING ELEMENT:\n{}\n\n'.format(el)
@@ -585,14 +594,18 @@ class LatexElementFormatter(BaseFormatter):
 
         return txt
 
-    @handle_color
     def digest_markdown(self, children='', **kwargs) -> str:
-        if can_run_pandoc():
-            return pandoc_convert(replace_bcolors(children), 'markdown', 'latex', is_binary=False, is_code=True)
-        else:
-            _lazy_import()
-            tex = md.convert(replace_bcolors(children)).lstrip('<root>').rstrip('</root>')
-        return str(tex)
+        if config_use_pandoc_for_md_render_get() and can_run_pandoc():
+            return self._pandoc_register('markdown', dict(children=children, **kwargs), children=replace_bcolors(children))
+
+        _lazy_import()
+        tex = md.convert(replace_bcolors(children)).lstrip('<root>').rstrip('</root>')
+        return map_colornames(str(tex), kwargs.get('color'))
+
+    def _pandoc_finalize(self, kind, el, converted=None, err=None) -> str:
+        if converted is not None:
+            return map_colornames(converted, el.get('color'))
+        return self.handle_error(err, el)
 
     
     def digest_image(self, children='', width=None, caption='', imageblob='', **kwargs) -> str:
