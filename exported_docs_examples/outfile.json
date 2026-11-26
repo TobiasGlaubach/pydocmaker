@@ -9,6 +9,7 @@
     "typ": "verbatim",
     "children": "this will be shown as preformatted",
     "color": "",
+    "lang": "",
     "end": null
   },
   {
