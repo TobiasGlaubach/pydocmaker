@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-import base64, time, io, copy, json, traceback, hashlib, markdown, re
+import base64, time, io, copy, json, traceback, hashlib, markdown, re, uuid
 import warnings
 from typing import List, Union
 import json
@@ -55,11 +55,18 @@ except Exception as err:
 
 
 try:
-    from pydocmaker.backend.pandoc_api import can_run_pandoc, pandoc_convert, pandoc_convert_file
+    from pydocmaker.backend.pandoc_api import can_run_pandoc, pandoc_convert, pandoc_convert_file, pandoc_convert_batch
 except Exception as err:
-    from .pandoc_api import can_run_pandoc, pandoc_convert, pandoc_convert_file
+    from .pandoc_api import can_run_pandoc, pandoc_convert, pandoc_convert_file, pandoc_convert_batch
 
 log = util.log
+
+
+RENDER_MARKDOWN_VIA_PANDOC = True
+
+# maximum number of pending blocks per pandoc batch call (None = no limit,
+# i.e. one batch call per input format and document)
+PANDOC_BATCH_CHUNK_SIZE = None
 
 CODLY_LIBS = """#import "@preview/codly:1.3.0": *
 #import "@preview/codly-languages:0.1.1": *
@@ -90,6 +97,8 @@ __default_template = """
 
 #show link: set text(fill: blue, weight: 700)
 #show link: underline
+#show text.where(fill: green): set text(fill: green.darken(35%))
+
 
 // code blocks
 #let code-border = luma(0)
@@ -158,13 +167,13 @@ Document body placeholder
 
 _table_template = """
 #figure(
-table(
+wrappable(table(
     columns: {n_cols:},
     stroke: {stroke:},
     align:(left+horizon),
     {header:}
     {rows:}
-),
+)),
 {suffix:}
 ) <{name:}>
 
@@ -555,7 +564,8 @@ def convert(doc:List[dict], template = None, template_params=None, ret_attachmen
         log.info(f'   {kw.keys()=}')
         log.info(f'   {attachments.keys()=}')
     
-
+    libraries = list(sorted(libraries))
+    
     try:
         doc_typst = template_obj.render(**kw)
 
@@ -588,7 +598,10 @@ class DocumentTypstFormatter(BaseFormatter):
         self.cnt_img = 0
         self.cnt_tables = 0
         self.libraries = set()
-
+        # pending pandoc conversions as (placeholder, kind, el_dict) tuples;
+        # kind is the pandoc input format ('markdown' or 'latex')
+        self._pending = []
+        self._digest_depth = 0
 
     def _handle_color(self, part, color=None, **kwargs) -> str:
         if color:
@@ -596,52 +609,142 @@ class DocumentTypstFormatter(BaseFormatter):
             return s
         else:
             return part
-        
 
-    def digest_latex(self, children: str, **kwargs):
-        s = None
+    def digest(self, children, **kwargs) -> str:
+        # wrap the base dispatch so that all pandoc placeholder elements
+        # registered during (possibly nested) digesting are resolved and
+        # substituted as soon as the outermost digest call finishes
+        self._digest_depth += 1
+        ret = None
+        try:
+            ret = super().digest(children, **kwargs)
+        finally:
+            self._digest_depth -= 1
+            if self._digest_depth == 0:
+                # clear _pending first so state never leaks between calls
+                # (also on exception paths of super().digest)
+                pending, self._pending = self._pending, []
+                if pending and isinstance(ret, str):
+                    try:
+                        ret = self._resolve_pending(ret, pending)
+                    except Exception as err:
+                        log.warning(f'failed to resolve pending pandoc conversions: {err}')
+        return ret
+
+    def _resolve_pending(self, s, pending=None) -> str:
+        """Convert all pending pandoc placeholder elements and substitute them in ``s``.
+
+        The pending elements are grouped by input format and converted with at
+        most one ``pandoc_convert_batch`` call per group (optionally chunked via
+        ``PANDOC_BATCH_CHUNK_SIZE``). On batch failure the group is retried per
+        block, and blocks that still fail fall back to their cmarker/mitex
+        embedding.
+        """
+        if pending is None:
+            pending = self._pending
+
+        # group pending placeholder elements by input format; registration order is preserved
+        groups = {}
+        for placeholder, kind, el in pending:
+            groups.setdefault(kind, []).append((placeholder, el))
+
+        for kind, items in groups.items():
+            chunk_size = PANDOC_BATCH_CHUNK_SIZE or len(items)
+            chunk_size = max(1, chunk_size)
+
+            for i in range(0, len(items), chunk_size):
+                chunk = items[i:i + chunk_size]
+                children_list = [el.get('children', '') for _, el in chunk]
+
+                converted = [None] * len(chunk)
+                try:
+                    converted = pandoc_convert_batch(children_list, kind, 'typst', is_code=False)
+                except Exception as err:
+                    log.warning(f'pandoc batch conversion failed ({kind} -> typst): {err}\nfalling back to per-block conversion...')
+                    for j, children in enumerate(children_list):
+                        try:
+                            converted[j] = pandoc_convert(children, kind, 'typst')
+                        except Exception:
+                            converted[j] = None
+
+                for (placeholder, el), conv in zip(chunk, converted):
+                    kwargs = dict(el)
+                    children = kwargs.pop('children', '')
+                    if kind == 'markdown':
+                        repl = self._finalize_markdown(children, converted=conv, **kwargs)
+                    else:
+                        repl = self._finalize_latex(children, converted=conv, **kwargs)
+                    s = s.replace(placeholder, repl)
+
+        return s
+
+    def _finalize_latex(self, children, converted=None, **kwargs):
+        """Post-conversion handling for a latex element (behavior unchanged).
+
+        ``converted`` is the typst string produced by the batch or per-block
+        pandoc conversion; ``converted=None`` triggers the verbatim mitex
+        fallback (pandoc missing or conversion failed).
+        """
+        s = converted
         err = ''
         if can_run_pandoc():
-            try:
-                s = pandoc_convert(children, 'latex', 'typst')
+            if s is not None:
                 return self._handle_color(s, **kwargs)
-            except Exception as err:
-                err = 'Can not convert latex to typst! Embedding the latex code verbatim...\n\n'
+            err = 'Can not convert latex to typst! Embedding the latex code verbatim...\n\n'
         else:
             err = 'Pandoc is not available to convert latex to typst! Embedding the latex code verbatim...\n\n'
-        
-        
+
         if s is None:
             self.libraries.add('#import "@preview/cmarker:0.1.8"')
             self.libraries.add('#import "@preview/mitex:0.2.7": *')
             safe_latex = json.dumps(children, cls=util.CommonJSONEncoder) # escape all chars etc. and put quotes around it
             s = f'#mitext({safe_latex})'
             return s
-        
+
         s = err
         s += self.digest_verbatim(children=children, lang='latex', **kwargs)
         return self._handle_color(s, 'orange')
 
-    def digest_markdown(self, children='', **kwargs) -> list:
-        s = None
-        if can_run_pandoc():
-            try:
-                s = pandoc_convert(children, 'markdown', 'typst')
-            except Exception as err:
-                pass
+    def _finalize_markdown(self, children, converted=None, **kwargs):
+        """Post-conversion handling for a markdown element (behavior unchanged).
+
+        ``converted`` is the typst string produced by the batch or per-block
+        pandoc conversion; ``converted=None`` triggers the cmarker fallback
+        (pandoc missing or conversion failed).
+        """
+        s = converted
 
         if s is None:
             self.libraries.add('#import "@preview/cmarker:0.1.8"')
             self.libraries.add('#import "@preview/mitex:0.2.6": mitex')
             safe_markdown = json.dumps(children, cls=util.CommonJSONEncoder) # escape all chars etc. and put quotes around it
             s = f'#cmarker.render({safe_markdown}, math: mitex)'
-            
+
         return self._handle_color(s, **kwargs)
+
+    def digest_latex(self, children: str, **kwargs):
+        if can_run_pandoc():
+            placeholder = f'PYDOCMAKERPANDOCPH{uuid.uuid4().hex}'
+            self._pending.append((placeholder, 'latex', dict(children=children, **kwargs)))
+            return placeholder
+
+        return self._finalize_latex(children, **kwargs)
+
+    def digest_markdown(self, children='', **kwargs) -> str:
+        if RENDER_MARKDOWN_VIA_PANDOC and can_run_pandoc():
+            placeholder = f'PYDOCMAKERPANDOCPH{uuid.uuid4().hex}'
+            self._pending.append((placeholder, 'markdown', dict(children=children, **kwargs)))
+            return placeholder
+
+        return self._finalize_markdown(children, **kwargs)
     
     def digest_text(self, children='', **kwargs):
         return self._handle_color(children, **kwargs)
     
     def digest_table(self, children=None, **kwargs) -> str:
+        
+        self.libraries.add('#show figure.where(kind: table): set block(breakable: true)') # make a table break at end of page
+        self.libraries.add('#let wrappable(body) = {\n  show regex("[.,:\\\\-_]"): it => [#it#sym.zws]\n  body\n}') # make column text also break on ,.:-
 
         borders = kwargs.pop('borders', None)
         if borders is None:
