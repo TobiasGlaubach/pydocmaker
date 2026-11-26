@@ -455,6 +455,7 @@ class TestFiltoutp(unittest.TestCase):
 
 class TestParseOutputData(unittest.TestCase):
 
+    @unittest.skipUnless(can_run_pandoc(), "pandoc is not installed")
     def test_html_plain_pair_prefers_html(self):
         loader = IpynbLoader()
         doc = Doc()

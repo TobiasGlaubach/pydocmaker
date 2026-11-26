@@ -556,6 +556,7 @@ class TestPandocBatching(unittest.TestCase):
         self.assertNotEqual(p1, p2)
         self.assertNotIn('PYDOCMAKER', p1 + p2)
 
+    @unittest.skipUnless(ex_typst.can_run_pandoc(), 'pandoc is not installed')
     def test_digest_markdown_registers_placeholder_without_pandoc_call(self):
         # while digesting, markdown elements must not trigger pandoc calls
         real_batch = pandoc_batch.pandoc_convert_batch

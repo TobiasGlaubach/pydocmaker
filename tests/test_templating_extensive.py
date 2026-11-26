@@ -65,6 +65,19 @@ tex_pdf_compile = unittest.skipIf(
     IN_CI or not _latex_compiler_available(),
     'skipping tex PDF compilation (CI must not rely on a latex compiler)')
 
+
+def _pandoc_available():
+    try:
+        return bool(ex_typst.can_run_pandoc())
+    except Exception:
+        return False
+
+
+#: rendering the README (it contains remote badge images) to typst/PDF goes
+#: through pandoc; CI runners have no pandoc, so those renders are skipped
+needs_pandoc = unittest.skipUnless(
+    _pandoc_available(), 'readme md->typst rendering needs pandoc; pandoc is not installed')
+
 MIN_PDF_BYTES = 1000
 MAX_PDF_BYTES = 10 * 1000 * 1000
 
@@ -172,6 +185,8 @@ class TestRenderWithoutTemplate(unittest.TestCase):
 
     def test_pdf_without_template(self):
         for doc_name, doc in make_documents().items():
+            if doc_name == 'readme' and not _pandoc_available():
+                continue  # readme md->typst (badge images) needs pandoc
             with self.subTest(doc=doc_name):
                 pdf = doc.to_pdf(verb=0)
                 assert_valid_pdf(self, pdf)
@@ -219,6 +234,8 @@ class TestRenderWithBlockTemplates(unittest.TestCase):
 
     def test_pdf_with_typ_block_templates(self):
         for doc_name, doc in make_documents().items():
+            if doc_name == 'readme' and not _pandoc_available():
+                continue  # readme md->typst (badge images) needs pandoc
             for tname in block_template_names():
                 if template_format(tname) != 'typ':
                     continue
@@ -305,6 +322,8 @@ class TestRenderWithJinjaTemplates(unittest.TestCase):
 
     def test_pdf_with_typ_jinja_templates(self):
         for doc_name, doc in make_documents().items():
+            if doc_name == 'readme' and not _pandoc_available():
+                continue  # readme md->typst (badge images) needs pandoc
             for tname in jinja_template_names():
                 if template_format(tname) != 'typ':
                     continue
@@ -433,6 +452,7 @@ class TestTemplateDefinitionVariants(unittest.TestCase):
         assert_valid_pdf(self, pdf_path)
         assert_pdf_size_consistent(self, pdf_id, pdf_path)
 
+    @needs_pandoc
     def test_readme_with_report_block_template_like_create_readme_pdf(self):
         doc = pyd.Doc().add_md(README_PATH.read_text(encoding='utf-8'))
         doc.set_template_to_meta('report', tformat='.typ', template_params={
