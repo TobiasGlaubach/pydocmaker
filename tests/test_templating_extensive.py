@@ -47,6 +47,24 @@ EXTENSIVE = True #bool(os.environ.get('PYDOCMAKER_TEST_TEMPLATING') or os.enviro
 extensive = unittest.skipUnless(
     EXTENSIVE, 'extensive templating suite; opt in with PYDOCMAKER_TEST_TEMPLATING=1 or PYDOCMAKER_TESTFULL=1')
 
+#: CI runners must not rely on a latex compiler or libreoffice being installed
+IN_CI = bool(os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'))
+
+
+def _latex_compiler_available():
+    try:
+        from pydocmaker.backend.pdf_maker_tex import config_latex_compiler_scan
+        return bool(config_latex_compiler_scan())
+    except Exception:
+        return False
+
+
+#: PDF compilation through the tex engine requires a local latex compiler;
+#: in CI these tests are skipped because CI must not rely on a latex compiler
+tex_pdf_compile = unittest.skipIf(
+    IN_CI or not _latex_compiler_available(),
+    'skipping tex PDF compilation (CI must not rely on a latex compiler)')
+
 MIN_PDF_BYTES = 1000
 MAX_PDF_BYTES = 10 * 1000 * 1000
 
@@ -210,6 +228,7 @@ class TestRenderWithBlockTemplates(unittest.TestCase):
                     pdf = doc.to_pdf(template=tname, engine='typst', verb=0, **kw)
                     assert_valid_pdf(self, pdf)
 
+    @tex_pdf_compile
     def test_pdf_with_tex_block_templates(self):
         for doc_name, doc in make_documents().items():
             for tname in block_template_names():
@@ -296,6 +315,7 @@ class TestRenderWithJinjaTemplates(unittest.TestCase):
                                      template_params=JINJA_TEMPLATE_PARAMS.get(tname), **kw)
                     assert_valid_pdf(self, pdf)
 
+    @tex_pdf_compile
     def test_pdf_with_tex_jinja_templates(self):
         for doc_name, doc in make_documents().items():
             for tname in jinja_template_names():

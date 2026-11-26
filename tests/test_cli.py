@@ -41,6 +41,9 @@ def _typst_available():
 
 
 def _latex_compiler_available():
+    if os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'):
+        # CI runners must not rely on a latex compiler being installed
+        return False
     return any(shutil.which(c) for c in
                ('tectonic', 'pdflatex', 'lualatex', 'xelatex'))
 
