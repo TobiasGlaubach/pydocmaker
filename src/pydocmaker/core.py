@@ -775,19 +775,19 @@ class Doc(UserList):
             ValueError: If the content is not a supported pydocmaker document.
         """
                 
-        from .io.html_loader import io_serialize_html, io_deserialize_html, io_check_html
-        from .io.ipynb_loader import io_serialize_ipynb, io_deserialize_ipynb, io_check_ipynb
-        from .util import loadfile_str
+        from .io import html_loader, ipynb_loader 
 
+        html_loader.Doc = Doc
+        ipynb_loader.Doc = Doc
 
         str_content, f = loadfile_str(file_path_or_string)
         if f:
             filename = f
 
-        if io_check_html(str_content):
-            doc = io_deserialize_html(str_content)
-        elif io_check_ipynb(str_content):
-            doc = io_deserialize_ipynb(str_content)
+        if html_loader.io_check_html(str_content):
+            doc = html_loader.io_deserialize_html(str_content)
+        elif ipynb_loader.io_check_ipynb(str_content):
+            doc = ipynb_loader.io_deserialize_ipynb(str_content)
         elif str_content.strip().startswith("[") or str_content.strip().startswith("{"):
             doc = Doc(json.loads(str_content, cls=MyJSONDecoder))
         else:

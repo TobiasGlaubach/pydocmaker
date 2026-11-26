@@ -9,10 +9,20 @@ import string
 
 from pydocmaker import util
 from pydocmaker.backend.ex_ipynb import ipynb_renderer
-from pydocmaker.core import Doc
+
 from pydocmaker.backend import pandoc_api
 from pydocmaker.util import log
 
+# avoid circular imports and heavy imports
+# from pydocmaker.core import Doc
+Doc = None
+def _getdoc():
+    global Doc
+    if Doc is None:
+        from pydocmaker.core import Doc as _doc
+        Doc = _doc
+
+    return Doc
 
 def _ms(s: Any) -> str:
     """Convert a string or list of strings to a single string.
@@ -88,7 +98,7 @@ def get_between(s: str, starter: str = '<', ender: str = '>') -> tuple:
     return istart, i-1
 
 
-def html2md(s: str) -> Doc:
+def html2md(s: str):
     """Convert an HTML string to a Markdown document using Pandoc.
 
     Args:
@@ -100,7 +110,7 @@ def html2md(s: str) -> Doc:
     md = pandoc_api.pandoc_convert(s, "html", "markdown")
     return clean_md(md)
 
-def clean_md(md: str) -> Doc:
+def clean_md(md: str):
     """Clean and parse raw Markdown, extracting embedded base64 images and cleaning tags.
 
     Args:
@@ -109,7 +119,8 @@ def clean_md(md: str) -> Doc:
     Returns:
         A Doc object containing the structured document elements.
     """
-    doc = Doc()
+
+    doc = _getdoc()()
     md = md.replace("<div>", "").replace("</div>", "")
     lines = md.split('\n')
     block = []
@@ -120,6 +131,7 @@ def clean_md(md: str) -> Doc:
         if ls.startswith('![') and '](data:image' in ls:
             if block:
                 doc.add_md('\n'.join(block)) # add prior existing as md
+            block = []
             istart, iend = get_between(l, '(', ')')
             imageblob = str(l[istart:iend])
             imageblob = imageblob.split(';base64,')[-1]
@@ -179,7 +191,7 @@ class IpynbLoader:
             return bool(source.strip())
         return False
 
-    def load_notebook(self, file_content: Union[str, dict], file_name: str = "") -> Doc:
+    def load_notebook(self, file_content: Union[str, dict], file_name: str = ""):
         """Load a Jupyter notebook from string or dictionary contents.
 
         Args:
@@ -198,9 +210,9 @@ class IpynbLoader:
         pyd_data = dc.get("metadata", {}).get("pydocmaker-payload", [])
 
         if pyd_data:
-            return Doc(pyd_data)
+            return _getdoc()(pyd_data)
 
-        doc = Doc()
+        doc = _getdoc()()
 
 
         for cell in dc.get("cells", []):
@@ -252,7 +264,7 @@ class IpynbLoader:
 
 
     
-    def parse_output_data_part(self, doc: Doc, mimetype: str, data: Any, **kw) -> "IpynbLoader":
+    def parse_output_data_part(self, doc, mimetype: str, data: Any, **kw) -> "IpynbLoader":
         """Parse a specific MIME-type output data part and append it to the document.
 
         Args:
@@ -324,7 +336,7 @@ class IpynbLoader:
             return False
         return True
     
-    def parse_output_data(self, data: dict, doc: Doc) -> "IpynbLoader":
+    def parse_output_data(self, data: dict, doc) -> "IpynbLoader":
         """Parse an output data dictionary, filtering keys and delegating to parts.
 
         Args:
@@ -344,7 +356,7 @@ class IpynbLoader:
                 self.parse_output_data_part(doc, k, v)
         return self
             
-    def parse_output_error(self, data: dict, doc: Doc) -> "IpynbLoader":
+    def parse_output_error(self, data: dict, doc) -> "IpynbLoader":
         """Parse an execution error dictionary and add it to the document.
 
         Args:
@@ -365,7 +377,7 @@ class IpynbLoader:
 
         return self
 
-    def cell_parse_output(self, cell: Union[dict, list, tuple], doc: Doc) -> "IpynbLoader":
+    def cell_parse_output(self, cell: Union[dict, list, tuple], doc) -> "IpynbLoader":
         """Parse an output cell or collection of cells and add outputs to the document.
 
         Args:
@@ -417,7 +429,7 @@ class IpynbLoader:
             return self
 
         
-    def cell_parse_source(self, cell: dict, doc: Doc) -> "IpynbLoader":
+    def cell_parse_source(self, cell: dict, doc) -> "IpynbLoader":
         """Parse a source cell and add its content as code or markdown to the document.
 
         Args:
@@ -471,7 +483,7 @@ def load_notebook(file_path: Union[str, dict],
     nocode: bool = False,
     verb: bool = False, 
     **kw
-    ) -> Doc:
+    ):
     """Load a Jupyter notebook from a file path, raw JSON string, or dictionary.
 
     Args:
@@ -519,7 +531,7 @@ def load_notebook(file_path: Union[str, dict],
     
     return loader.load_notebook(file_content, file_name)
 
-def io_check_ipynb(doc_content: str, **kwargs) -> Doc:
+def io_check_ipynb(doc_content: str, **kwargs):
     """Test loading a Jupyter notebook and return the parsed document.
 
     Args:
@@ -538,7 +550,7 @@ def io_check_ipynb(doc_content: str, **kwargs) -> Doc:
     
     return True
 
-def io_deserialize_ipynb(doc_content: str, **kwargs) -> Doc:
+def io_deserialize_ipynb(doc_content: str, **kwargs):
     """Load a Jupyter notebook from a file path or raw JSON string.
 
     Args:
@@ -547,7 +559,7 @@ def io_deserialize_ipynb(doc_content: str, **kwargs) -> Doc:
     """
     return load_notebook(doc_content, **kwargs)
 
-def io_serialize_ipynb(doc: Doc) -> str:
+def io_serialize_ipynb(doc) -> str:
     """Serialize a pydocmaker document to a Jupyter notebook JSON string.
 
     NOTE: Will save the pydocmaker document as a payload in the notebook metadata 

@@ -1,10 +1,20 @@
 import json
-from typing import Union
+from typing import Any, Union
 from bs4 import BeautifulSoup
 from jinja2 import Template
 from pathlib import Path
 
-from pydocmaker.core import Doc
+# avoid circular imports and heavy imports
+# from pydocmaker.core import Doc
+Doc = None
+def _getdoc():
+    global Doc
+    if Doc is None:
+        from pydocmaker.core import Doc as _doc
+        Doc = _doc
+
+    return Doc
+
 
 
 # HTML Template: body starts empty; JS renders JSON -> HTML on load.
@@ -286,13 +296,15 @@ def io_check_html(doc_content: str) -> bool:
 
     return True
 
-def io_serialize_html(doc: Union[Doc, list], **kwargs) -> str:
+def io_serialize_html(doc: Union[Any, list], **kwargs) -> str:
     """Serializes the pydocmaker node structure into a self-contained HTML file."""
+
+    
     if isinstance(doc, list):
-        doc = Doc(doc)
+        doc = _getdoc()(doc)
 
 
-    doc_vis = Doc()
+    doc_vis = _getdoc()()
 
     params = {
         "raw_json": doc.to_json(),
@@ -303,7 +315,7 @@ def io_serialize_html(doc: Union[Doc, list], **kwargs) -> str:
     return html_output
 
 
-def io_deserialize_html(doc_content: str) -> Doc:
+def io_deserialize_html(doc_content: str):
     """Reads the HTML content, extracts the embedded pydocmaker payload, and returns the exact node list."""
     soup = BeautifulSoup(doc_content, "html.parser")
 
@@ -321,7 +333,7 @@ def io_deserialize_html(doc_content: str) -> Doc:
     try:
         # Load back exact JSON data model structures
         document_nodes = json.loads(payload_tag.string)
-        return Doc(document_nodes)
+        return _getdoc()(document_nodes)
     except json.JSONDecodeError as e:
         raise ValueError(f"Corrupted internal pydocmaker data payload: {e}")
 
