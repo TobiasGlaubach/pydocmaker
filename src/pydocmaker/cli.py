@@ -444,9 +444,9 @@ def _verbosity(args):
         2 = more details, 3+ = full backend output; default 1).
     """
     try:
-        return max(0, int(getattr(args, 'verbosity', 1)))
+        return max(0, int(getattr(args, 'verbosity', 0)))
     except (TypeError, ValueError):
-        return 1
+        return 0
 
 
 def _merged_params(args):
