@@ -1,37 +1,19 @@
 
-import argparse
 import base64
 import copy
-import io
 import os
-import re
 from pathlib import Path
 import json
-import shutil
-import subprocess
-import time
+
 import traceback
-import sys
-
-import tempfile
-import shutil
-from io import BytesIO
-import warnings
-
-import zipfile
 
 from jinja2 import Template
-
 from typing import List
-import markdown
+from string import Template
+from typing import List, Optional
 
 
 
-
-try:
-    import pydocmaker.backend.mdx_latex as mdx_latex
-except Exception as err:
-    from . import mdx_latex
     
 try:
     from pydocmaker import util
@@ -61,26 +43,171 @@ except Exception as err:
     from . import pdf_maker_tex
     
 
-    
 try:
     from pydocmaker.backend.pandoc_api import can_run_pandoc, pandoc_convert
 except Exception as err:
     from .pandoc_api import can_run_pandoc, pandoc_convert
 
-try:
-    import latex
-except ImportError:
-    latex = None
 
 
-md = markdown.Markdown()
-latex_mdx = mdx_latex.LaTeXExtension()
-latex_mdx.extendMarkdown(md)
+
+USE_XLTABULAR = True
+
+latex = None
+md = None
+latex_mdx = None
+
+def _lazy_import():
+    global md, latex
+    if latex is None:
+        try:
+            import latex
+        except ImportError:
+            latex = None
+    if md is None:
+        import markdown
+        try:
+            import pydocmaker.backend.mdx_latex as mdx_latex
+        except Exception as err:
+            from . import mdx_latex
+
+        md = markdown.Markdown()
+        latex_mdx = mdx_latex.LaTeXExtension()
+        latex_mdx.extendMarkdown(md)
+
 
 color_map = {
     'green': 'ForestGreen',
     'blue': 'NavyBlue'
 }
+
+
+_TABLE_WITH_CAPTION = Template(r"""\begin{table}[h!]
+\centering
+\begin{tabular}{ $colspec }
+$body
+\end{tabular}
+\caption{$caption}
+\end{table}""")
+
+_TABLE_NO_CAPTION = Template(r"""\begin{center}
+\begin{tabular}{ $colspec }
+$body
+\end{tabular}
+\end{center}""")
+
+
+def render_latex_table(
+    colspec: str,
+    rows: List[str],
+    caption: Optional[str] = None,
+    border: bool = True,
+) -> str:
+    if border:
+        hline = r'\hline'
+        parts = [hline]
+        for row in rows:
+            parts.append(row)
+            parts.append(hline)
+        body = '\n'.join(parts)
+    else:
+        body = '\n'.join(rows)
+    if caption:
+        return _TABLE_WITH_CAPTION.substitute(
+            colspec=colspec,
+            body=body,
+            caption=escape(caption),
+        )
+    return _TABLE_NO_CAPTION.substitute(
+        colspec=colspec,
+        body=body,
+    )
+
+
+_XLTABULAR_WITH_CAPTION = Template(r"""\begin{xltabular}{\textwidth}{ $colspec }
+\caption{$caption} \\
+\hline
+$header
+\hline
+\endfirsthead
+\hline
+$header
+\hline
+\endhead
+\hline
+\multicolumn{$ncols}{r}{\small\textit{Continued on next page}} \\
+\endfoot
+\hline
+\endlastfoot
+$body
+\end{xltabular}""")
+
+_XLTABULAR_NO_CAPTION = Template(r"""\begin{xltabular}{\textwidth}{ $colspec }
+\hline
+$header
+\hline
+\endfirsthead
+\hline
+$header
+\hline
+\endhead
+\hline
+\multicolumn{$ncols}{r}{\small\textit{Continued on next page}} \\
+\endfoot
+\hline
+\endlastfoot
+$body
+\end{xltabular}""")
+
+_XLTABULAR_WITH_CAPTION_NO_BORDER = Template(r"""\begin{xltabular}{\textwidth}{ $colspec }
+\caption{$caption} \\
+$header
+\endfirsthead
+$header
+\endhead
+\multicolumn{$ncols}{r}{\small\textit{Continued on next page}} \\
+\endfoot
+\endlastfoot
+$body
+\end{xltabular}""")
+
+_XLTABULAR_NO_CAPTION_NO_BORDER = Template(r"""\begin{xltabular}{\textwidth}{ $colspec }
+$header
+\endfirsthead
+$header
+\endhead
+\multicolumn{$ncols}{r}{\small\textit{Continued on next page}} \\
+\endfoot
+\endlastfoot
+$body
+\end{xltabular}""")
+
+
+def render_xltabular(
+    colspec: str,
+    header: str,
+    rows: List[str],
+    ncols: int,
+    caption: Optional[str] = None,
+    border: bool = True,
+) -> str:
+    body = '\n\\hline\n'.join(rows) if border else '\n'.join(rows)
+    if caption:
+        tmpl = _XLTABULAR_WITH_CAPTION if border else _XLTABULAR_WITH_CAPTION_NO_BORDER
+        return tmpl.substitute(
+            colspec=colspec,
+            header=header,
+            body=body,
+            ncols=ncols,
+            caption=escape(caption),
+        )
+    tmpl = _XLTABULAR_NO_CAPTION if border else _XLTABULAR_NO_CAPTION_NO_BORDER
+    return tmpl.substitute(
+        colspec=colspec,
+        header=header,
+        body=body,
+        ncols=ncols,
+    )
 
 __default_template = r"""
 
@@ -90,6 +217,10 @@ __default_template = r"""
 \usepackage{graphicx}
 \usepackage[dvipsnames]{xcolor}
 \usepackage{listings}
+\usepackage{xltabular}
+\usepackage{array}
+\usepackage{calc}
+\usepackage{booktabs}
 
 \lstset{
   frame=single,
@@ -158,6 +289,7 @@ Document body placeholder
 
 
 def escape(s):
+    _lazy_import()
     if latex is None:
         raise ImportError("The 'latex' package is required for escaping LaTeX special characters. Please install it using 'pip install latex'.")
     if isinstance(s, dict):
@@ -437,6 +569,7 @@ class LatexElementFormatter(BaseFormatter):
         self.attachments = {}
         self.make_blue = make_blue
 
+        self._escape_strings = False
 
     def handle_error(self, err, el):
         txt = 'ERROR WHILE HANDLING ELEMENT:\n{}\n\n'.format(el)
@@ -457,6 +590,7 @@ class LatexElementFormatter(BaseFormatter):
         if can_run_pandoc():
             return pandoc_convert(replace_bcolors(children), 'markdown', 'latex', is_binary=False, is_code=True)
         else:
+            _lazy_import()
             tex = md.convert(replace_bcolors(children)).lstrip('<root>').rstrip('</root>')
         return str(tex)
 
@@ -518,9 +652,17 @@ class LatexElementFormatter(BaseFormatter):
         txt = '\n\n'.join(parts)
         return txt
 
+    def _dig_str(self, children:str, **kwargs):
+        s = replace_bcolors(str(children))
+        return auto_escape_latex(s) if self._escape_strings else s
+
     @handle_color
     def digest_text(self, children:str, **kwargs):
-        return replace_bcolors(str(children))
+        return self._dig_str(children, **kwargs)
+    
+    @handle_color
+    def digest_str(self, el):
+        return self._dig_str(el)
     
     @handle_color
     def digest_latex(self, children:str, **kwargs):
@@ -528,8 +670,7 @@ class LatexElementFormatter(BaseFormatter):
     
     @handle_color
     def digest_line(self, children:str, **kwargs):
-        return replace_bcolors(str(children))
-
+        return self._dig_str(children, **kwargs)
 
     def digest_table(self, children=None, **kwargs) -> str:
         borders = kwargs.pop('borders', None)
@@ -540,7 +681,14 @@ class LatexElementFormatter(BaseFormatter):
         if not caption:
             caption = ''
 
-        head, mat = self._map_table2mat(children=children, **kwargs)
+        def fun_tmp(*a, **kw):
+            self._escape_strings = True
+            try:
+                return self.digest(*a, **kw)
+            finally:
+                self._escape_strings = False
+
+        head, mat = self._map_table2mat(children=children, fun=fun_tmp, **kwargs)
         if not head and not mat[0]:
             return ''
         
@@ -550,40 +698,39 @@ class LatexElementFormatter(BaseFormatter):
 
         n_cols = len(head) if head else len(mat[0])
 
-        lines = []
+        header = ' & '.join([bold(hh) for hh in head]) + r' \\' if head else ''
+        rows = [' & '.join(striprow(row)) + r' \\' for row in mat]
+
+        if USE_XLTABULAR and head:
+            # xltabular is based on tabularx, so X columns can be used: they
+            # wrap their content and keep the table width at \textwidth
+            xcol = r'>{\raggedright\arraybackslash}X'
+            if borders:
+                colspec = '|' + '|'.join([xcol] * n_cols) + '|'
+            else:
+                colspec = ' '.join([xcol] * n_cols)
+
+            return render_xltabular(
+                colspec=colspec,
+                header=header,
+                rows=rows,
+                ncols=n_cols,
+                caption=caption or None,
+                border=borders,
+            )
+
         if borders:
-            lines.append(r'\hline')
+            colspec = '|' + '|'.join(['c'] * n_cols) + '|'
+        else:
+            colspec = ' '.join(['c'] * n_cols)
 
         if head:
-            lines.append(' & '.join([bold(hh) for hh in head]) + r' \\')
-            if borders:
-                lines.append(r'\hline')
-        for row in mat:
-            lines.append(' & '.join(striprow(row)) + r' \\')
-            if borders:
-                lines.append(r'\hline')
-        
-        if not borders:
-            d = ' '.join(['c'] * n_cols)
-        else:
-            d = '|' + '|'.join(['c'] * n_cols) + '|'
+            rows = [header] + rows
 
-        if caption:
-            caption = '\\caption{%s}' % (escape(caption))
-            
-            txt = '''\\begin{table}[h!]
-\centering
-\\begin{tabular}{ %s }
-%s 
-\end{tabular}
-%s
-\end{table}''' % (d, '\n'.join(lines), caption)
-        else:
-            txt = '''\\begin{center}
-\\begin{tabular}{ %s }
-%s 
-\end{tabular}
-\end{center}''' % (d, '\n'.join(lines))
-
-        return txt  
+        return render_latex_table(
+            colspec=colspec,
+            rows=rows,
+            caption=caption or None,
+            border=borders,
+        )
 
