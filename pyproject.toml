@@ -28,7 +28,6 @@ markers = [
 
 [project.scripts]
 pydocmaker = "pydocmaker.cli:main"
-pydocmaker-blocktmpl = "pydocmaker.blocktmpl.cli:main"
 
 
 [project.urls]
