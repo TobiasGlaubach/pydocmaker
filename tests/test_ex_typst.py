@@ -7,6 +7,12 @@ parent_dir = os.path.dirname(current_dir)
 
 from src.pydocmaker.backend import ex_typst
 
+# the PandocBatchMixin class may live in the installed "pydocmaker" package or
+# in the local "src.pydocmaker" package depending on the environment; resolve
+# the module object that actually owns the mixin's pandoc function globals so
+# the patches below hit the functions the formatter really calls
+pandoc_batch = sys.modules[ex_typst.PandocBatchMixin.__module__]
+
 
 class TestTypstCompilation(unittest.TestCase):
     """Test cases for typst compilation with various input types."""
@@ -362,7 +368,7 @@ class _PerBlockReferenceFormatter(ex_typst.DocumentTypstFormatter):
 
     def digest_markdown(self, children='', **kwargs) -> str:
         s = None
-        if ex_typst.RENDER_MARKDOWN_VIA_PANDOC and ex_typst.can_run_pandoc():
+        if ex_typst.config_use_pandoc_for_md_render_get() and ex_typst.can_run_pandoc():
             try:
                 s = ex_typst.pandoc_convert(children, 'markdown', 'typst')
             except Exception as err:
@@ -450,7 +456,7 @@ class TestPandocBatching(unittest.TestCase):
         doc = ([{'typ': 'markdown', 'children': f'# Section {i}\n\ntext {i}'} for i in range(20)]
                + [{'typ': 'latex', 'children': f'$x_{i}^2$'} for i in range(20)])
 
-        real_batch = ex_typst.pandoc_convert_batch
+        real_batch = pandoc_batch.pandoc_convert_batch
         real_conv = ex_typst.pandoc_convert
         counts = {'batch': 0, 'single': 0}
 
@@ -462,8 +468,8 @@ class TestPandocBatching(unittest.TestCase):
             counts['single'] += 1
             return real_conv(*args, **kwargs)
 
-        with patch.object(ex_typst, 'pandoc_convert_batch', counting_batch), \
-                patch.object(ex_typst, 'pandoc_convert', counting_single):
+        with patch.object(pandoc_batch, 'pandoc_convert_batch', counting_batch), \
+                patch.object(pandoc_batch, 'pandoc_convert', counting_single):
             out = ex_typst.convert(doc)
 
         self.assertLessEqual(counts['batch'], 2)
@@ -474,7 +480,7 @@ class TestPandocBatching(unittest.TestCase):
     def test_chunked_batching_produces_identical_output(self):
         doc = self.MD_BLOCKS + self.TEX_BLOCKS
         unchunked = ex_typst.DocumentTypstFormatter().digest(list(doc))
-        with patch.object(ex_typst, 'PANDOC_BATCH_CHUNK_SIZE', 2):
+        with patch.object(pandoc_batch, 'PANDOC_BATCH_CHUNK_SIZE', 2):
             chunked = ex_typst.DocumentTypstFormatter().digest(list(doc))
         self.assertEqual(unchunked, chunked)
 
@@ -492,8 +498,8 @@ class TestPandocBatching(unittest.TestCase):
                 raise RuntimeError('mocked per-block failure')
             return real_conv(children, *args, **kwargs)
 
-        with patch.object(ex_typst, 'pandoc_convert_batch', failing_batch), \
-                patch.object(ex_typst, 'pandoc_convert', conv_failing_for_block1):
+        with patch.object(pandoc_batch, 'pandoc_convert_batch', failing_batch), \
+                patch.object(pandoc_batch, 'pandoc_convert', conv_failing_for_block1):
             formatter = ex_typst.DocumentTypstFormatter()
             result = formatter.digest(list(doc))
 
@@ -516,8 +522,8 @@ class TestPandocBatching(unittest.TestCase):
         def failing_conv(*args, **kwargs):
             raise RuntimeError('mocked per-block failure')
 
-        with patch.object(ex_typst, 'pandoc_convert_batch', failing_batch), \
-                patch.object(ex_typst, 'pandoc_convert', failing_conv):
+        with patch.object(pandoc_batch, 'pandoc_convert_batch', failing_batch), \
+                patch.object(pandoc_batch, 'pandoc_convert', failing_conv):
             formatter = ex_typst.DocumentTypstFormatter()
             result = formatter.digest(list(doc))
 
@@ -552,13 +558,13 @@ class TestPandocBatching(unittest.TestCase):
 
     def test_digest_markdown_registers_placeholder_without_pandoc_call(self):
         # while digesting, markdown elements must not trigger pandoc calls
-        real_batch = ex_typst.pandoc_convert_batch
+        real_batch = pandoc_batch.pandoc_convert_batch
         real_conv = ex_typst.pandoc_convert
         calls = []
 
-        with patch.object(ex_typst, 'pandoc_convert_batch',
+        with patch.object(pandoc_batch, 'pandoc_convert_batch',
                           lambda blocks, *a, **kw: calls.append('batch') or real_batch(blocks, *a, **kw)), \
-                patch.object(ex_typst, 'pandoc_convert',
+                patch.object(pandoc_batch, 'pandoc_convert',
                              lambda *a, **kw: calls.append('single') or real_conv(*a, **kw)):
             formatter = ex_typst.DocumentTypstFormatter()
             ret = formatter.digest({'typ': 'markdown', 'children': '# lazy'})
