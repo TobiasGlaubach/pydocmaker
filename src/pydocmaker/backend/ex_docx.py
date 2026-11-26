@@ -39,25 +39,42 @@ try:
     from pydocmaker.backend import libreoffice_api
 except Exception as err:
     from . import libreoffice_api
-    
-try:
-    import docx
-    from docx.shared import Inches, Pt, RGBColor
-    from docx import Document
-except ImportError:
-    Document = None
-    
+
 try:
     from pydocmaker.util import log
 except Exception as err:
     from ..util import log
-
-
+    
+# docx = None
+# Document = None
+# Inches = None
 
 gwin32 = None
 gcomposer = None
 gmailmerge = None
 
+Document = None
+Inches = None
+Pt = None
+RGBColor = None
+
+def _lazy_import():
+    global Document, Inches, Pt, RGBColor
+    if Document is None:
+        try:
+            from docx.shared import Inches as _inches, Pt as _pt, RGBColor as _rgbcolor
+            from docx import Document as _document
+
+            Document = _document
+            Inches = _inches
+            Pt = _pt
+            RGBColor = _rgbcolor
+
+        except ImportError:
+            Document = None
+            Inches = None
+            Pt = None
+            RGBColor = None
 
 
 
@@ -363,6 +380,7 @@ class DocxFileW32:
 
 
 
+
 class DocxFile:
     """
     A class to handle operations on DOCX files such as appending multiple documents,
@@ -375,7 +393,8 @@ class DocxFile:
 
         :param file_path_or_buffer: bytes, or a path to the DOCX file or a buffer containing DOCX data.
         """
-                
+
+        _lazy_import()
         self.file_path_or_buffer = file_path_or_buffer
         
         self.docx_data = self._get_bytes_file_or_buffer(file_path_or_buffer)
@@ -543,10 +562,12 @@ class DocxFile:
 
 
 def blue(run):
-    run.font.color.rgb = docx.shared.RGBColor(0, 0, 255)
+    _lazy_import()
+    run.font.color.rgb = RGBColor(0, 0, 255)
 
 def red(run):
-    run.font.color.rgb = docx.shared.RGBColor(255, 0, 0)
+    _lazy_import()
+    run.font.color.rgb = RGBColor(255, 0, 0)
 
 def convert_pandoc(doc:List[dict]) -> bytes:
 
@@ -585,6 +606,8 @@ def convert(doc:List[dict], template = None, template_params=None, use_w32=False
     Raises:
     - ValueError: If attempting to export to PDF without win32com and Word.Application installed and use_w32 set to True.
     """
+    _lazy_import()
+
     if not template_params:
         template_params = {}
 
@@ -672,6 +695,7 @@ def convert(doc:List[dict], template = None, template_params=None, use_w32=False
 
 class docx_renderer(BaseFormatter):
     def __init__(self, template_path:str=None, make_blue=False) -> None:
+        _lazy_import()
         if Document is None:
              raise ImportError("python-docx is not installed. Please install it to use the docx backend.")
         self.d = Document(template_path)
@@ -716,13 +740,13 @@ class docx_renderer(BaseFormatter):
     def digest_verbatim(self, children, *args, **kwargs):
         new_run = self.add_run(children)
         new_run.font.name = 'Courier New'  # Or any other monospace font
-        new_run.font.size = docx.shared.Pt(8)  # Adjust font size as needed
+        new_run.font.size = Pt(8)  # Adjust font size as needed
         return new_run
 
     def digest_latex(self, children, *args, **kwargs):
         new_run = self.add_run(children)
         new_run.font.name = 'Courier New'  # Or any other monospace font
-        new_run.font.size = docx.shared.Pt(8)  # Adjust font size as needed
+        new_run.font.size = Pt(8)  # Adjust font size as needed
         return new_run
 
 
@@ -733,7 +757,7 @@ class docx_renderer(BaseFormatter):
 
         new_run = self.add_run(err)
         new_run.font.name = 'Courier New'  # Or any other monospace font
-        new_run.font.size = docx.shared.Pt(8)  # Adjust font size as needed
+        new_run.font.size = Pt(8)  # Adjust font size as needed
         red(new_run)
         return new_run
 

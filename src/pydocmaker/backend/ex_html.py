@@ -1,21 +1,6 @@
-from collections import namedtuple
 import copy
-import io
-import json
-import random
-import textwrap
-import time
-import traceback
-import urllib
-import re
-import uuid
-import os
-import base64
 import warnings
-import markdown
 from typing import List
-
-from jinja2 import Template
 
 
 try:
@@ -47,6 +32,16 @@ try:
     from pydocmaker.backend.pandoc_api import can_run_pandoc, pandoc_convert
 except Exception as err:
     from .pandoc_api import can_run_pandoc, pandoc_convert
+
+markdown = None
+urllib = None
+def _lazy_import():
+    global markdown, urllib
+    if markdown is None:
+        import urllib as _urllib
+        import markdown as _markdown
+        markdown = _markdown
+        _urllib = _urllib
 
 
 __default_template = """<!DOCTYPE html>
@@ -116,9 +111,11 @@ __default_template = """<!DOCTYPE html>
 # DEFAULT_IMAGE_BLOB = ''
 
 def mk_link(id_, label=None, pth='show', p0='uib', v='v1', **kwargs):
+    _lazy_import()
     return f'<a href="/{p0}/{v}/{pth}/{urllib.parse.quote_plus(id_)}" target="_self">{label if label else id_}</a>'
 
 def mk_tpl(id_, label=None, pth='show', p0='uib', v='v1', **kwargs):
+    _lazy_import()
     return f"/{p0}/{v}/{pth}/{urllib.parse.quote_plus(id_)}", label if label else id_
 
 
@@ -234,6 +231,7 @@ class html_renderer(BaseFormatter):
         if use_pandoc and can_run_pandoc():
             s = pandoc_convert(content, 'markdown', 'html')
         else:
+            _lazy_import()
             s = markdown.markdown(content)
 
         fun = lambda x:  f'<div style="{color}">{x}</div>' if color else f'<div>{x}</div>'
