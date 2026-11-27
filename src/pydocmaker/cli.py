@@ -218,16 +218,26 @@ try:  # normal import (installed package or ``python -m pydocmaker.cli``)
     from pydocmaker import __version__
     from pydocmaker import blocktmpl
     from pydocmaker.core import Doc
-    from pydocmaker.templating import (get_available_template_ids,
+    from pydocmaker.templating import (TEMPLATE_FILE_EXTS,
+                                       find_template_file_references,
+                                       get_available_template_ids,
                                        get_registered_template_dirs,
-                                       resolve_template_id)
+                                       load_param_file_values,
+                                       register_raw_template_file,
+                                       resolve_template_id,
+                                       template_file_tformat)
 except Exception:  # pragma: no cover - executed directly as a script file
     from . import __version__
     from . import blocktmpl
     from .core import Doc
-    from .templating import (get_available_template_ids,
+    from .templating import (TEMPLATE_FILE_EXTS,
+                             find_template_file_references,
+                             get_available_template_ids,
                              get_registered_template_dirs,
-                             resolve_template_id)
+                             load_param_file_values,
+                             register_raw_template_file,
+                             resolve_template_id,
+                             template_file_tformat)
 
 
 # --------------------------------------------------------------------------- #
@@ -296,32 +306,6 @@ SHOW_ENGINE_ALIASES = {
 #: bare template format names (for the ``template`` command) to file extension
 TEMPLATE_FORMAT_EXTS = {'html': '.html', 'htm': '.html', 'tex': '.tex',
                        'latex': '.tex', 'typ': '.typ', 'typst': '.typ'}
-
-#: file extensions recognized as (direct or jinja2) template files
-TEMPLATE_FILE_EXTS = ('.html', '.tex', '.typ', '.j2', '.jinja', '.jinja2', '.j')
-
-#: file extensions of legacy jinja2 template files (kept verbatim, not baked)
-JINJA_TEMPLATE_EXTS = ('.j2', '.jinja', '.jinja2', '.j')
-
-#: matches strings that look like a file name (``something.ext`` with an
-#: alphanumeric extension of 1-8 characters and no braces)
-FILENAME_LIKE_RE = re.compile(r'^[^{}]+\.[A-Za-z0-9]{1,8}$')
-
-#: latex source patterns that reference external files (group 1 = the reference)
-TEX_FILE_REF_RES = (
-    re.compile(r'\\includegraphics\*?(?:\[[^\]]*\])?\{([^{}]+)\}'),
-    re.compile(r'\\(?:input|include|lstinputlisting|bibliography|addbibresource)\{([^{}]+)\}'),
-)
-
-#: typst source patterns that reference external files (group 1 = the
-#: reference; single and double quotes are accepted). The function calls
-#: appear with or without a leading ``#`` (inside content blocks), so only a
-#: word boundary is required.
-TYP_FILE_REF_RES = (
-    re.compile(r'\b(?:image|bibliography|json|yaml|csv|toml|xml)\(\s*["\']([^"\']+)["\']'),
-    re.compile(r'\bread\(\s*["\']([^"\']+)["\']'),
-    re.compile(r'\binclude\s+["\']([^"\']+)["\']'),
-)
 
 #: matches the latex macro defined by a template parameter assignment
 #: (e.g. ``\providecommand{\pProjectLogo}{...}`` -> ``pProjectLogo``)
@@ -1023,21 +1007,12 @@ def _find_template_file(name):
         f'("base", "report") or a template file name ("base.html").')
 
 
-#: keeps the temporary template directories alive until the process ends
-_RAW_TEMPLATE_DIRS = []
-
-
 def _register_raw_template_file(template, source=None):
     """Register a raw template file in a throwaway template directory.
 
-    The file is copied into a temporary directory which is registered with
-    ``register_new_template_dir``, so the file becomes a regular template id
-    and can be attached to a document through ``Doc.set_template_to_meta``
-    (with full default parameter and asset handling). The registered file
-    name keeps the ``name.{format}.{ext}`` pattern the template id resolution
-    expects (e.g. ``report.html.j2`` or ``base.typ``). Sources without block
-    markers are scaffolded in memory first; jinja2 files (``.j2`` family) are
-    registered unchanged.
+    Delegates to :func:`pydocmaker.templating.register_raw_template_file` (the
+    shared implementation behind ``Doc.set_template_to_meta``) and converts
+    its ``ValueError`` into a :class:`CliError`.
 
     Args:
         template (str): path of the template file.
@@ -1053,122 +1028,34 @@ def _register_raw_template_file(template, source=None):
         CliError: when the file cannot be read or its format cannot be
         determined.
     """
-    import hashlib
-    import tempfile
-
-    if source is None:
-        source = _read_text_file(template)
-    name = os.path.basename(str(template))
-
-    # split the name into stem, document format extension and jinja extension
-    # (e.G. "report.html.j2" -> "report", ".html", ".j2")
-    jinja_ext = next((e for e in JINJA_TEMPLATE_EXTS if name.endswith(e)), '')
-    base = name[:len(name) - len(jinja_ext)] if jinja_ext else name
-    stem, doc_ext = os.path.splitext(base)
-    stem = stem.replace('.', '_')
-
-    # the document format for the extension (without the leading dot)
-    tformat = {'.html': 'html', '.htm': 'html', '.tex': 'tex',
-               '.latex': 'tex', '.typ': 'typ'}.get(doc_ext.lower())
-
-    if jinja_ext and not tformat:
-        # a jinja file without a document format extension (e.g. "x.j2"):
-        # sniff the format from the content so the id stays resolvable
-        tformat = blocktmpl.detect_format(source)
-        if tformat is None:
-            raise CliError(
-                f'cannot determine the format of template {template!r}; name jinja '
-                f'templates like "name.html.j2", "name.tex.j2" or "name.typ.j2"')
-
-    if not jinja_ext and not blocktmpl.detect(source):
-        # unmarked source: scaffold the block markers in memory so the file
-        # becomes a valid (block) template
-        if tformat is None:
-            tformat = blocktmpl.detect_format(source)
-            if tformat is None:
-                raise CliError(
-                    f'cannot determine the format of template {template!r}; give the '
-                    f'file a .html, .tex or .typ extension')
-        try:
-            source = blocktmpl.scaffold(source, tformat=tformat)
-        except blocktmpl.BlockTemplatingError as err:
-            raise CliError(f'could not prepare template {template!r}: {err}')
-        doc_ext = {'html': '.html', 'tex': '.tex', 'typ': '.typ'}[tformat]
-
-    # a unique id prevents collisions with (and shadowing of) the package
-    # templates, e.G. when the user file happens to be called "base.typ"
-    digest = hashlib.md5(os.path.abspath(str(template)).encode('utf-8')).hexdigest()[:8]
-    template_id = f'cli_{digest}_{stem}{doc_ext}{jinja_ext}'
-
     try:
-        tdir = tempfile.TemporaryDirectory(prefix='pydocmaker-cli-template-')
-        with open(os.path.join(tdir.name, template_id), 'w', encoding='utf-8') as f:
-            f.write(source)
-        from pydocmaker.templating import register_new_template_dir
-        register_new_template_dir(tdir.name)
-    except OSError as err:
-        raise CliError(f'could not register template {template!r}: {err}')
-    _RAW_TEMPLATE_DIRS.append(tdir)  # keep the directory alive
-    return template_id
+        return register_raw_template_file(template, source=source)
+    except ValueError as err:
+        raise CliError(str(err))
 
 
-def _first_existing_file(locations):
-    """Return the first existing file of a list of candidate locations.
-
-    Args:
-        locations (list[str]): candidate file paths (duplicates are fine).
-
-    Returns:
-        str | None: the first candidate that is an existing file, or None.
-    """
-    for loc in locations:
-        if os.path.isfile(loc):
-            return loc
-    return None
-
-
-def _template_file_tformat(path, source):
+def _template_file_tformat(path, source=None):
     """Determine the template format of a raw template file.
 
-    Mirrors the name analysis of ``_register_raw_template_file``: the document
-    format extension of the file name (``.tex``, ``.typ``, ``.html``, also
-    behind a jinja extension like ``.tex.j2``) wins; otherwise the format is
-    sniffed from the content.
+    Delegates to :func:`pydocmaker.templating.template_file_tformat`.
 
     Args:
         path (str): the template file path.
-        source (str): the template file content.
+        source (str | None): the template file content; read from the file
+            when not given.
 
     Returns:
         str | None: 'html', 'tex', 'typ' or None when unknown.
     """
-    name = os.path.basename(str(path))
-    jinja_ext = next((e for e in JINJA_TEMPLATE_EXTS if name.endswith(e)), '')
-    base = name[:len(name) - len(jinja_ext)] if jinja_ext else name
-    doc_ext = os.path.splitext(base)[1].lower()
-    tformat = {'.html': 'html', '.htm': 'html', '.tex': 'tex',
-               '.latex': 'tex', '.typ': 'typ'}.get(doc_ext)
-    if tformat is None:
-        tformat = blocktmpl.detect_format(source)
-    return tformat
+    return template_file_tformat(path, source)
 
 
 def _find_template_file_references(source, tformat, base_dir=None):
     """Scan a template source for references to external files.
 
-    The scan collects references from format specific patterns
-    (``\\includegraphics{...}`` and friends for latex, ``#image("...")`` and
-    friends for typst) plus scalar block-template parameter defaults that look
-    like file names (which catches macro-indirected references such as
-    ``\\includegraphics{\\pProjectLogo}`` whose ``\\providecommand`` default is
-    an image file). Candidates that contain a macro (``\\``), a jinja
-    expression (``{{``/``}}``) or start with ``http`` are skipped. Each
-    remaining candidate is resolved as given (absolute paths), relative to
-    ``base_dir`` (the template's directory) and relative to the current
-    working directory; found files are returned as attachment bytes keyed by
-    the reference as written (forward slashes). Candidates that look like a
-    file name but cannot be resolved produce a warning on stderr (the build
-    itself continues).
+    Delegates to
+    :func:`pydocmaker.templating.find_template_file_references` with the
+    warning sink bound to stderr (stdout is reserved for document data).
 
     Args:
         source (str): the template source.
@@ -1181,63 +1068,14 @@ def _find_template_file_references(source, tformat, base_dir=None):
         tuple[dict, list]: the found attachments (``{key: bytes}``) and the
         list of references that could not be resolved to an existing file.
     """
-    refs = []
-    for pattern in (TEX_FILE_REF_RES if tformat == 'tex'
-                    else TYP_FILE_REF_RES if tformat == 'typ' else ()):
-        refs += pattern.findall(source)
-
-    # block-template parameter defaults that look like file names
-    try:
-        bdoc = blocktmpl.parse(source, tformat=tformat, strict=False)
-    except Exception:
-        bdoc = None
-    if bdoc is not None and bdoc.params_section is not None:
-        for param in bdoc.params_section.params.values():
-            if param.kind == 'scalar' and isinstance(param.value, str):
-                value = param.value.strip()
-                if FILENAME_LIKE_RE.match(value):
-                    refs.append(value)
-
-    attachments = {}
-    unresolved = []
-    seen = set()
-    for candidate in refs:
-        ref = str(candidate).strip()
-        if not ref or ref in seen:
-            continue
-        seen.add(ref)
-        if '\\' in ref or '{{' in ref or '}}' in ref or ref.startswith('http'):
-            continue  # macro, jinja expression or url
-        locations = [ref]
-        if base_dir:
-            locations.append(os.path.join(base_dir, ref))
-        locations.append(os.path.join(os.getcwd(), ref))
-        path = _first_existing_file(locations)
-        if path is None:
-            unresolved.append(ref)
-            if FILENAME_LIKE_RE.match(ref):
-                _info(f'warning: template references {ref!r} but no such file was '
-                      f'found (next to the template or in the working directory)')
-            continue
-        try:
-            with open(path, 'rb') as f:
-                attachments[ref.replace('\\', '/')] = f.read()
-        except OSError as err:
-            _info(f'warning: could not read template reference {ref!r} '
-                  f'({path!r}): {err}')
-    return attachments, unresolved
+    return find_template_file_references(source, tformat, base_dir, warn=_info)
 
 
 def _load_param_file_values(params, template_dir=None):
     """Resolve template parameter values that point at existing files.
 
-    String parameter values that look like a file name (``logo.png``) and
-    exist -- relative to the template directory first, then the current
-    working directory, then as an absolute path -- are loaded as attachments
-    (keyed by the file's basename) and the parameter value is rewritten to
-    that bare basename so template macros resolve in the build directory.
-    When several parameters resolve to *different* files with the same
-    basename a warning is printed and the last one wins.
+    Delegates to :func:`pydocmaker.templating.load_param_file_values` with the
+    warning sink bound to stderr (stdout is reserved for document data).
 
     Args:
         params (dict): the merged template parameters (modified in place).
@@ -1247,36 +1085,7 @@ def _load_param_file_values(params, template_dir=None):
     Returns:
         dict: the loaded attachments (``{basename: bytes}``).
     """
-    attachments = {}
-    sources = {}  # attachment key -> resolved path (for collision warnings)
-    for name, value in list(params.items()):
-        if not isinstance(value, str):
-            continue
-        ref = value.strip()
-        if not FILENAME_LIKE_RE.match(ref):
-            continue
-        locations = []
-        if template_dir:
-            locations.append(os.path.join(template_dir, ref))
-        locations.append(os.path.join(os.getcwd(), ref))
-        locations.append(ref)  # absolute paths
-        path = _first_existing_file(locations)
-        if path is None:
-            continue  # a plain text value, not a file
-        key = os.path.basename(path)
-        prev = sources.get(key)
-        if prev is not None and os.path.normpath(prev) != os.path.normpath(path):
-            _info(f'warning: template parameters resolve to different files with '
-                  f'the attachment name {key!r}; the last one wins')
-        sources[key] = path
-        try:
-            with open(path, 'rb') as f:
-                attachments[key] = f.read()
-        except OSError as err:
-            _info(f'warning: could not read parameter file {path!r}: {err}')
-            continue
-        params[name] = key
-    return attachments
+    return load_param_file_values(params, template_dir, warn=_info)
 
 
 def _load_assets_paths(paths):

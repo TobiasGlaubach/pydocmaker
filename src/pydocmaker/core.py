@@ -41,7 +41,8 @@ from .backend.pdf_maker_tex import make_pdf_from_tex, config_latex_compiler_get,
 from .backend import ex_docx
 
 from .templating import (DocTemplate, BlockDocTemplate, TemplateDirSource, _remove_template_ext,
-                         determine_engine_from_template, _remove_template_ext_match, detect_block_template)
+                         determine_engine_from_template, _remove_template_ext_match, detect_block_template,
+                         resolve_template_argument)
 
 from .param_mapping import map_legacy_params
 
@@ -1044,34 +1045,53 @@ class Doc(UserList):
 
     
 
-    def set_template_to_meta(self, template_id: str, with_params: bool = True, with_assets: bool = True,
+    def set_template_to_meta(self, template_id: Union[str, Path, None], with_params: bool = True, with_assets: bool = True,
                               test_found: bool = True, on_exist: str = 'fail',
                               template_params: Optional[Dict[str, Any]] = None,
                               tformat: Optional[str] = None) -> Dict[str, Any]:
         """
-        Sets a template by a given template_id to the document metadata.
+        Sets a template by template id or template file path to the document metadata.
 
         Copies template parameters and attachment files into the document's metadata element.
         Controls behavior when the metadata already contains corresponding data via the on_exist parameter.
 
+        Besides a registered template id (e.g. ``'base'`` or ``'report.typ'``) the
+        template_id argument also accepts the path of an existing template file
+        (``str`` or ``pathlib.Path``) or a directory containing exactly one template
+        file. For file paths the format is inferred from the file when tformat is not
+        given explicitly, and the template source is scanned for references to
+        external files (``\\includegraphics``, ``#image("...")`` etc.) -- exactly like
+        the ``pydocmaker build -t`` CLI flow. String template parameter values that
+        point at existing files are loaded as attachments as well and rewritten to
+        their bare basename.
+
         Args:
-            template_id: The ID of the template to set.
+            template_id: The ID of the template to set, or the path of a template file
+                (str or Path), or a directory containing exactly one template file.
             with_params: Whether to include the default parameters from the template in the metadata.
             with_assets: Whether to include the asset files from the template in the metadata.
             test_found: Whether to verify the template exists before modifying metadata.
             on_exist: What to do if parameters/assets from the template already exist in metadata.
                 'fail' raises an assertion, 'overwrite' replaces existing data, 'skip' preserves existing data.
             template_params: Additional parameters to merge into the template parameters.
-            tformat: Template format override ('tex', 'html', 'typ', etc.).
+            tformat: Template format override ('tex', 'html', 'typ', etc.); inferred from
+                the template file when not given explicitly.
 
         Returns:
             dict: The merged data content of the updated metadata element.
 
         Raises:
             FileNotFoundError: If test_found is True and the template_id does not exist.
+            TypeError: If template_id is not a str, Path or template id.
+            ValueError: If on_exist is not 'fail', 'overwrite', or 'skip', or if the
+                format of a template file cannot be determined.
             AssertionError: If on_exist='fail' and template params/assets would overwrite existing metadata.
-            ValueError: If on_exist is not 'fail', 'overwrite', or 'skip'.
         """
+        # resolve direct template file paths (str or Path) and collect the
+        # template source attachments exactly like the CLI -t flow does
+        template_id, tformat, template_attachments, template_params = resolve_template_argument(
+            template_id, tformat=tformat, template_params=template_params)
+
         if (test_found or with_params or with_assets) and not DocTemplate.test_tid_exists(template_id, tformat=tformat):
             available_tids = TemplateDirSource(None).get_template_ids()
             raise FileNotFoundError(f'The template with the ID {template_id=} and format {tformat=} could not be found in {available_tids=}')
@@ -1083,6 +1103,8 @@ class Doc(UserList):
 
             params = template.params if with_params else {}
             files_to_upload = template.attachments if with_assets else {}
+            if with_assets and template_attachments:
+                files_to_upload.update(template_attachments)
             files_to_upload = {k:base64.b64encode(v).decode() if isinstance(v, bytes) else v for k, v in files_to_upload.items()}
 
         meta = self.get_meta({}).get("data", {})
