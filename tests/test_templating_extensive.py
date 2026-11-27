@@ -22,8 +22,10 @@ Covered matrix:
   placeholders, output size bounds and render-to-render size consistency
 """
 
+import base64
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -42,7 +44,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = REPO_ROOT / 'src' / 'pydocmaker' / 'templates'
 README_PATH = REPO_ROOT / 'README.md'
 
-EXTENSIVE = True #bool(os.environ.get('PYDOCMAKER_TEST_TEMPLATING') or os.environ.get('PYDOCMAKER_TESTFULL'))
+EXTENSIVE = bool(os.environ.get('PYDOCMAKER_TEST_TEMPLATING') or os.environ.get('PYDOCMAKER_TESTFULL'))
 
 extensive = unittest.skipUnless(
     EXTENSIVE, 'extensive templating suite; opt in with PYDOCMAKER_TEST_TEMPLATING=1 or PYDOCMAKER_TESTFULL=1')
@@ -506,6 +508,193 @@ class TestRenderedDocumentSanity(unittest.TestCase):
         self.assertIn('#let pDate = "2026-01-01"', out)
         self.assertIn('Roundtrip body', out)
         self.assertEqual(blocktmpl.update_params(updated, {'pTitle': 'Roundtrip Title', 'pDate': '2026-01-01'}), updated)
+
+
+#: a valid 1x1 pixel png used as a template attachment in the tests
+PNG_1PX = base64.b64decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQ'
+    'GAhKmMIQAAAABJRU5ErkJggg==')
+
+TYP_TMPL_SRC = (
+    '// pydocmaker:parameters:begin \n\n'
+    '// pydocmaker:param:pTitle\n'
+    '#let pTitle = ""\n'
+    '// pydocmaker:param:pLogo\n'
+    '#let pLogo = "logo.png"\n\n'
+    '// pydocmaker:parameters:end \n\n'
+    '// pydocmaker:body:begin\n'
+    '= #pTitle\n\n#image(pLogo, width: 2cm)\n'
+    '// pydocmaker:body:end\n')
+
+TEX_TMPL_SRC = (
+    '% pydocmaker:parameters:begin \n\n'
+    '% pydocmaker:param:pTitle\n'
+    '\\providecommand{\\pTitle}{}\n\n'
+    '% pydocmaker:parameters:end \n\n'
+    '% pydocmaker:body:begin\n'
+    '\\section{\\pTitle}\n\\includegraphics[width=2cm]{logo.png}\n'
+    '% pydocmaker:body:end\n')
+
+
+def make_template_dir(tmp, source=TYP_TMPL_SRC, name='tmpl.typ'):
+    """Create a template directory with the given template source and a logo."""
+    Path(tmp, 'logo.png').write_bytes(PNG_1PX)
+    Path(tmp, name).write_text(source, encoding='utf-8')
+    return tmp
+
+
+@extensive
+class TestSetTemplateToMetaFilePaths(unittest.TestCase):
+    """``Doc.set_template_to_meta`` with file paths and attachment collection."""
+
+    def _meta(self, doc):
+        return doc.get_meta({}).get('data', {})
+
+    def test_path_object_and_str_path_collect_attachments(self):
+        for arg in (lambda td: Path(td) / 'tmpl.typ', lambda td: str(Path(td) / 'tmpl.typ')):
+            with tempfile.TemporaryDirectory() as td:
+                make_template_dir(td)
+                doc = pyd.Doc().add_text('Body')
+                doc.set_template_to_meta(arg(td), template_params={'pTitle': 'T'})
+                meta = self._meta(doc)
+                self.assertTrue(meta['template_id'].endswith('tmpl.typ'))
+                self.assertEqual(meta['files_to_upload']['logo.png'],
+                                 base64.b64encode(PNG_1PX).decode())
+                self.assertEqual(meta['pTitle'], 'T')
+                out = doc.to_typst()
+                self.assertIn('#let pTitle = "T"', out)
+                self.assertIn('#let pLogo = "logo.png"', out)
+
+    def test_tformat_inferred_from_file_and_explicit_override(self):
+        with tempfile.TemporaryDirectory() as td:
+            make_template_dir(td)
+            doc = pyd.Doc().add_text('Body')
+            doc.set_template_to_meta(Path(td) / 'tmpl.typ')
+            out = doc.to_typst()
+            self.assertIn('pydocmaker:body:begin', out)
+            # an explicit matching tformat keeps working, too
+            doc2 = pyd.Doc().add_text('Body')
+            doc2.set_template_to_meta(Path(td) / 'tmpl.typ', tformat='typ')
+            self.assertIn('pydocmaker:body:begin', doc2.to_typst())
+
+    def test_tex_file_path_scans_includegraphics(self):
+        with tempfile.TemporaryDirectory() as td:
+            make_template_dir(td, source=TEX_TMPL_SRC, name='tmpl.tex')
+            doc = pyd.Doc().add_text('Body')
+            doc.set_template_to_meta(str(Path(td) / 'tmpl.tex'))
+            meta = self._meta(doc)
+            self.assertEqual(meta['files_to_upload']['logo.png'],
+                             base64.b64encode(PNG_1PX).decode())
+            self.assertTrue(meta['template_id'].endswith('tmpl.tex'))
+
+    def test_param_file_value_loaded_and_rewritten(self):
+        with tempfile.TemporaryDirectory() as td:
+            make_template_dir(td)
+            os.makedirs(os.path.join(td, 'assets_src'))
+            Path(td, 'assets_src', 'alt.png').write_bytes(PNG_1PX + b'2')
+            doc = pyd.Doc().add_text('Body')
+            doc.set_template_to_meta(Path(td) / 'tmpl.typ',
+                                     template_params={'pTitle': 'T',
+                                                      'pLogo': os.path.join(td, 'assets_src', 'alt.png')})
+            meta = self._meta(doc)
+            # the parameter was rewritten to the bare basename and the file attached
+            self.assertEqual(meta['pLogo'], 'alt.png')
+            self.assertEqual(base64.b64decode(meta['files_to_upload']['alt.png']), PNG_1PX + b'2')
+
+    def test_template_params_dict_is_not_mutated(self):
+        with tempfile.TemporaryDirectory() as td:
+            make_template_dir(td)
+            params = {'pLogo': os.path.join(td, 'logo.png')}
+            doc = pyd.Doc().add_text('Body')
+            doc.set_template_to_meta(Path(td) / 'tmpl.typ', template_params=params)
+            self.assertEqual(params['pLogo'], os.path.join(td, 'logo.png'))
+            self.assertEqual(self._meta(doc)['pLogo'], 'logo.png')
+
+    def test_registered_dir_id_collects_attachments_like_cli(self):
+        with tempfile.TemporaryDirectory() as td:
+            make_template_dir(td)
+            try:
+                self.assertTrue(pyd.register_new_template_dir(td))
+                doc = pyd.Doc().add_text('Body')
+                doc.set_template_to_meta('tmpl.typ', template_params={'pTitle': 'T'})
+                meta = self._meta(doc)
+                self.assertEqual(meta['template_id'], 'tmpl.typ')
+                self.assertEqual(base64.b64decode(meta['files_to_upload']['logo.png']), PNG_1PX)
+                out = doc.to_typst()
+                self.assertIn('#let pTitle = "T"', out)
+                self.assertIn('#let pLogo = "logo.png"', out)
+            finally:
+                pyd.templating.remove_from_template_dir(td)
+
+    def test_directory_with_single_template_resolves(self):
+        with tempfile.TemporaryDirectory() as td:
+            os.makedirs(os.path.join(td, 'sub'))
+            make_template_dir(os.path.join(td, 'sub'))
+            doc = pyd.Doc().add_text('Body')
+            doc.set_template_to_meta(Path(td))
+            self.assertTrue(self._meta(doc)['template_id'].endswith('tmpl.typ'))
+
+    def test_directory_with_several_templates_raises(self):
+        with tempfile.TemporaryDirectory() as td:
+            make_template_dir(td, name='tmpl.typ')
+            make_template_dir(td, name='other.typ')
+            doc = pyd.Doc().add_text('Body')
+            with self.assertRaisesRegex(FileNotFoundError, 'several template files'):
+                doc.set_template_to_meta(Path(td))
+
+    def test_directory_without_templates_raises(self):
+        with tempfile.TemporaryDirectory() as td:
+            doc = pyd.Doc().add_text('Body')
+            with self.assertRaisesRegex(FileNotFoundError, 'no template files'):
+                doc.set_template_to_meta(Path(td))
+
+    def test_missing_template_still_raises_file_not_found(self):
+        doc = pyd.Doc().add_text('Body')
+        with self.assertRaises(FileNotFoundError):
+            doc.set_template_to_meta('this_template_does_not_exist.typ')
+
+    def test_unsupported_template_argument_type_raises(self):
+        doc = pyd.Doc().add_text('Body')
+        with self.assertRaises(TypeError):
+            doc.set_template_to_meta(42)
+
+    def test_bare_jinja_template_without_format_extension(self):
+        # a bare .j2 file (no document format extension in the name) must keep
+        # resolving by its exact id -- a content-sniffed tformat would make the
+        # id + format candidate lookup unsatisfiable (regression test)
+        with tempfile.TemporaryDirectory() as td:
+            Path(td, 'x.j2').write_text('#set page("a4")\nHello {{ name }}\n', encoding='utf-8')
+            try:
+                self.assertTrue(pyd.register_new_template_dir(td))
+                doc = pyd.Doc().add_text('Body')
+                doc.set_template_to_meta('x.j2', template_params={'name': 'JJ'})
+                self.assertEqual(self._meta(doc)['template_id'], 'x.j2')
+                self.assertEqual(doc.get_template_from_meta().render(name='JJ').rstrip('\n'),
+                                 '#set page("a4")\nHello JJ')
+                doc2 = pyd.Doc().add_text('Body')
+                doc2.set_template_to_meta(Path(td) / 'x.j2')
+                self.assertTrue(self._meta(doc2)['template_id'].endswith('x.j2'))
+            finally:
+                pyd.templating.remove_from_template_dir(td)
+
+    def test_repeated_file_registration_is_deduplicated(self):
+        with tempfile.TemporaryDirectory() as td:
+            make_template_dir(td)
+            tpath = Path(td) / 'tmpl.typ'
+            pyd.Doc().add_text('Body').set_template_to_meta(tpath)  # first registration
+            before = set(pyd.templating.get_registered_template_dirs(include_default=False))
+            for _ in range(3):
+                pyd.Doc().add_text('Body').set_template_to_meta(tpath)
+            after = set(pyd.templating.get_registered_template_dirs(include_default=False))
+            self.assertEqual(before, after)
+
+    def test_file_path_pdf_build_uses_attachments(self):
+        with tempfile.TemporaryDirectory() as td:
+            make_template_dir(td)
+            doc = pyd.Doc().add_text('Body')
+            doc.set_template_to_meta(Path(td) / 'tmpl.typ',
+                                     template_params={'pTitle': 'Attachment PDF'})
+            assert_valid_pdf(self, doc.to_pdf(engine='typst', verb=0))
 
 
 if __name__ == '__main__':

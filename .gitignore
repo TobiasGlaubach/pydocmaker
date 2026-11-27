@@ -182,3 +182,6 @@ req_*
 prompts.md
 profile*.svg
 .gitignore
+pdf
+release-notes-*
+*.kilo/plans*
